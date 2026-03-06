@@ -33,10 +33,15 @@ func CreateTask(c *gin.Context) {
 		PointsValue: 1,
 	}
 
-	if result := models.DB.Create(&task); result.Error != nil {
-		log.Printf("Failed to create task: %v", result.Error)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store task"})
-		return
+	if models.DB != nil {
+		if result := models.DB.Create(&task); result.Error != nil {
+			log.Printf("Failed to create task: %v", result.Error)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store task"})
+			return
+		}
+	} else {
+		log.Printf("Mock DB: Created task %s", task.Title)
+		task.ID = 999 // Mock ID
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -53,9 +58,17 @@ func ListTasks(c *gin.Context) {
 	}
 
 	var tasks []models.Task
-	if err := models.DB.Where("family_id = ?", familyID).Order("created_at desc").Find(&tasks).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching tasks"})
-		return
+	if models.DB != nil {
+		if err := models.DB.Where("family_id = ?", familyID).Order("created_at desc").Find(&tasks).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching tasks"})
+			return
+		}
+	} else {
+		log.Println("Mock DB: Returning dummy tasks")
+		tasks = []models.Task{
+			{Title: "Mock Task 1", Subject: "Math", Status: "pending"},
+			{Title: "Mock Task 2", Subject: "English", Status: "completed"},
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

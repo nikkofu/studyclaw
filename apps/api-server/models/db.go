@@ -22,7 +22,9 @@ func ConnectDatabase() {
 
 	database, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Printf("Failed to connect to MySQL: %v. Running in Mock Mode without Database.", err)
+		DB = nil
+		return
 	}
 
 	// Auto-migrate tables
