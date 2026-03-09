@@ -1,33 +1,215 @@
-# StudyClaw 🐱📚
+# StudyClaw
 
-StudyClaw 是一个专为上班族家庭的小朋友设计的“Agentic”（智能体驱动）日常学习与成长管理工具。它包含一个面向小朋友的 Android Pad 应用，以及面向家长的管理后台。通过接入兼容 OpenAI 协议的 LLM Provider，StudyClaw 能够自动解析作业、布置学习任务，并以游戏化、高交互的方式陪伴孩子成长。
+StudyClaw 是一个面向上班族家庭的儿童学习 AI 项目。当前仓库已经交付 `v0.1.0` MVP：家长把学校群原始作业粘贴进来，Agent Core 结合 LLM 做解析，家长确认后生成按学科和作业分组的原子任务，孩子可以在 Pad 端自主选择任务并同步完成进度。
 
-## 🎯 愿景
-让 AI 成为孩子日常学习的督导与贴心伴侣，成为家长的时间管理与教育辅助专家。
+## 当前版本
 
-## 📂 项目目录结构规范
+- 版本号: `v0.1.0`
+- 发布日期: `2026-03-09`
+- 当前定位: `MVP / 内部演示版`
 
-本项目采用 Monorepo（单体仓库）架构，以保障多端应用共享类型、UI 组件和核心业务逻辑：
+## 当前已交付能力
+
+- 家长端粘贴学校群原始任务文本，支持 AI 解析和确认创建
+- Agent Core 采用 `LLM 优先 + 规则兜底` 的混合解析
+- 任务以 `学科 -> 作业分组 -> 原子任务` 的结构存储到 Markdown 工作区
+- Pad 端支持单个任务、作业分组、学科、全部任务的完成同步
+- Pad 端默认让孩子自主选择未完成任务，系统只跟踪进度，不强制排序
+- 周报分析接口和基础积分接口已预留
+
+## 仓库结构
 
 ```text
 studyclaw/
-├── apps/                    # 应用程序
-│   ├── pad-app/             # (Flutter / React Native) 面向小朋友的 Android Pad 端应用
-│   ├── parent-web/          # (React / Vue / 微信小程序) 面向家长的管理端后台
-│   ├── api-server/          # (Node.js / Python) 核心业务与数据 API 服务
-│   └── agent-core/          # (Python / Node.js) 负责与 LLM 交互的 Agentic 推理引擎与工作流
-├── packages/                # 共享依赖包
-│   ├── shared-types/        # 前后端交互接口协议、多端共享的 TypeScript 类型
-│   ├── ui-kit/              # 可复用的 UI 组件库（如进度条、奖励徽章交互等）
-│   └── llm-utils/           # 封装与各类 LLM Provider (OpenAI 兼容) 的对接逻辑
-├── docs/                    # 项目核心设计文档（PRD、架构、计划等）
-│   ├── 01_PRD.md            # 需求与可行性设计
-│   ├── 02_ARCHITECTURE.md   # 系统架构与接口规范
-│   └── 03_ROADMAP.md        # 项目开发与迭代规划
-├── .gitignore
-├── turbo.json               # (可选) Turborepo 配置文件
-└── package.json             # 根级依赖配置
+├── apps/
+│   ├── agent-core/      # Python FastAPI，负责作业解析和周报分析
+│   ├── api-server/      # Go Gin，负责任务创建、任务板和状态同步
+│   ├── parent-web/      # React + Vite，家长任务输入与确认台
+│   └── pad-app/         # Flutter，孩子任务同步台
+├── data/                # 本地 Markdown 工作区，运行后自动生成
+├── docs/
+│   ├── 01_PRD.md
+│   ├── 02_ARCHITECTURE.md
+│   ├── 03_ROADMAP.md
+│   ├── 04_AGENTIC_DESIGN.md
+│   ├── 05_HEALTH_&_PSYCHOLOGY.md
+│   └── 06_RUNBOOK.md
+├── CHANGELOG.md
+├── docker-compose.yml
+└── .env.example
 ```
 
-## 🚀 快速开始
-详见 `docs/` 目录下的相关说明即可开始开发工作。
+## 本地运行前提
+
+- macOS 或 Linux
+- `Go 1.25+`
+- `Python 3.10+`
+- `Node.js 20+`
+- `Flutter 3.24+`
+- `Docker` 与 `Docker Compose`
+
+## 快速开始
+
+### 1. 准备环境变量
+
+在仓库根目录执行：
+
+```bash
+cp .env.example .env
+```
+
+如果你要启用真实 LLM，请在 `.env` 中填写：
+
+```env
+LLM_API_KEY=你的真实 Key
+LLM_BASE_URL=https://api.openai.com/v1
+```
+
+如果不填，系统仍可运行，但 `agent-core` 会自动走规则兜底解析。
+
+### 2. 启动基础依赖
+
+当前 `v0.1.0` 只需要 Redis：
+
+```bash
+docker compose up -d redis
+```
+
+### 3. 启动 Agent Core
+
+```bash
+cd apps/agent-core
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python3 main.py
+```
+
+默认地址：
+
+- `http://localhost:8000/ping`
+- `http://localhost:8000/api/v1/internal/parse`
+
+### 4. 启动 API Server
+
+```bash
+cd apps/api-server
+go run .
+```
+
+默认地址：
+
+- `http://localhost:8080/ping`
+- `http://localhost:8080/api/v1/tasks`
+
+API Server 会读取根目录 `.env`，并把任务写入 `data/workspaces/`。
+
+### 5. 启动家长端
+
+```bash
+cd apps/parent-web
+npm install
+npm run dev -- --host 0.0.0.0
+```
+
+默认访问地址：
+
+- `http://localhost:5173`
+
+说明：
+
+- 默认 API 地址是 `http://localhost:8080`
+- API Server 已支持浏览器跨域联调
+
+### 6. 启动 Pad 端
+
+```bash
+cd apps/pad-app
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://localhost:8080
+```
+
+真机或局域网环境请把 `localhost` 改成 Mac 所在机器的局域网 IP。
+
+## 演示流程
+
+建议直接使用 `2026-03-06` 的演示任务：
+
+```text
+数学3.6：
+1、校本P14～15
+2、练习册P12～13
+
+英：
+1. 背默M1U1知识梳理单小作文
+2. 部分学生继续订正1号本
+3. 预习M1U2
+（1）书本上标注好“黄页”出现单词的音标
+（2）抄写单词（今天默写全对，可免抄）
+（3）沪学习听录音跟读
+
+语文：
+1. 背作文
+2. 练习卷
+```
+
+对应流程：
+
+1. 在家长端粘贴原文并执行 AI 解析
+2. 审核并确认创建任务
+3. 打开 Pad 端，加载 `2026-03-06` 的任务板
+4. 孩子按自己的节奏勾选完成任务
+5. 家长端和 Markdown 文件可同步看到进度变化
+
+## Markdown 数据位置
+
+任务文件默认写入：
+
+```text
+data/workspaces/family_<family_id>/user_<user_id>/<date>.md
+```
+
+例如：
+
+```text
+data/workspaces/family_306/user_1/2026-03-06.md
+```
+
+## 验证命令
+
+### Agent Core
+
+```bash
+cd apps/agent-core
+python3 -m unittest discover -s tests
+python3 -m py_compile main.py api/routes.py services/llm_parser.py services/weekly_analyst.py tests/test_llm_parser.py
+```
+
+### API Server
+
+```bash
+cd apps/api-server
+GOCACHE=../.gocache GOMODCACHE=../.modcache go test ./...
+```
+
+### Parent Web
+
+```bash
+cd apps/parent-web
+npm run build
+```
+
+### Pad App
+
+```bash
+cd apps/pad-app
+flutter analyze
+flutter test
+```
+
+## 文档索引
+
+- 架构说明: [docs/02_ARCHITECTURE.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/02_ARCHITECTURE.md)
+- 迭代计划: [docs/03_ROADMAP.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/03_ROADMAP.md)
+- 本地运行手册: [docs/06_RUNBOOK.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/06_RUNBOOK.md)
+- 版本说明: [CHANGELOG.md](/Users/admin/Documents/WORK/ai/studyclaw/CHANGELOG.md)

@@ -17,6 +17,9 @@ coverage/
 .packages
 .pub-cache/
 .pub/
+.venv/
+venv/
+.pytest_cache/
 *.pyc
 __pycache__/
 *.o
@@ -35,3 +38,8 @@ __pycache__/
 # 开发缓存
 .turbo/
 .cache/
+data/
+apps/.gocache/
+apps/.modcache/
+apps/api-server/.gopath/
+apps/api-server/main

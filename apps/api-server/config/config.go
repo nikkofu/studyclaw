@@ -21,6 +21,8 @@ func LoadConfig() {
 	viper.SetDefault("DB_PASSWORD", "studyclaw_dev_secret")
 	viper.SetDefault("DB_NAME", "studyclaw_dev")
 	viper.SetDefault("API_PORT", "8080")
+	viper.SetDefault("AGENT_PORT", "8000")
+	viper.SetDefault("AGENT_CORE_URL", "http://localhost:8000")
 }
 
 func GetEnv(key string) string {

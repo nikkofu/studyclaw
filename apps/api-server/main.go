@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"github.com/nikkofu/studyclaw/api-server/config"
-	"github.com/nikkofu/studyclaw/api-server/models"
 	"github.com/nikkofu/studyclaw/api-server/routes"
 )
 
@@ -14,13 +13,10 @@ func main() {
 	// 1. Load Configurations
 	config.LoadConfig()
 
-	// 2. Connect Database
-	models.ConnectDatabase()
-
-	// 3. Setup Routes
+	// 2. Setup Routes
 	r := routes.SetupRouter()
 
-	// 4. Start Server
+	// 3. Start Server
 	port := config.GetEnv("API_PORT")
 	if port == "" {
 		port = "8080"
