@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.1.1] - 2026-03-09
+
+### Added
+
+- API 统一错误契约文档与状态更新错误码
+- 作业解析与周报模块的更多回归测试
+- Pad 端任务板分层：`app / page / controller / repository / api_client`
+- Parent Web 自动化测试，覆盖按日期创建、失败保留草稿与风险排序
+- `scripts/preflight_local_env.sh`
+- `scripts/smoke_local_stack.sh`
+- 多 Codex 终端命令与正式派单文档
+
+### Changed
+
+- 项目基线版本更新为 `v0.1.1`
+- 本地运行手册与 README 增加 preflight / smoke 流程
+- Parent Web 支持按日期把任务解析并确认创建到某一天
+- Pad Web 构建纳入标准本地验证步骤
+
+### Verified
+
+- `GOCACHE=... GOMODCACHE=... GOPROXY=off GOSUMDB=off go test ./...`
+- `npm run test`
+- `npm run build`
+- `flutter analyze`
+- `flutter test`
+- `flutter build web --dart-define=API_BASE_URL=http://localhost:8080`
+- `bash scripts/check_no_tracked_runtime_env.sh`
+- `bash scripts/preflight_local_env.sh`
+
+### Known Limitations
+
+- `smoke_local_stack.sh` 依赖本地已有运行中的 Go 后端
+- 当前尚未把 preflight / smoke 接入 CI
+- 当前仍以本地 Markdown 工作区为主要存储
+
 ## [0.1.0] - 2026-03-09
 
 ### Added

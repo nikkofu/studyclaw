@@ -8,9 +8,27 @@
 - `Node.js 20+`
 - `npm 10+`
 - `Flutter 3.24+`
-- `Docker`
+- `Docker` 可选
 
-## 2. 运行时配置
+## 2. 快速预检
+
+推荐先执行：
+
+```bash
+bash scripts/preflight_local_env.sh
+```
+
+预检会检查：
+
+- Go / Node / npm / Flutter / Docker
+- Docker Compose 与 daemon
+- 私有 `runtime.env` 是否存在
+- 关键目录是否齐全
+- 仓库中是否误跟踪了运行时密钥文件
+
+若失败，先修环境，再继续后续步骤。
+
+## 3. 运行时配置
 
 推荐先创建私有配置文件：
 
@@ -47,15 +65,20 @@ STUDYCLAW_DATA_DIR=./data
 - 真实密钥只放仓库外 `runtime.env`
 - 不配置 `LLM_API_KEY` 也能启动，系统会回退到规则解析和 mock 周报
 
-## 3. 启动顺序
+## 4. 启动顺序
 
-### 3.1 启动 Redis
+### 4.1 可选：启动 Redis
 
 ```bash
 docker compose up -d redis
 ```
 
-### 3.2 启动 Go 后端
+说明：
+
+- 当前演示链路不依赖 Redis
+- 若后续引入缓存或 Redis 相关能力，再执行这一项
+
+### 4.2 启动 Go 后端
 
 ```bash
 cd apps/api-server
@@ -74,7 +97,7 @@ curl http://localhost:8080/ping
 {"message":"pong"}
 ```
 
-### 3.3 启动 Parent Web
+### 4.3 启动 Parent Web
 
 ```bash
 cd apps/parent-web
@@ -84,7 +107,7 @@ npm run dev -- --host 0.0.0.0
 
 默认地址：`http://localhost:5173`
 
-### 3.4 启动 Pad App
+### 4.4 启动 Pad App
 
 ```bash
 cd apps/pad-app
@@ -94,9 +117,28 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
 
 真机请把 `localhost` 替换成宿主机局域网 IP。
 
-## 4. 常用联调方式
+## 5. 最短联调路径
 
-### 4.1 手动给某一天新增一条任务
+在本地最短建议按这 5 步执行：
+
+1. `bash scripts/preflight_local_env.sh`
+2. `bash scripts/init_private_runtime_env.sh`
+3. 启动 Go 后端
+4. `bash scripts/smoke_local_stack.sh`
+5. 若后续需要 Redis，再执行 `docker compose up -d redis`
+
+说明：
+
+- `smoke_local_stack.sh` 默认要求本地 `http://localhost:8080` 已有运行中的 Go 后端
+- 如后端不是这个地址，可用环境变量覆盖：
+
+```bash
+STUDYCLAW_SMOKE_API_BASE_URL=http://your-host:8080 bash scripts/smoke_local_stack.sh
+```
+
+## 6. 常用联调方式
+
+### 6.1 手动给某一天新增一条任务
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/tasks \
@@ -111,7 +153,7 @@ curl -X POST http://localhost:8080/api/v1/tasks \
   }'
 ```
 
-### 4.2 先解析后确认
+### 6.2 先解析后确认
 
 解析：
 
@@ -151,7 +193,7 @@ curl -X POST http://localhost:8080/api/v1/tasks/confirm \
   }'
 ```
 
-### 4.3 直接解析并写入某一天
+### 6.3 直接解析并写入某一天
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/tasks/parse \
@@ -165,7 +207,7 @@ curl -X POST http://localhost:8080/api/v1/tasks/parse \
   }'
 ```
 
-### 4.4 查询某一天任务板
+### 6.4 查询某一天任务板
 
 ```bash
 curl "http://localhost:8080/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10"
@@ -177,33 +219,41 @@ curl "http://localhost:8080/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10
 data/workspaces/family_306/user_1/2026-03-10.md
 ```
 
-## 5. 验证命令
+## 7. 验证命令
 
-### 5.1 Go 后端
+### 7.1 一键 smoke
+
+```bash
+bash scripts/smoke_local_stack.sh
+```
+
+### 7.2 Go 后端
 
 ```bash
 cd apps/api-server
 GOCACHE="$(pwd)/../../.cache/go-build" go test ./...
 ```
 
-### 5.2 Parent Web
+### 7.3 Parent Web
 
 ```bash
 cd apps/parent-web
+npm run test
 npm run build
 ```
 
-### 5.3 Pad App
+### 7.4 Pad App
 
 ```bash
 cd apps/pad-app
 flutter analyze
 flutter test
+flutter build web --dart-define=API_BASE_URL=http://localhost:8080
 ```
 
-## 6. 常见问题
+## 8. 常见问题
 
-### 6.1 `tasks/parse` 返回规则兜底
+### 8.1 `tasks/parse` 返回规则兜底
 
 优先检查：
 
@@ -211,7 +261,7 @@ flutter test
 - `LLM_MODEL_NAME` 或 `LLM_PARSER_MODEL_NAME` 是否配置
 - `LLM_BASE_URL` 是否是 `https://ark.cn-beijing.volces.com/api/v3`
 
-### 6.2 Pad 端能打开但请求失败
+### 8.2 Pad 端能打开但请求失败
 
 优先检查：
 
@@ -219,7 +269,7 @@ flutter test
 - Flutter 启动参数里的 `API_BASE_URL` 是否正确
 - 真机联调时是否误用了 `localhost`
 
-### 6.3 看不到任务文件
+### 8.3 看不到任务文件
 
 优先检查：
 

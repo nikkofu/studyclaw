@@ -11,6 +11,7 @@
 - 运行手册：`docs/06_RUNBOOK.md`
 - 下一阶段任务单：`docs/10_NEXT_PHASE_CODEX_TASKS.md`
 - 当前正式派单入口：`docs/11_NEXT_PHASE_DISPATCH.md`
+- 最新正式派单入口：`docs/12_NEXT_PHASE_DISPATCH.md`
 
 ## 1. 使用规则
 
