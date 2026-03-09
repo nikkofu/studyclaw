@@ -1,0 +1,64 @@
+{
+  "taskparse": [
+    {
+      "id": "taskparse_mixed_risk_and_safe",
+      "purpose": "最小联调样本：同时覆盖明确订正、对象范围不明确、条件任务、正常子步骤。",
+      "raw_text": "英语：\n1. 订正默写本P3错词\n2. 部分学生续做1号卷剩余题\n3. 默写全对可免抄M2单词\n\n语文：\n1. 预习第6课\n1）圈画生字\n2）朗读课文三遍",
+      "expected": {
+        "task_count": 5,
+        "needs_review_titles": [
+          "部分学生续做1号卷剩余题",
+          "默写全对可免抄M2单词"
+        ],
+        "safe_titles": [
+          "订正默写本P3错词",
+          "圈画生字",
+          "朗读课文三遍"
+        ]
+      }
+    },
+    {
+      "id": "taskparse_all_safe",
+      "purpose": "验证正常编号任务、明确对象的订正/续做不会误报 needs_review。",
+      "raw_text": "数学：\n1. 完成口算本第5页\n2. 继续完成校本P19\n3. 订正第2页错题",
+      "expected": {
+        "task_count": 3,
+        "needs_review_titles": [],
+        "safe_titles": [
+          "完成口算本第5页",
+          "继续完成校本P19",
+          "订正第2页错题"
+        ]
+      }
+    }
+  ],
+  "weeklyinsights": [
+    {
+      "id": "weekly_empty_week",
+      "purpose": "验证空数据稳定回退。",
+      "days_data": [],
+      "expected": {
+        "raw_metric_total": 0,
+        "raw_metric_completed": 0
+      }
+    },
+    {
+      "id": "weekly_all_done",
+      "purpose": "验证全完成时返回完整稳定的 insight。",
+      "days_data": [
+        {
+          "date": "2026-03-06",
+          "tasks": [
+            {"completed": true},
+            {"completed": true},
+            {"completed": true}
+          ]
+        }
+      ],
+      "expected": {
+        "raw_metric_total": 3,
+        "raw_metric_completed": 3
+      }
+    }
+  ]
+}

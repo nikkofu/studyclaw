@@ -7,11 +7,17 @@ class StudyClawPadApp extends StatelessWidget {
     super.key,
     this.autoLoad = true,
     this.initialDate,
+    this.initialApiBaseUrl,
+    this.initialFamilyId,
+    this.initialUserId,
     this.repository = const RemoteTaskBoardRepository(),
   });
 
   final bool autoLoad;
   final String? initialDate;
+  final String? initialApiBaseUrl;
+  final int? initialFamilyId;
+  final int? initialUserId;
   final TaskBoardRepository repository;
 
   @override
@@ -27,6 +33,9 @@ class StudyClawPadApp extends StatelessWidget {
       home: PadTaskBoardPage(
         autoLoad: autoLoad,
         initialDate: initialDate,
+        initialApiBaseUrl: initialApiBaseUrl,
+        initialFamilyId: initialFamilyId,
+        initialUserId: initialUserId,
         repository: repository,
       ),
     );

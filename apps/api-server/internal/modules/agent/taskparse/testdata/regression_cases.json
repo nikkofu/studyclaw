@@ -1,0 +1,223 @@
+[
+  {
+    "id": "correction_explicit_target",
+    "category": "订正且目标明确",
+    "why": "已写明订正对象和页码，孩子可直接执行，不需要额外确认。",
+    "raw_text": "英语：\n1. 订正默写本P3错词",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 0,
+    "expected_tasks": [
+      {
+        "subject": "英语",
+        "group_title": "订正默写本P3错词",
+        "title": "订正默写本P3错词",
+        "needs_review": false
+      }
+    ]
+  },
+  {
+    "id": "correction_ambiguous_target",
+    "category": "订正但目标不明确",
+    "why": "只有订正动作，没有写明具体对象，家长需要确认到底改哪一项。",
+    "raw_text": "英语：\n1. 继续订正",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "correction_tasks",
+      "continuation_tasks",
+      "ambiguous_targets"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "英语",
+        "group_title": "继续订正",
+        "title": "继续订正",
+        "needs_review": true,
+        "required_notes": [
+          "订正/续做任务未写明具体对象，建议家长确认完成内容。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "continuation_explicit_target",
+    "category": "续做且目标明确",
+    "why": "写明了校本页码，属于可直接执行的续做任务，不应误报。",
+    "raw_text": "数学：\n1. 继续完成校本P18",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 0,
+    "expected_signals": [
+      "continuation_tasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "继续完成校本P18",
+        "title": "继续完成校本P18",
+        "needs_review": false
+      }
+    ]
+  },
+  {
+    "id": "continuation_ambiguous_target",
+    "category": "续做但目标不明确",
+    "why": "只有续做动作，没有对象或页码，家长无法确认要接着完成什么。",
+    "raw_text": "数学：\n1. 继续完成",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "continuation_tasks",
+      "ambiguous_targets"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "继续完成",
+        "title": "继续完成",
+        "needs_review": true,
+        "required_notes": [
+          "订正/续做任务未写明具体对象，建议家长确认完成内容。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "conditional_task",
+    "category": "条件任务",
+    "why": "存在“全对可免抄”这类条件触发语义，系统不能替家长判断孩子是否满足条件。",
+    "raw_text": "英语：\n1. 默写全对可免抄M2单词",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "conditional_notes"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "英语",
+        "group_title": "默写全对可免抄M2单词",
+        "title": "默写全对可免抄M2单词",
+        "needs_review": true,
+        "required_notes": [
+          "包含条件性说明，建议家长确认触发条件。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "partial_students_scope",
+    "category": "部分同学",
+    "why": "作业只针对群体中的部分学生，系统无法确定是否对应当前孩子。",
+    "raw_text": "语文：\n1. 部分学生订正练习卷",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "audience_constraints",
+      "correction_tasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "语文",
+        "group_title": "部分学生订正练习卷",
+        "title": "部分学生订正练习卷",
+        "needs_review": true,
+        "required_notes": [
+          "作业适用对象不明确，建议家长确认是否针对孩子。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "individual_students_scope",
+    "category": "个别同学",
+    "why": "老师指向的是个别同学，系统应保守提示家长确认适用范围。",
+    "raw_text": "语文：\n1. 个别同学继续完成口算本P9",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "audience_constraints",
+      "continuation_tasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "语文",
+        "group_title": "个别同学继续完成口算本P9",
+        "title": "个别同学继续完成口算本P9",
+        "needs_review": true,
+        "required_notes": [
+          "作业适用对象不明确，建议家长确认是否针对孩子。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "related_students_scope",
+    "category": "相关同学",
+    "why": "“相关同学”缺乏确定边界，需要人工确认后再创建任务。",
+    "raw_text": "语文：\n1. 相关同学背诵第3课",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "audience_constraints"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "语文",
+        "group_title": "相关同学背诵第3课",
+        "title": "相关同学背诵第3课",
+        "needs_review": true,
+        "required_notes": [
+          "作业适用对象不明确，建议家长确认是否针对孩子。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "normal_tasks_no_false_positive",
+    "category": "误报控制",
+    "why": "正常编号任务、明确对象的订正/续做、正常子步骤都不应被误判为条件任务或高风险。",
+    "raw_text": "数学：\n1. 完成口算本第5页\n2. 继续完成校本P19\n3. 订正第2页错题\n\n语文：\n1. 阅读《假若给我三天光明》并摘抄好词\n2. 预习第6课\n1）圈画生字\n2）朗读课文三遍",
+    "expected_task_count": 6,
+    "expected_needs_review_count": 0,
+    "expected_signals": [
+      "nested_subtasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "完成口算本第5页",
+        "title": "完成口算本第5页",
+        "needs_review": false
+      },
+      {
+        "subject": "数学",
+        "group_title": "继续完成校本P19",
+        "title": "继续完成校本P19",
+        "needs_review": false
+      },
+      {
+        "subject": "数学",
+        "group_title": "订正第2页错题",
+        "title": "订正第2页错题",
+        "needs_review": false
+      },
+      {
+        "subject": "语文",
+        "group_title": "阅读《假若给我三天光明》并摘抄好词",
+        "title": "阅读《假若给我三天光明》并摘抄好词",
+        "needs_review": false
+      },
+      {
+        "subject": "语文",
+        "group_title": "预习第6课",
+        "title": "圈画生字",
+        "needs_review": false
+      },
+      {
+        "subject": "语文",
+        "group_title": "预习第6课",
+        "title": "朗读课文三遍",
+        "needs_review": false
+      }
+    ]
+  }
+]

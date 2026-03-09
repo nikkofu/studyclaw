@@ -32,8 +32,7 @@ func NewAuthHandler() *AuthHandler {
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 

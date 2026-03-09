@@ -22,8 +22,7 @@ func NewPointsHandler() *PointsHandler {
 
 func (h *PointsHandler) UpdatePoints(c *gin.Context) {
 	var req PointsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 

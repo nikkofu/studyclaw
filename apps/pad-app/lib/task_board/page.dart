@@ -13,11 +13,17 @@ class PadTaskBoardPage extends StatefulWidget {
     super.key,
     this.autoLoad = true,
     this.initialDate,
+    this.initialApiBaseUrl,
+    this.initialFamilyId,
+    this.initialUserId,
     this.repository = const RemoteTaskBoardRepository(),
   });
 
   final bool autoLoad;
   final String? initialDate;
+  final String? initialApiBaseUrl;
+  final int? initialFamilyId;
+  final int? initialUserId;
   final TaskBoardRepository repository;
 
   @override
@@ -34,9 +40,15 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage> {
   @override
   void initState() {
     super.initState();
-    _apiBaseUrlController = TextEditingController(text: defaultApiBaseUrl);
-    _familyIdController = TextEditingController(text: '306');
-    _userIdController = TextEditingController(text: '1');
+    _apiBaseUrlController = TextEditingController(
+      text: widget.initialApiBaseUrl ?? defaultApiBaseUrl,
+    );
+    _familyIdController = TextEditingController(
+      text: '${widget.initialFamilyId ?? 306}',
+    );
+    _userIdController = TextEditingController(
+      text: '${widget.initialUserId ?? 1}',
+    );
     _dateController = TextEditingController(
       text: widget.initialDate ?? formatTaskBoardDate(DateTime.now()),
     );

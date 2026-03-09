@@ -32,14 +32,13 @@ func NewAgentInternalHandler(parser *taskparse.Service, weekly *weeklyinsights.S
 
 func (h *AgentInternalHandler) Parse(c *gin.Context) {
 	var req InternalParseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
 	result, err := h.parser.Parse(context.Background(), strings.TrimSpace(req.RawText))
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to parse task text"})
+		respondError(c, http.StatusBadGateway, "parser_unavailable", "Failed to parse task text", nil)
 		return
 	}
 
@@ -48,14 +47,13 @@ func (h *AgentInternalHandler) Parse(c *gin.Context) {
 
 func (h *AgentInternalHandler) AnalyzeWeekly(c *gin.Context) {
 	var req InternalWeeklyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
 	insights, err := h.weekly.Generate(context.Background(), req.DaysData)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to generate weekly insights"})
+		respondError(c, http.StatusBadGateway, "internal_error", "Failed to generate weekly insights", nil)
 		return
 	}
 

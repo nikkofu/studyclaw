@@ -55,6 +55,43 @@ func decodeParseTaskResponse(t *testing.T, recorderBody []byte) parseTaskRespons
 	return payload
 }
 
+func TestCreateSingleTaskForSpecificDate(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+
+	router := SetupRouter()
+
+	createRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/tasks", map[string]interface{}{
+		"family_id":     306,
+		"assignee_id":   1,
+		"subject":       "数学",
+		"group_title":   "校本P14-15",
+		"content":       "校本P14-15",
+		"assigned_date": "2026-03-10",
+	})
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected create to return 201, got %d: %s", createRecorder.Code, createRecorder.Body.String())
+	}
+
+	listRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10", nil)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected list to return 200, got %d: %s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	board := decodeTaskBoardResponse(t, listRecorder)
+	if board.Date != "2026-03-10" {
+		t.Fatalf("expected board date 2026-03-10, got %s", board.Date)
+	}
+	if len(board.Tasks) != 1 {
+		t.Fatalf("expected 1 stored task, got %d", len(board.Tasks))
+	}
+	if board.Tasks[0].Subject != "数学" || board.Tasks[0].GroupTitle != "校本P14-15" || board.Tasks[0].Content != "校本P14-15" {
+		t.Fatalf("unexpected stored task: %+v", board.Tasks[0])
+	}
+	if board.Summary.Total != 1 || board.Summary.Pending != 1 || board.Summary.Completed != 0 {
+		t.Fatalf("unexpected summary after create: %+v", board.Summary)
+	}
+}
+
 func TestParseThenConfirmTasksForSpecificDate(t *testing.T) {
 	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
 	t.Setenv("LLM_API_KEY", "")
@@ -98,6 +135,19 @@ func TestParseThenConfirmTasksForSpecificDate(t *testing.T) {
 	}
 	if parsePayload.Tasks[4].GroupTitle != "预习M1U2" || parsePayload.Tasks[4].Title != "书本上标注好“黄页”出现单词的音标" {
 		t.Fatalf("unexpected nested task mapping: %+v", parsePayload.Tasks[4])
+	}
+
+	preConfirmRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10", nil)
+	if preConfirmRecorder.Code != http.StatusOK {
+		t.Fatalf("expected pre-confirm list to return 200, got %d: %s", preConfirmRecorder.Code, preConfirmRecorder.Body.String())
+	}
+
+	preConfirmBoard := decodeTaskBoardResponse(t, preConfirmRecorder)
+	if len(preConfirmBoard.Tasks) != 0 {
+		t.Fatalf("expected parse without auto_create to keep board empty, got %d tasks", len(preConfirmBoard.Tasks))
+	}
+	if preConfirmBoard.Summary.Total != 0 || preConfirmBoard.Summary.Status != "empty" {
+		t.Fatalf("unexpected pre-confirm summary: %+v", preConfirmBoard.Summary)
 	}
 
 	confirmRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/tasks/confirm", map[string]interface{}{

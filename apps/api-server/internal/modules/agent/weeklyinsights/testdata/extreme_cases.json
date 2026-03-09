@@ -1,0 +1,60 @@
+[
+  {
+    "id": "empty_data",
+    "why": "空周数据时必须稳定回退，不能返回空结构或报错。",
+    "days_data": [],
+    "expected_total": 0,
+    "expected_completed": 0,
+    "expected_summary": "This week was light, which is a good chance to build a steady study rhythm for next week."
+  },
+  {
+    "id": "single_day_mixed_completion",
+    "why": "只有单日数据时也要稳定输出周报，不应依赖满 7 天输入。",
+    "days_data": [
+      {
+        "date": "2026-03-08",
+        "tasks": [
+          {"completed": true},
+          {"completed": false}
+        ]
+      }
+    ],
+    "expected_total": 2,
+    "expected_completed": 1,
+    "expected_summary": "You worked on 2 tasks this week and completed 1 of them, which means your effort is moving things forward."
+  },
+  {
+    "id": "all_completed",
+    "why": "全完成场景要给出确定性正向总结，避免因 LLM 缺失而丢失指标。",
+    "days_data": [
+      {
+        "date": "2026-03-06",
+        "tasks": [
+          {"completed": true},
+          {"completed": true},
+          {"completed": true}
+        ]
+      }
+    ],
+    "expected_total": 3,
+    "expected_completed": 3,
+    "expected_summary": "You completed all 3 tasks this week, which shows steady follow-through from start to finish."
+  },
+  {
+    "id": "all_incomplete",
+    "why": "全未完成场景也必须返回完整 insight 结构，供前端稳定展示。",
+    "days_data": [
+      {
+        "date": "2026-03-06",
+        "tasks": [
+          {"completed": false},
+          {"completed": false},
+          {"completed": false}
+        ]
+      }
+    ],
+    "expected_total": 3,
+    "expected_completed": 0,
+    "expected_summary": "You worked on 3 tasks this week and completed 0 of them, which means your effort is moving things forward."
+  }
+]
