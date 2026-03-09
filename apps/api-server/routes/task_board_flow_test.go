@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nikkofu/studyclaw/api-server/services"
+	taskboardapp "github.com/nikkofu/studyclaw/api-server/internal/modules/taskboard/application"
+	taskboarddomain "github.com/nikkofu/studyclaw/api-server/internal/modules/taskboard/domain"
+	taskboardmarkdown "github.com/nikkofu/studyclaw/api-server/internal/modules/taskboard/infrastructure/markdown"
 )
 
 type taskBoardSummary struct {
@@ -32,7 +34,7 @@ type taskBoardResponse struct {
 	Message        string                   `json:"message"`
 	UpdatedCount   int                      `json:"updated_count"`
 	Date           string                   `json:"date"`
-	Tasks          []services.MarkdownTask  `json:"tasks"`
+	Tasks          []taskboarddomain.Task   `json:"tasks"`
 	Groups         []taskBoardGroup         `json:"groups"`
 	HomeworkGroups []taskBoardHomeworkGroup `json:"homework_groups"`
 	Summary        taskBoardSummary         `json:"summary"`
@@ -66,9 +68,17 @@ var march6DemoTasks = []struct {
 func seedMarch6DemoTasks(t *testing.T, familyID, userID uint, date time.Time) {
 	t.Helper()
 
+	service := taskboardapp.NewService(taskboardmarkdown.NewRepository())
 	for _, task := range march6DemoTasks {
-		if err := services.SaveTaskWithGroupToMDAtDate(familyID, userID, task.subject, task.groupTitle, task.content, date); err != nil {
-			t.Fatalf("SaveTaskWithGroupToMDAtDate returned error: %v", err)
+		if _, err := service.CreateTask(taskboarddomain.CreateTaskInput{
+			FamilyID:     familyID,
+			AssigneeID:   userID,
+			Subject:      task.subject,
+			GroupTitle:   task.groupTitle,
+			Content:      task.content,
+			AssignedDate: date.Format("2006-01-02"),
+		}); err != nil {
+			t.Fatalf("CreateTask returned error: %v", err)
 		}
 	}
 }

@@ -707,7 +707,7 @@ export default function App() {
           <h1>学校群任务一键转为孩子今日清单</h1>
           <p className="hero-copy">
             支持你刚给出的这种格式: 按学科分段、按序号列主任务、用“（1）（2）（3）”补充子步骤。页面会先做本地结构预览，再调 API
-            调用 Agent Core 的 AI 混合解析链路，给出建议任务、置信度与风险提示，再由家长确认创建。
+            调用 Go 后端中的 AI 混合解析链路，给出建议任务、置信度与风险提示，再由家长确认创建。
           </p>
         </div>
         <div className="hero-stats">

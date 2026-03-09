@@ -1,0 +1,608 @@
+package taskparse
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/nikkofu/studyclaw/api-server/internal/platform/llm"
+	"github.com/nikkofu/studyclaw/api-server/internal/shared/agentic"
+)
+
+var (
+	subjectAliases = map[string]string{
+		"数":  "数学",
+		"数学":  "数学",
+		"英":  "英语",
+		"英语":  "英语",
+		"语":  "语文",
+		"语文":  "语文",
+		"科学":  "科学",
+		"物理":  "物理",
+		"化学":  "化学",
+		"生物":  "生物",
+		"历史":  "历史",
+		"地理":  "地理",
+		"道法":  "道法",
+		"政治":  "道法",
+		"美术":  "美术",
+		"音乐":  "音乐",
+		"体育":  "体育",
+		"信息":  "信息",
+		"劳动":  "劳动",
+		"阅读":  "阅读",
+		"班会":  "班会",
+	}
+	whitespacePattern    = regexp.MustCompile(`\s+`)
+	headingPattern       = regexp.MustCompile(`^([\p{Han}A-Za-z]+[^：:]*)[：:]\s*(.*)$`)
+	headingKeyPattern    = regexp.MustCompile(`^[\p{Han}A-Za-z0-9.\-]+$`)
+	mainItemPattern      = regexp.MustCompile(`^\d+\s*[、.．]\s*(.+)$`)
+	subItemPattern       = regexp.MustCompile(`^[（(]\d+[）)]\s*(.+)$`)
+	jsonFencePattern     = regexp.MustCompile("(?s)^```(?:json)?\\s*(.*?)\\s*```$")
+	reviewSignalKeywords = []string{"部分学生", "可免", "选做", "如需", "如果", "酌情"}
+)
+
+var parsePatternSelection = agentic.PatternSelection{
+	Primary:    "custom logic pattern",
+	Supporting: []string{"single-agent system", "human-in-the-loop pattern"},
+	Why:        "Homework parsing needs deterministic normalization, bounded LLM usage, and explicit parent confirmation before persistence.",
+	Reference:  agentic.GoogleDesignPatternGuideURL,
+}
+
+type ParsedTask struct {
+	Subject     string   `json:"subject"`
+	GroupTitle  string   `json:"group_title,omitempty"`
+	Title       string   `json:"title"`
+	Type        string   `json:"type"`
+	Confidence  float64  `json:"confidence,omitempty"`
+	NeedsReview bool     `json:"needs_review,omitempty"`
+	Notes       []string `json:"notes,omitempty"`
+}
+
+type ParseAnalysis struct {
+	ParserMode       string                   `json:"parser_mode"`
+	DetectedSubjects []string                 `json:"detected_subjects"`
+	FormatSignals    []string                 `json:"format_signals"`
+	RawLineCount     int                      `json:"raw_line_count"`
+	TaskCount        int                      `json:"task_count"`
+	GroupCount       int                      `json:"group_count"`
+	NeedsReviewCount int                      `json:"needs_review_count"`
+	LowConfidenceCnt int                      `json:"low_confidence_count"`
+	Notes            []string                 `json:"notes"`
+	AgenticPattern   agentic.PatternSelection `json:"agentic_pattern"`
+}
+
+type Result struct {
+	Status     string        `json:"status"`
+	Message    string        `json:"message,omitempty"`
+	ParserMode string        `json:"parser_mode,omitempty"`
+	Analysis   ParseAnalysis `json:"analysis"`
+	Data       []ParsedTask  `json:"data"`
+}
+
+type llmResult struct {
+	Status string       `json:"status"`
+	Data   []ParsedTask `json:"data"`
+}
+
+type outlineItem struct {
+	Text     string
+	Subitems []string
+}
+
+type outlineSection struct {
+	Subject string
+	Items   []outlineItem
+}
+
+type structureOutline struct {
+	Sections         []outlineSection
+	Tasks            []ParsedTask
+	DetectedSubjects []string
+	FormatSignals    []string
+	RawLineCount     int
+}
+
+type Service struct {
+	llmClient llm.Client
+}
+
+func NewService(llmClient llm.Client) *Service {
+	return &Service{llmClient: llmClient}
+}
+
+func normalizeSubject(rawSubject string) string {
+	subject := whitespacePattern.ReplaceAllString(rawSubject, "")
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return "未分类"
+	}
+
+	if value, exists := subjectAliases[subject]; exists {
+		return value
+	}
+
+	for key, value := range subjectAliases {
+		if strings.HasPrefix(subject, key) {
+			return value
+		}
+	}
+
+	return subject
+}
+
+func containsReviewSignal(values ...string) bool {
+	combined := strings.TrimSpace(strings.Join(values, " "))
+	for _, keyword := range reviewSignalKeywords {
+		if strings.Contains(combined, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func flattenSectionsToTasks(sections []outlineSection) []ParsedTask {
+	tasks := make([]ParsedTask, 0)
+	for _, section := range sections {
+		for _, item := range section.Items {
+			groupTitle := strings.TrimSpace(item.Text)
+			if groupTitle == "" {
+				continue
+			}
+
+			atomicTitles := make([]string, 0, len(item.Subitems))
+			for _, subitem := range item.Subitems {
+				trimmed := strings.TrimSpace(subitem)
+				if trimmed != "" {
+					atomicTitles = append(atomicTitles, trimmed)
+				}
+			}
+
+			if len(atomicTitles) == 0 {
+				atomicTitles = append(atomicTitles, groupTitle)
+			}
+
+			for _, atomicTitle := range atomicTitles {
+				notes := make([]string, 0)
+				if containsReviewSignal(groupTitle, atomicTitle) {
+					notes = append(notes, "包含条件性说明，建议家长确认适用范围。")
+				}
+
+				confidence := 0.84
+				if len(notes) > 0 {
+					confidence = 0.72
+				}
+
+				tasks = append(tasks, ParsedTask{
+					Subject:     section.Subject,
+					GroupTitle:  groupTitle,
+					Title:       atomicTitle,
+					Type:        "homework",
+					Confidence:  confidence,
+					NeedsReview: len(notes) > 0,
+					Notes:       notes,
+				})
+			}
+		}
+	}
+
+	return tasks
+}
+
+func extractStructureOutline(rawText string) structureOutline {
+	lines := make([]string, 0)
+	for _, line := range strings.Split(strings.ReplaceAll(rawText, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+
+	sections := make([]outlineSection, 0)
+	var currentSection *outlineSection
+	var currentTask *outlineItem
+	signals := make([]string, 0)
+
+	markSignal := func(signal string) {
+		for _, existing := range signals {
+			if existing == signal {
+				return
+			}
+		}
+		signals = append(signals, signal)
+	}
+
+	ensureSection := func(subject string) *outlineSection {
+		normalizedSubject := normalizeSubject(subject)
+		for index := range sections {
+			if sections[index].Subject == normalizedSubject {
+				return &sections[index]
+			}
+		}
+
+		sections = append(sections, outlineSection{Subject: normalizedSubject, Items: []outlineItem{}})
+		return &sections[len(sections)-1]
+	}
+
+	flushTask := func() {
+		if currentSection == nil || currentTask == nil || strings.TrimSpace(currentTask.Text) == "" {
+			currentTask = nil
+			return
+		}
+
+		item := outlineItem{
+			Text:     strings.TrimSpace(currentTask.Text),
+			Subitems: make([]string, 0, len(currentTask.Subitems)),
+		}
+		for _, subitem := range currentTask.Subitems {
+			trimmed := strings.TrimSpace(subitem)
+			if trimmed != "" {
+				item.Subitems = append(item.Subitems, trimmed)
+			}
+		}
+		currentSection.Items = append(currentSection.Items, item)
+		currentTask = nil
+	}
+
+	for _, line := range lines {
+		headingMatch := headingPattern.FindStringSubmatch(line)
+		if len(headingMatch) == 3 {
+			headingKey := whitespacePattern.ReplaceAllString(headingMatch[1], "")
+			if headingKeyPattern.MatchString(headingKey) {
+				markSignal("subject_headings")
+				flushTask()
+				currentSection = ensureSection(headingMatch[1])
+				remainder := strings.TrimSpace(headingMatch[2])
+				if remainder != "" {
+					currentTask = &outlineItem{Text: remainder}
+				} else {
+					currentTask = nil
+				}
+				continue
+			}
+		}
+
+		if matches := mainItemPattern.FindStringSubmatch(line); len(matches) == 2 {
+			markSignal("numbered_tasks")
+			flushTask()
+			if currentSection == nil {
+				currentSection = ensureSection("未分类")
+			}
+			currentTask = &outlineItem{Text: strings.TrimSpace(matches[1])}
+			continue
+		}
+
+		if matches := subItemPattern.FindStringSubmatch(line); len(matches) == 2 {
+			markSignal("nested_subtasks")
+			if currentSection == nil {
+				currentSection = ensureSection("未分类")
+			}
+			if currentTask == nil {
+				currentTask = &outlineItem{Text: "补充说明"}
+			}
+			currentTask.Subitems = append(currentTask.Subitems, strings.TrimSpace(matches[1]))
+			continue
+		}
+
+		if containsReviewSignal(line) {
+			markSignal("conditional_notes")
+		}
+
+		if currentSection == nil {
+			currentSection = ensureSection("未分类")
+		}
+
+		if currentTask == nil {
+			currentTask = &outlineItem{Text: line}
+			continue
+		}
+
+		if len(currentTask.Subitems) > 0 {
+			lastIndex := len(currentTask.Subitems) - 1
+			currentTask.Subitems[lastIndex] = strings.TrimSpace(currentTask.Subitems[lastIndex] + " " + line)
+		} else {
+			currentTask.Text = strings.TrimSpace(currentTask.Text + " " + line)
+		}
+	}
+
+	flushTask()
+
+	detectedSubjects := make([]string, 0, len(sections))
+	for _, section := range sections {
+		detectedSubjects = append(detectedSubjects, section.Subject)
+	}
+
+	previewTasks := flattenSectionsToTasks(sections)
+	return structureOutline{
+		Sections:         sections,
+		Tasks:            previewTasks,
+		DetectedSubjects: detectedSubjects,
+		FormatSignals:    signals,
+		RawLineCount:     len(lines),
+	}
+}
+
+func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
+	subject := normalizeSubject(item.Subject)
+	title := whitespacePattern.ReplaceAllString(item.Title, " ")
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return ParsedTask{}, false
+	}
+
+	groupTitle := item.GroupTitle
+	if strings.TrimSpace(groupTitle) == "" {
+		groupTitle = title
+	}
+	groupTitle = strings.TrimSpace(whitespacePattern.ReplaceAllString(groupTitle, " "))
+
+	confidence := item.Confidence
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 1 {
+		confidence = 1
+	}
+	if confidence == 0 {
+		confidence = 0.78
+	}
+
+	notes := make([]string, 0, len(item.Notes))
+	for _, note := range item.Notes {
+		trimmed := strings.TrimSpace(note)
+		if trimmed != "" {
+			notes = append(notes, trimmed)
+		}
+	}
+
+	needsReview := item.NeedsReview
+	if subject == "未分类" || confidence < 0.7 || containsReviewSignal(groupTitle, title) {
+		needsReview = true
+	}
+	if needsReview && len(notes) == 0 && containsReviewSignal(groupTitle, title) {
+		notes = append(notes, "包含条件性说明，建议家长确认适用范围。")
+	}
+
+	taskType := strings.TrimSpace(item.Type)
+	if taskType == "" {
+		taskType = "homework"
+	}
+
+	return ParsedTask{
+		Subject:     subject,
+		GroupTitle:  groupTitle,
+		Title:       title,
+		Type:        taskType,
+		Confidence:  confidence,
+		NeedsReview: needsReview,
+		Notes:       notes,
+	}, true
+}
+
+func normalizeTaskList(items []ParsedTask) []ParsedTask {
+	normalized := make([]ParsedTask, 0, len(items))
+	seen := make(map[string]struct{})
+
+	for _, item := range items {
+		task, ok := normalizeTaskItem(item)
+		if !ok {
+			continue
+		}
+
+		key := task.Subject + "\x00" + task.GroupTitle + "\x00" + task.Title
+		if _, exists := seen[key]; exists {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		normalized = append(normalized, task)
+	}
+
+	return normalized
+}
+
+func mergeTaskLists(primary []ParsedTask, fallback []ParsedTask) ([]ParsedTask, []string) {
+	merged := normalizeTaskList(primary)
+	fallbackNormalized := normalizeTaskList(fallback)
+	existing := make(map[string]struct{}, len(merged))
+	for _, task := range merged {
+		key := task.Subject + "\x00" + task.GroupTitle + "\x00" + task.Title
+		existing[key] = struct{}{}
+	}
+
+	mergedCount := 0
+	for _, task := range fallbackNormalized {
+		key := task.Subject + "\x00" + task.GroupTitle + "\x00" + task.Title
+		if _, exists := existing[key]; exists {
+			continue
+		}
+
+		existing[key] = struct{}{}
+		merged = append(merged, task)
+		mergedCount++
+	}
+
+	notes := make([]string, 0)
+	if mergedCount > 0 {
+		notes = append(notes, fmt.Sprintf("LLM 结果缺失的 %d 条任务已由结构兜底补全。", mergedCount))
+	}
+
+	return merged, notes
+}
+
+func buildAnalysis(parserMode string, structure structureOutline, tasks []ParsedTask, notes []string) ParseAnalysis {
+	needsReviewCount := 0
+	lowConfidenceCount := 0
+	groupKeys := make(map[string]struct{})
+	for _, task := range tasks {
+		if task.NeedsReview {
+			needsReviewCount++
+		}
+		if task.Confidence < 0.7 {
+			lowConfidenceCount++
+		}
+		groupKeys[task.Subject+"\x00"+task.GroupTitle] = struct{}{}
+	}
+
+	return ParseAnalysis{
+		ParserMode:       parserMode,
+		DetectedSubjects: structure.DetectedSubjects,
+		FormatSignals:    structure.FormatSignals,
+		RawLineCount:     structure.RawLineCount,
+		TaskCount:        len(tasks),
+		GroupCount:       len(groupKeys),
+		NeedsReviewCount: needsReviewCount,
+		LowConfidenceCnt: lowConfidenceCount,
+		Notes:            notes,
+		AgenticPattern:   parsePatternSelection,
+	}
+}
+
+func parseFallback(rawText string) Result {
+	structure := extractStructureOutline(rawText)
+	tasks := normalizeTaskList(structure.Tasks)
+	status := "success"
+	notes := []string{"当前未使用 LLM，采用结构规则完成任务拆解。"}
+	if len(tasks) == 0 {
+		status = "failed"
+		notes = []string{"未从原文中识别出可创建任务。"}
+	}
+
+	return Result{
+		Status:     status,
+		ParserMode: "rule_fallback",
+		Analysis:   buildAnalysis("rule_fallback", structure, tasks, notes),
+		Data:       tasks,
+	}
+}
+
+func buildPrompt(rawText string, structure structureOutline) (string, error) {
+	detectedSubjects, err := json.Marshal(structure.DetectedSubjects)
+	if err != nil {
+		return "", err
+	}
+	formatSignals, err := json.Marshal(structure.FormatSignals)
+	if err != nil {
+		return "", err
+	}
+	candidateTasks, err := json.Marshal(structure.Tasks)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`
+你是 StudyClaw 的任务分析 Agent。你的职责不是机械照抄，而是结合老师原始通知和结构提示，做稳健、可落地的任务拆解。
+
+【老师原始内容】
+%s
+
+【结构提示】
+检测到的学科: %s
+检测到的格式信号: %s
+规则预解析候选任务: %s
+
+【目标】
+1. 输出适合直接创建到孩子今日任务清单里的任务列表。
+2. 老师格式可能每天变化，你需要理解语义，不要依赖固定模板。
+3. 对同一主任务下的多个子步骤，请拆成多条原子任务，并让它们共享同一个 group_title。
+4. 保留条件信息，例如“默写全对可免抄”“部分学生继续订正”。
+5. 忽略纯通知、寒暄、表情和无执行动作的内容。
+6. 对每条任务给出 confidence（0 到 1）以及 needs_review（是否建议家长确认）。
+7. 如果任务带有条件限制、对象不明确、学科不明确，请把 needs_review 设为 true，并在 notes 里写明原因。
+
+【输出要求】
+1. 只返回 JSON，不要输出 markdown。
+2. JSON 结构必须为:
+{
+  "status": "success",
+  "data": [
+    {
+      "subject": "数学/语文/英语等学科名称",
+      "group_title": "这条原子任务所属的作业分组，例如预习M1U2",
+      "title": "适合孩子执行的一条原子任务，必须是可勾选完成的最小动作",
+      "type": "homework",
+      "confidence": 0.91,
+      "needs_review": false,
+      "notes": []
+    }
+  ]
+}
+3. 如果原文无法形成任务，返回:
+{"status": "failed", "data": []}
+`, rawText, string(detectedSubjects), string(formatSignals), string(candidateTasks)), nil
+}
+
+func stripJSONFence(value string) string {
+	trimmed := strings.TrimSpace(value)
+	matches := jsonFencePattern.FindStringSubmatch(trimmed)
+	if len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	return trimmed
+}
+
+func (s *Service) invokeLLM(ctx context.Context, rawText string, structure structureOutline) (llmResult, error) {
+	prompt, err := buildPrompt(rawText, structure)
+	if err != nil {
+		return llmResult{}, fmt.Errorf("build llm prompt: %w", err)
+	}
+
+	resultText, err := s.llmClient.Generate(ctx, llm.GenerateRequest{
+		ModelEnvKey: "LLM_PARSER_MODEL_NAME",
+		Temperature: 0.1,
+		Messages: []llm.Message{
+			{
+				Role:    "system",
+				Content: "You are a careful homework parsing agent. Return valid JSON only.",
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+	})
+	if err != nil {
+		return llmResult{}, err
+	}
+
+	var result llmResult
+	if err := json.Unmarshal([]byte(stripJSONFence(resultText)), &result); err != nil {
+		return llmResult{}, fmt.Errorf("decode llm parser result: %w", err)
+	}
+
+	return result, nil
+}
+
+func (s *Service) Parse(ctx context.Context, rawText string) (Result, error) {
+	structure := extractStructureOutline(rawText)
+	fallbackResult := parseFallback(rawText)
+
+	if s.llmClient == nil {
+		return fallbackResult, nil
+	}
+
+	llmResult, err := s.invokeLLM(ctx, rawText, structure)
+	if err != nil {
+		fallbackResult.Analysis.Notes = append(fallbackResult.Analysis.Notes, "LLM 调用失败，已自动降级到规则解析: "+err.Error())
+		fallbackResult.Message = err.Error()
+		return fallbackResult, nil
+	}
+
+	llmTasks := normalizeTaskList(llmResult.Data)
+	if llmResult.Status != "success" || len(llmTasks) == 0 {
+		return fallbackResult, nil
+	}
+
+	mergedTasks, mergeNotes := mergeTaskLists(llmTasks, fallbackResult.Data)
+	analysisNotes := []string{"已使用 LLM 结合结构提示完成语义拆解，并自动创建任务。"}
+	analysisNotes = append(analysisNotes, mergeNotes...)
+
+	return Result{
+		Status:     "success",
+		ParserMode: "llm_hybrid",
+		Analysis:   buildAnalysis("llm_hybrid", structure, mergedTasks, analysisNotes),
+		Data:       mergedTasks,
+	}, nil
+}

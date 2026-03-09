@@ -1,110 +1,125 @@
 # StudyClaw
 
-StudyClaw 是一个面向上班族家庭的儿童学习 AI 项目。当前仓库已经交付 `v0.1.0` MVP：家长把学校群原始作业粘贴进来，Agent Core 结合 LLM 做解析，家长确认后生成按学科和作业分组的原子任务，孩子可以在 Pad 端自主选择任务并同步完成进度。
+StudyClaw 是一个面向家庭学习场景的任务协同项目：家长粘贴老师原始作业文本，系统把它拆成可执行的原子任务，孩子在 Pad 端按自己的节奏完成，后端同步保存进度并生成周度观察。
+
+自 `2026-03-09` 起，运行态后端已经收敛为 `Go` 单体后端。`Flutter` 继续负责移动端，`React + Vite` 继续负责家长端。原先的 Python `agent-core` 已完成迁移并从仓库中移除。
 
 ## 当前版本
 
 - 版本号: `v0.1.0`
-- 发布日期: `2026-03-09`
-- 当前定位: `MVP / 内部演示版`
+- 状态: `MVP / 内部演示版`
+- 当前真实后端: `apps/api-server`
 
-## 当前已交付能力
+## 当前能力
 
-- 家长端粘贴学校群原始任务文本，支持 AI 解析和确认创建
-- Agent Core 采用 `LLM 优先 + 规则兜底` 的混合解析
-- 任务以 `学科 -> 作业分组 -> 原子任务` 的结构存储到 Markdown 工作区
-- Pad 端支持单个任务、作业分组、学科、全部任务的完成同步
-- Pad 端默认让孩子自主选择未完成任务，系统只跟踪进度，不强制排序
-- 周报分析接口和基础积分接口已预留
+- 家长端输入学校群原始文本并调用 `POST /api/v1/tasks/parse`
+- 后端执行 `LLM 优先 + 规则兜底` 的任务拆解
+- 家长确认后创建 `学科 -> 作业分组 -> 原子任务`
+- 任务写入 Markdown 工作区并支持按天查询
+- Pad 端支持单个任务、分组、学科、全部任务的完成同步
+- 周报接口支持基于近 7 天任务数据生成摘要
 
 ## 仓库结构
 
 ```text
 studyclaw/
 ├── apps/
-│   ├── agent-core/      # Python FastAPI，负责作业解析和周报分析
-│   ├── api-server/      # Go Gin，负责任务创建、任务板和状态同步
-│   ├── parent-web/      # React + Vite，家长任务输入与确认台
-│   └── pad-app/         # Flutter，孩子任务同步台
-├── data/                # 本地 Markdown 工作区，运行后自动生成
+│   ├── api-server/      # Go 后端，唯一运行态后端
+│   ├── parent-web/      # React + Vite 家长端
+│   ├── pad-app/         # Flutter 孩子端 / Pad 端
+├── data/                # Markdown 工作区，运行后自动生成
 ├── docs/
-│   ├── 01_PRD.md
-│   ├── 02_ARCHITECTURE.md
-│   ├── 03_ROADMAP.md
-│   ├── 04_AGENTIC_DESIGN.md
-│   ├── 05_HEALTH_&_PSYCHOLOGY.md
-│   └── 06_RUNBOOK.md
-├── CHANGELOG.md
-├── docker-compose.yml
+├── scripts/
 └── .env.example
 ```
 
-## 本地运行前提
+`apps/api-server` 采用 Go 常见大项目目录组织：
 
-- macOS 或 Linux
+- `cmd/studyclaw-server`: 官方启动入口
+- `internal/app`: 依赖装配
+- `internal/interfaces/http`: HTTP 路由与 Handler
+- `internal/modules/taskboard`: 任务域、应用服务、Markdown 仓储
+- `internal/modules/agent/taskparse`: 作业解析 Agent 模块
+- `internal/modules/agent/weeklyinsights`: 周报 Agent 模块
+- `internal/platform/llm`: OpenAI 兼容 LLM 客户端，已适配 Ark Base URL
+- `internal/shared/agentic`: Agentic pattern 元数据
+
+## 运行前提
+
 - `Go 1.25+`
-- `Python 3.10+`
 - `Node.js 20+`
+- `npm 10+`
 - `Flutter 3.24+`
-- `Docker` 与 `Docker Compose`
+- `Docker`
 
-## 快速开始
+说明：当前运行链路不再要求 Python。
 
-### 1. 准备环境变量
+## 安全配置
 
-在仓库根目录执行：
+推荐先生成仓库外的私有运行时配置文件：
 
 ```bash
-cp .env.example .env
+bash scripts/init_private_runtime_env.sh
 ```
 
-如果你要启用真实 LLM，请在 `.env` 中填写：
+默认生成路径：
+
+```text
+~/.config/studyclaw/runtime.env
+```
+
+如果接入字节火山 Ark，请在私有 `runtime.env` 中配置：
 
 ```env
-LLM_API_KEY=你的真实 Key
-LLM_BASE_URL=https://api.openai.com/v1
+API_PORT=8080
+LLM_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+LLM_API_KEY=你的 Ark Key
+LLM_MODEL_NAME=你的模型名
+LLM_PARSER_MODEL_NAME=可选，专用于作业解析
+LLM_WEEKLY_MODEL_NAME=可选，专用于周报分析
+STUDYCLAW_DATA_DIR=./data
 ```
 
-如果不填，系统仍可运行，但 `agent-core` 会自动走规则兜底解析。
+运行时配置优先级：
 
-### 2. 启动基础依赖
+1. 进程环境变量
+2. 仓库外 `runtime.env`
+3. 仓库根目录 `.env`
 
-当前 `v0.1.0` 只需要 Redis：
+安全原则：
+
+- 真实密钥只放仓库外 `runtime.env`
+- 浏览器端和 Flutter 端不持有后端密钥
+- Git 仓库中的 `.env.example` 只保留示例，不放真实账号密码
+
+## 本地启动
+
+### 1. 启动基础依赖
 
 ```bash
 docker compose up -d redis
 ```
 
-### 3. 启动 Agent Core
-
-```bash
-cd apps/agent-core
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 main.py
-```
-
-默认地址：
-
-- `http://localhost:8000/ping`
-- `http://localhost:8000/api/v1/internal/parse`
-
-### 4. 启动 API Server
+### 2. 启动 Go 后端
 
 ```bash
 cd apps/api-server
-go run .
+go run ./cmd/studyclaw-server
 ```
 
-默认地址：
+健康检查：
 
-- `http://localhost:8080/ping`
-- `http://localhost:8080/api/v1/tasks`
+```bash
+curl http://localhost:8080/ping
+```
 
-API Server 会读取根目录 `.env`，并把任务写入 `data/workspaces/`。
+预期返回：
 
-### 5. 启动家长端
+```json
+{"message":"pong"}
+```
+
+### 3. 启动家长端
 
 ```bash
 cd apps/parent-web
@@ -112,94 +127,130 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
-默认访问地址：
+默认地址：`http://localhost:5173`
 
-- `http://localhost:5173`
-
-说明：
-
-- 默认 API 地址是 `http://localhost:8080`
-- API Server 已支持浏览器跨域联调
-
-### 6. 启动 Pad 端
+### 4. 启动 Pad 端
 
 ```bash
 cd apps/pad-app
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://localhost:8080
+flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
 ```
 
-真机或局域网环境请把 `localhost` 改成 Mac 所在机器的局域网 IP。
+如果是真机联调，把 `localhost` 改成 Mac 的局域网 IP。
 
-## 演示流程
+## 如何添加某一天的任务
 
-建议直接使用 `2026-03-06` 的演示任务：
+### 方案一：手动新增一条任务
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "subject": "数学",
+    "group_title": "口算本",
+    "content": "完成第12页",
+    "assigned_date": "2026-03-10"
+  }'
+```
+
+### 方案二：先解析，再人工确认后写入
+
+先解析但不自动写入：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/parse \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "assigned_date": "2026-03-10",
+    "auto_create": false,
+    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文"
+  }'
+```
+
+把返回结果里的 `tasks` 数组确认后再提交：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/confirm \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "assigned_date": "2026-03-10",
+    "tasks": [
+      {
+        "subject": "数学",
+        "group_title": "校本P16～17",
+        "title": "校本P16～17"
+      },
+      {
+        "subject": "数学",
+        "group_title": "练习册P14～15",
+        "title": "练习册P14～15"
+      }
+    ]
+  }'
+```
+
+### 方案三：解析后直接写入某一天
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/parse \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "assigned_date": "2026-03-10",
+    "auto_create": true,
+    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文"
+  }'
+```
+
+### 查看某一天任务板
+
+```bash
+curl "http://localhost:8080/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10"
+```
+
+Markdown 文件默认位置：
 
 ```text
-数学3.6：
-1、校本P14～15
-2、练习册P12～13
-
-英：
-1. 背默M1U1知识梳理单小作文
-2. 部分学生继续订正1号本
-3. 预习M1U2
-（1）书本上标注好“黄页”出现单词的音标
-（2）抄写单词（今天默写全对，可免抄）
-（3）沪学习听录音跟读
-
-语文：
-1. 背作文
-2. 练习卷
+data/workspaces/family_306/user_1/2026-03-10.md
 ```
 
-对应流程：
+## Agentic 设计选型
 
-1. 在家长端粘贴原文并执行 AI 解析
-2. 审核并确认创建任务
-3. 打开 Pad 端，加载 `2026-03-06` 的任务板
-4. 孩子按自己的节奏勾选完成任务
-5. 家长端和 Markdown 文件可同步看到进度变化
+当前实现严格采用“先确定性逻辑，再有限使用 LLM”的方式，而不是多智能体堆叠。
 
-## Markdown 数据位置
+- `taskparse`: `custom logic pattern` 为主，辅以 `single-agent system` 和 `human-in-the-loop pattern`
+- `weeklyinsights`: `single-agent system` 为主，辅以 `custom logic pattern`
+- 任务板读写与状态同步: 纯确定性服务，不使用 Agent
 
-任务文件默认写入：
+参考设计指南：
 
-```text
-data/workspaces/family_<family_id>/user_<user_id>/<date>.md
-```
-
-例如：
-
-```text
-data/workspaces/family_306/user_1/2026-03-06.md
-```
+- `https://docs.cloud.google.com/architecture/choose-design-pattern-agentic-ai-system`
 
 ## 验证命令
 
-### Agent Core
-
-```bash
-cd apps/agent-core
-python3 -m unittest discover -s tests
-python3 -m py_compile main.py api/routes.py services/llm_parser.py services/weekly_analyst.py tests/test_llm_parser.py
-```
-
-### API Server
+### Go 后端
 
 ```bash
 cd apps/api-server
-GOCACHE=../.gocache GOMODCACHE=../.modcache go test ./...
+GOCACHE="$(pwd)/../../.cache/go-build" go test ./...
 ```
 
-### Parent Web
+### 家长端
 
 ```bash
 cd apps/parent-web
 npm run build
 ```
 
-### Pad App
+### Pad 端
 
 ```bash
 cd apps/pad-app
@@ -210,6 +261,8 @@ flutter test
 ## 文档索引
 
 - 架构说明: [docs/02_ARCHITECTURE.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/02_ARCHITECTURE.md)
-- 迭代计划: [docs/03_ROADMAP.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/03_ROADMAP.md)
-- 本地运行手册: [docs/06_RUNBOOK.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/06_RUNBOOK.md)
-- 版本说明: [CHANGELOG.md](/Users/admin/Documents/WORK/ai/studyclaw/CHANGELOG.md)
+- Agentic 设计: [docs/04_AGENTIC_DESIGN.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/04_AGENTIC_DESIGN.md)
+- 运行手册: [docs/06_RUNBOOK.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/06_RUNBOOK.md)
+- 安全说明: [docs/07_SECURITY.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/07_SECURITY.md)
+- 并行开发分组: [docs/08_PARALLEL_WORKSTREAMS.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/08_PARALLEL_WORKSTREAMS.md)
+- 版本计划: [docs/03_ROADMAP.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/03_ROADMAP.md)

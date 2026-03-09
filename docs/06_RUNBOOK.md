@@ -1,105 +1,80 @@
 # StudyClaw 本地运行手册
 
-本文档对应 `v0.1.0`，目标是从零启动一个可演示的本地环境。
+本文档描述 `2026-03-09` 之后的当前真实运行方式：后端只启动 Go 服务，不再要求额外的 Python 后端进程。
 
-## 1. 运行前准备
-
-### 1.1 依赖版本
+## 1. 前置条件
 
 - `Go 1.25+`
-- `Python 3.10+`
 - `Node.js 20+`
 - `npm 10+`
 - `Flutter 3.24+`
 - `Docker`
 
-### 1.2 环境变量
+## 2. 运行时配置
 
-在仓库根目录执行：
+推荐先创建私有配置文件：
 
 ```bash
-cp .env.example .env
+bash scripts/init_private_runtime_env.sh
 ```
 
-关键变量：
+默认路径：
+
+```text
+~/.config/studyclaw/runtime.env
+```
+
+示例：
 
 ```env
 API_PORT=8080
-AGENT_PORT=8000
-AGENT_CORE_URL=http://localhost:8000
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-your-key
+LLM_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+LLM_API_KEY=your-ark-api-key
+LLM_MODEL_NAME=your-ark-model-name
+LLM_PARSER_MODEL_NAME=
+LLM_WEEKLY_MODEL_NAME=
 STUDYCLAW_DATA_DIR=./data
 ```
 
-说明：
+加载顺序：
 
-- 没有真实 `LLM_API_KEY` 也能跑，只是会退回规则解析
-- `STUDYCLAW_DATA_DIR` 不填时默认写入仓库下的 `data/`
+1. 进程环境变量
+2. 私有 `runtime.env`
+3. 仓库根目录 `.env`
 
-## 2. 启动顺序
+注意：
 
-建议固定按下面顺序启动。
+- 真实密钥只放仓库外 `runtime.env`
+- 不配置 `LLM_API_KEY` 也能启动，系统会回退到规则解析和 mock 周报
 
-### 2.1 启动 Redis
+## 3. 启动顺序
 
-在仓库根目录：
+### 3.1 启动 Redis
 
 ```bash
 docker compose up -d redis
-docker compose ps
 ```
 
-预期：
-
-- `studyclaw_redis` 状态为 `running`
-
-### 2.2 启动 Agent Core
-
-```bash
-cd apps/agent-core
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 main.py
-```
-
-验证：
-
-```bash
-curl http://localhost:8000/ping
-```
-
-预期返回：
-
-```json
-{"message":"Agent Core is alive"}
-```
-
-### 2.3 启动 API Server
-
-新开一个终端：
+### 3.2 启动 Go 后端
 
 ```bash
 cd apps/api-server
-go run .
+go run ./cmd/studyclaw-server
 ```
 
-验证：
+健康检查：
 
 ```bash
 curl http://localhost:8080/ping
 ```
 
-预期返回：
+预期：
 
 ```json
 {"message":"pong"}
 ```
 
-### 2.4 启动 Parent Web
-
-新开一个终端：
+### 3.3 启动 Parent Web
 
 ```bash
 cd apps/parent-web
@@ -107,142 +82,118 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
-访问：
+默认地址：`http://localhost:5173`
 
-- `http://localhost:5173`
-
-说明：
-
-- 默认 API 地址已指向 `http://localhost:8080`
-- API Server 已支持跨域访问
-
-### 2.5 启动 Pad App
-
-新开一个终端：
+### 3.4 启动 Pad App
 
 ```bash
 cd apps/pad-app
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://localhost:8080
+flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
 ```
 
-说明：
+真机请把 `localhost` 替换成宿主机局域网 IP。
 
-- 模拟器可直接用 `localhost`
-- 真机请改成 Mac 局域网 IP，例如 `http://192.168.1.10:8080`
+## 4. 常用联调方式
 
-## 3. 演示数据
+### 4.1 手动给某一天新增一条任务
 
-推荐使用这段任务文本：
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "subject": "数学",
+    "group_title": "口算本",
+    "content": "完成第12页",
+    "assigned_date": "2026-03-10"
+  }'
+```
+
+### 4.2 先解析后确认
+
+解析：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/parse \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "assigned_date": "2026-03-10",
+    "auto_create": false,
+    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文"
+  }'
+```
+
+确认写入：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/confirm \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "assigned_date": "2026-03-10",
+    "tasks": [
+      {
+        "subject": "数学",
+        "group_title": "校本P16～17",
+        "title": "校本P16～17"
+      },
+      {
+        "subject": "数学",
+        "group_title": "练习册P14～15",
+        "title": "练习册P14～15"
+      }
+    ]
+  }'
+```
+
+### 4.3 直接解析并写入某一天
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tasks/parse \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "assignee_id": 1,
+    "assigned_date": "2026-03-10",
+    "auto_create": true,
+    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文"
+  }'
+```
+
+### 4.4 查询某一天任务板
+
+```bash
+curl "http://localhost:8080/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10"
+```
+
+默认 Markdown 位置：
 
 ```text
-数学3.6：
-1、校本P14～15
-2、练习册P12～13
-
-英：
-1. 背默M1U1知识梳理单小作文
-2. 部分学生继续订正1号本
-3. 预习M1U2
-（1）书本上标注好“黄页”出现单词的音标
-（2）抄写单词（今天默写全对，可免抄）
-（3）沪学习听录音跟读
-
-语文：
-1. 背作文
-2. 练习卷
-```
-
-## 4. 演示步骤
-
-### 4.1 家长端创建任务
-
-1. 打开 `http://localhost:5173`
-2. 粘贴上面的任务文本
-3. 点击 AI 解析
-4. 审核低置信度任务
-5. 确认创建
-
-### 4.2 Pad 端同步任务
-
-1. 打开 Pad App
-2. 保持默认：
-   - `family_id=306`
-   - `user_id=1`
-   - `date=2026-03-06`
-3. 点击加载任务板
-4. 孩子选择任意任务开始勾选
-
-### 4.3 Markdown 结果核对
-
-创建后文件一般位于：
-
-```text
-data/workspaces/family_306/user_1/2026-03-06.md
-```
-
-全部完成后的内容示例：
-
-```md
-# 2026年03月06日 - 今日成长轨迹
-
-## 🎯 任务清单
-
-### 数学
-
-#### 校本P14～15
-- [x] 校本P14～15
-
-#### 练习册P12～13
-- [x] 练习册P12～13
-
-### 英语
-
-#### 背默M1U1知识梳理单小作文
-- [x] 背默M1U1知识梳理单小作文
-
-#### 部分学生继续订正1号本
-- [x] 部分学生继续订正1号本
-
-#### 预习M1U2
-- [x] 书本上标注好“黄页”出现单词的音标
-- [x] 抄写单词（今天默写全对，可免抄）
-- [x] 沪学习听录音跟读
-
-### 语文
-
-#### 背作文
-- [x] 背作文
-
-#### 练习卷
-- [x] 练习卷
+data/workspaces/family_306/user_1/2026-03-10.md
 ```
 
 ## 5. 验证命令
 
-### 5.1 Agent Core
-
-```bash
-cd apps/agent-core
-python3 -m unittest discover -s tests
-python3 -m py_compile main.py api/routes.py services/llm_parser.py services/weekly_analyst.py tests/test_llm_parser.py
-```
-
-### 5.2 API Server
+### 5.1 Go 后端
 
 ```bash
 cd apps/api-server
-GOCACHE=../.gocache GOMODCACHE=../.modcache go test ./...
+GOCACHE="$(pwd)/../../.cache/go-build" go test ./...
 ```
 
-### 5.3 Parent Web
+### 5.2 Parent Web
 
 ```bash
 cd apps/parent-web
 npm run build
 ```
 
-### 5.4 Pad App
+### 5.3 Pad App
 
 ```bash
 cd apps/pad-app
@@ -252,22 +203,26 @@ flutter test
 
 ## 6. 常见问题
 
-### 6.1 Parent Web 能打开但请求失败
+### 6.1 `tasks/parse` 返回规则兜底
 
-先确认：
+优先检查：
 
-- `api-server` 是否启动在 `8080`
-- 家长端页面里的 API 地址是否正确
-- 真机或局域网调试是否误用了 `localhost`
+- `LLM_API_KEY` 是否配置在私有 `runtime.env`
+- `LLM_MODEL_NAME` 或 `LLM_PARSER_MODEL_NAME` 是否配置
+- `LLM_BASE_URL` 是否是 `https://ark.cn-beijing.volces.com/api/v3`
 
-### 6.2 没有真实 LLM Key
+### 6.2 Pad 端能打开但请求失败
 
-这是允许的。系统会继续运行，只是解析质量依赖规则兜底。
+优先检查：
+
+- Go 后端是否监听在 `8080`
+- Flutter 启动参数里的 `API_BASE_URL` 是否正确
+- 真机联调时是否误用了 `localhost`
 
 ### 6.3 看不到任务文件
 
-检查：
+优先检查：
 
-- 是否真正点击了“确认创建”
-- `STUDYCLAW_DATA_DIR` 是否被改到了其他目录
-- `family_id`、`user_id`、`date` 是否和查询时一致
+- `family_id`、`assignee_id`、`assigned_date` 是否一致
+- `STUDYCLAW_DATA_DIR` 是否被改到别的目录
+- 是否真的调用了 `confirm` 或 `parse + auto_create`

@@ -1,186 +1,159 @@
-# StudyClaw 技术架构与设计蓝图
+# StudyClaw 技术架构
 
-本文档描述的是仓库当前实际可运行的 `v0.1.0` 架构，而不是长期愿景架构。
+本文档描述 `2026-03-09` 之后仓库当前的真实架构。核心结论是：`Flutter + React` 保持不变，后端运行态收敛为 `Go` 单体后端，原先的 Python 实现已完成迁移并移除。
 
-## 1. 当前架构概览
-
-`v0.1.0` 采用轻量原型架构，目标是先跑通“家长输入 -> AI 解析 -> 任务确认 -> 孩子执行 -> 进度同步”闭环。
+## 1. 总体架构
 
 ```mermaid
 graph TD
     ParentWeb[Parent Web\nReact + Vite]
     PadApp[Pad App\nFlutter]
-    APIServer[API Server\nGo + Gin]
-    AgentCore[Agent Core\nPython + FastAPI]
+    APIServer[StudyClaw Server\nGo Modular Monolith]
     Workspace[Markdown Workspace\n./data/workspaces]
     Redis[(Redis)]
-    LLM[OpenAI Compatible LLM]
+    LLM[Ark / OpenAI Compatible LLM]
 
     ParentWeb -->|REST| APIServer
     PadApp -->|REST| APIServer
-    APIServer -->|internal HTTP| AgentCore
     APIServer --> Workspace
     APIServer --> Redis
-    AgentCore -->|LLM 优先| LLM
+    APIServer -->|bounded LLM calls| LLM
 ```
 
 说明：
 
-- `Redis` 在当前版本中已可启动，但还不是主数据来源
-- 任务主存储已经切换为 `Markdown Workspace`
-- 如果 `LLM_API_KEY` 不可用，`Agent Core` 会自动使用规则兜底解析
+- 当前只有一个后端进程需要运行：`apps/api-server`
+- 任务主存储是 Markdown 工作区
+- Redis 当前仍是辅助组件，不是主数据源
+- LLM 通过 OpenAI 兼容接口接入，默认支持 Ark Base URL
 
-## 2. 当前技术栈
+## 2. Go 后端目录设计
 
-### 2.1 API Server
-
-- 语言: `Go`
-- 框架: `Gin`
-- 职责:
-  - 接收家长端原始任务文本
-  - 调用 Agent Core 做解析
-  - 提供任务确认、查询、状态更新接口
-  - 把任务写入和更新到 Markdown 工作区
-
-### 2.2 Agent Core
-
-- 语言: `Python 3`
-- 框架: `FastAPI`
-- 职责:
-  - 解析学校群式原始任务文本
-  - 输出 `学科 -> 作业分组 -> 原子任务`
-  - 标记 `confidence`、`needs_review`
-  - 生成周报分析结果
-
-### 2.3 Parent Web
-
-- 技术: `React + Vite`
-- 当前能力:
-  - 粘贴学校群原文
-  - AI 解析预览
-  - 编辑、筛选、确认创建任务
-  - 查看今日任务清单
-
-### 2.4 Pad App
-
-- 技术: `Flutter`
-- 当前能力:
-  - 拉取指定日期任务板
-  - 按学科与作业分组查看任务
-  - 单个任务、分组、学科、全部任务的完成同步
-  - 默认隐藏已完成任务，让孩子自主选择未完成任务
-
-## 3. 当前核心数据流
-
-### 3.1 家长输入与解析
-
-1. 家长在 `parent-web` 粘贴学校群原始作业文本
-2. `parent-web` 调用 `POST /api/v1/tasks/parse`
-3. `api-server` 调用 `agent-core /api/v1/internal/parse`
-4. `agent-core` 输出结构化任务建议和分析元信息
-5. 家长审核后调用 `POST /api/v1/tasks/confirm`
-6. `api-server` 将最终任务写入 Markdown
-
-### 3.2 孩子完成与同步
-
-1. `pad-app` 调用 `GET /api/v1/tasks`
-2. `api-server` 从 Markdown 读取任务并构建任务板
-3. 孩子勾选任务或分组
-4. `pad-app` 调用状态更新接口
-5. `api-server` 改写对应 Markdown 文件
-
-## 4. 当前任务模型
-
-当前统一采用三层结构：
-
-1. `subject`
-2. `group_title`
-3. `task`
-
-示例：
-
-```json
-{
-  "subject": "英语",
-  "group_title": "预习M1U2",
-  "title": "书本上标注好“黄页”出现单词的音标"
-}
-```
-
-这样做的原因：
-
-- 家长端容易审核
-- Pad 端适合分层展示
-- Markdown 容易直接阅读和手工修正
-
-## 5. Markdown 存储结构
-
-任务默认写入：
+`apps/api-server` 采用 Go 常见大型项目目录组织方式：
 
 ```text
-data/workspaces/family_<family_id>/user_<user_id>/<date>.md
+apps/api-server/
+├── cmd/studyclaw-server/
+├── internal/
+│   ├── app/
+│   ├── interfaces/http/
+│   ├── modules/
+│   │   ├── agent/
+│   │   │   ├── taskparse/
+│   │   │   └── weeklyinsights/
+│   │   └── taskboard/
+│   │       ├── application/
+│   │       ├── domain/
+│   │       └── infrastructure/markdown/
+│   ├── platform/llm/
+│   └── shared/agentic/
+├── routes/
+└── services/
 ```
 
-文件结构：
+职责分层：
 
-```md
-# 2026年03月06日 - 今日成长轨迹
+- `cmd`: 可执行入口
+- `internal/app`: 依赖装配和容器
+- `internal/interfaces/http`: HTTP 协议层
+- `internal/modules/taskboard`: 任务领域逻辑和存储
+- `internal/modules/agent/*`: LLM / agent 能力模块
+- `internal/platform/llm`: 供应商适配
+- `routes` / `services`: 兼容旧调用的薄封装
 
-## 🎯 任务清单
+## 3. 核心数据流
 
-### 英语
+### 3.1 家长输入与任务创建
 
-#### 预习M1U2
-- [ ] 书本上标注好“黄页”出现单词的音标
-- [ ] 抄写单词（今天默写全对，可免抄）
-- [ ] 沪学习听录音跟读
-```
+1. 家长端调用 `POST /api/v1/tasks/parse`
+2. `taskparse` 模块先做结构提取和规则拆解
+3. 若配置了 LLM，则发起一次有边界的语义解析调用
+4. 服务合并规则结果与 LLM 结果，返回候选任务
+5. 家长确认后调用 `POST /api/v1/tasks/confirm`
+6. `taskboard` 模块把任务写入 Markdown
 
-## 6. 当前接口
+### 3.2 孩子执行与任务板同步
 
-### 6.1 家长端与管理接口
+1. Pad 端调用 `GET /api/v1/tasks`
+2. `taskboard` 从 Markdown 读取任务
+3. 应用服务构建 `groups`、`homework_groups`、`summary`
+4. Pad 端调用状态更新接口
+5. `taskboard` 改写对应 Markdown 文件
 
-- `POST /api/v1/tasks/parse`
-- `POST /api/v1/tasks/confirm`
-- `GET /api/v1/tasks`
+### 3.3 周度观察
 
-### 6.2 状态同步接口
+1. 客户端调用 `GET /api/v1/stats/weekly`
+2. 后端聚合近 7 天 Markdown 任务数据
+3. `weeklyinsights` 先做确定性统计
+4. 若配置了 LLM，则用单次总结调用生成儿童友好摘要
 
-- `PATCH /api/v1/tasks/status/item`
-- `PATCH /api/v1/tasks/status/group`
-- `PATCH /api/v1/tasks/status/all`
+## 4. Agentic Design Pattern 选型
 
-### 6.3 Agent Core 内部接口
+参考：
 
-- `POST /api/v1/internal/parse`
-- `POST /api/v1/internal/analyze/weekly`
+- `https://docs.cloud.google.com/architecture/choose-design-pattern-agentic-ai-system`
 
-## 7. 环境变量
+当前实现采用的模式如下：
 
-当前主要使用这些变量：
+### 4.1 作业解析 `taskparse`
+
+- 主模式: `custom logic pattern`
+- 辅助模式: `single-agent system`
+- 辅助模式: `human-in-the-loop pattern`
+
+原因：
+
+- 输入格式噪声大，但业务输出必须稳定
+- 任务归一化、去重、低置信度标记必须由确定性代码负责
+- 最终创建动作必须由家长确认
+
+### 4.2 周报分析 `weeklyinsights`
+
+- 主模式: `single-agent system`
+- 辅助模式: `custom logic pattern`
+
+原因：
+
+- 周报本质是单轮总结任务
+- 指标汇总先由 Go 完成，LLM 只负责自然语言总结
+- 当前完全没有必要引入多智能体编排
+
+### 4.3 任务板与状态同步 `taskboard`
+
+- 不使用 Agent
+
+原因：
+
+- 这是标准的领域服务和存储问题
+- 任务状态必须可预测、可测试、可回放
+
+## 5. 运行时配置与安全边界
+
+主要环境变量：
 
 ```env
 API_PORT=8080
-AGENT_PORT=8000
-AGENT_CORE_URL=http://localhost:8000
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-xxxx
+LLM_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+LLM_API_KEY=...
+LLM_MODEL_NAME=...
+LLM_PARSER_MODEL_NAME=...
+LLM_WEEKLY_MODEL_NAME=...
 STUDYCLAW_DATA_DIR=./data
 ```
 
-说明：
+边界要求：
 
-- `DB_*` 变量当前仅保留，不参与 `v0.1.0` 主流程
-- `STUDYCLAW_DATA_DIR` 不设置时，默认使用仓库根目录下的 `data/`
+- 真实密钥保存在仓库外 `runtime.env`
+- 浏览器端和 Flutter 端绝不直接持有后端密钥
+- `.env.example` 只保留示例配置
 
-## 8. 当前边界与后续演进
+## 6. 迁移完成状态
 
-`v0.1.0` 明确不做这些事情：
+原先 Python `agent-core` 中承担的能力已经全部迁移到 Go：
 
-- 不做 MySQL 作为主存储
-- 不做 WebSocket
-- 不做 OCR / 图片作业解析正式链路
-- 不做情绪识别和传感器能力
-- 不让系统强制决定孩子的任务顺序
-
-后续演进方向见 [docs/03_ROADMAP.md](/Users/admin/Documents/WORK/ai/studyclaw/docs/03_ROADMAP.md)。
+- 应用入口与环境加载
+- 内部解析接口
+- 内部周报接口
+- LLM 配置与 OpenAI 兼容调用
+- 作业解析规则兜底与 LLM 混合解析
+- 周报 mock 回退与 LLM 摘要
