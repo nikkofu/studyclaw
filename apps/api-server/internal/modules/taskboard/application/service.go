@@ -12,31 +12,41 @@ type Repository interface {
 	EnsureDailyFile(familyID, userID uint, date time.Time) (string, error)
 	AddTask(familyID, userID uint, subject, groupTitle, content string, date time.Time) error
 	GetTasks(familyID, userID uint, date time.Time) ([]domain.Task, error)
-	UpdateTaskCompletionByID(familyID, userID uint, date time.Time, taskID int, completed bool) ([]domain.Task, int, error)
-	UpdateTaskCompletionBySubject(familyID, userID uint, date time.Time, subject string, completed bool) ([]domain.Task, int, error)
-	UpdateTaskCompletionByHomeworkGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) ([]domain.Task, int, error)
-	UpdateAllTasksCompletion(familyID, userID uint, date time.Time, completed bool) ([]domain.Task, int, error)
+	UpdateTaskCompletionByID(familyID, userID uint, date time.Time, taskID int, completed bool) ([]domain.Task, int, int, error)
+	UpdateTaskCompletionBySubject(familyID, userID uint, date time.Time, subject string, completed bool) ([]domain.Task, int, int, error)
+	UpdateTaskCompletionByHomeworkGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) ([]domain.Task, int, int, error)
+	UpdateAllTasksCompletion(familyID, userID uint, date time.Time, completed bool) ([]domain.Task, int, int, error)
 }
 
 type Service struct {
 	repo Repository
 }
 
+type BoardUpdateResult struct {
+	Board        domain.Board
+	MatchedCount int
+	UpdatedCount int
+}
+
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func ParseAssignedDate(value string) (time.Time, error) {
+func ParseOptionalDate(value string, fieldName string) (time.Time, error) {
 	if strings.TrimSpace(value) == "" {
 		return time.Now(), nil
 	}
 
 	parsed, err := time.Parse("2006-01-02", strings.TrimSpace(value))
 	if err != nil {
-		return time.Time{}, fmt.Errorf("assigned_date must be in YYYY-MM-DD format")
+		return time.Time{}, fmt.Errorf("%s must be in YYYY-MM-DD format", fieldName)
 	}
 
 	return parsed, nil
+}
+
+func ParseAssignedDate(value string) (time.Time, error) {
+	return ParseOptionalDate(value, "assigned_date")
 }
 
 func NormalizeTaskFields(subject, groupTitle, content string) (string, string, string) {
@@ -201,39 +211,52 @@ func (s *Service) ListBoard(familyID, userID uint, date time.Time) (domain.Board
 	return BuildBoard(date, tasks), nil
 }
 
-func (s *Service) UpdateTaskStatusByID(familyID, userID uint, date time.Time, taskID int, completed bool) (domain.Board, int, error) {
-	tasks, updatedCount, err := s.repo.UpdateTaskCompletionByID(familyID, userID, date, taskID, completed)
+func (s *Service) UpdateTaskStatusByID(familyID, userID uint, date time.Time, taskID int, completed bool) (BoardUpdateResult, error) {
+	tasks, matchedCount, updatedCount, err := s.repo.UpdateTaskCompletionByID(familyID, userID, date, taskID, completed)
 	if err != nil {
-		return domain.Board{}, 0, err
+		return BoardUpdateResult{}, err
 	}
 
-	return BuildBoard(date, tasks), updatedCount, nil
+	return BoardUpdateResult{
+		Board:        BuildBoard(date, tasks),
+		MatchedCount: matchedCount,
+		UpdatedCount: updatedCount,
+	}, nil
 }
 
-func (s *Service) UpdateTaskStatusByGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) (domain.Board, int, error) {
+func (s *Service) UpdateTaskStatusByGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) (BoardUpdateResult, error) {
 	var (
 		tasks        []domain.Task
+		matchedCount int
 		updatedCount int
 		err          error
 	)
 
 	if strings.TrimSpace(groupTitle) != "" {
-		tasks, updatedCount, err = s.repo.UpdateTaskCompletionByHomeworkGroup(familyID, userID, date, subject, groupTitle, completed)
+		tasks, matchedCount, updatedCount, err = s.repo.UpdateTaskCompletionByHomeworkGroup(familyID, userID, date, subject, groupTitle, completed)
 	} else {
-		tasks, updatedCount, err = s.repo.UpdateTaskCompletionBySubject(familyID, userID, date, subject, completed)
+		tasks, matchedCount, updatedCount, err = s.repo.UpdateTaskCompletionBySubject(familyID, userID, date, subject, completed)
 	}
 	if err != nil {
-		return domain.Board{}, 0, err
+		return BoardUpdateResult{}, err
 	}
 
-	return BuildBoard(date, tasks), updatedCount, nil
+	return BoardUpdateResult{
+		Board:        BuildBoard(date, tasks),
+		MatchedCount: matchedCount,
+		UpdatedCount: updatedCount,
+	}, nil
 }
 
-func (s *Service) UpdateAllTaskStatuses(familyID, userID uint, date time.Time, completed bool) (domain.Board, int, error) {
-	tasks, updatedCount, err := s.repo.UpdateAllTasksCompletion(familyID, userID, date, completed)
+func (s *Service) UpdateAllTaskStatuses(familyID, userID uint, date time.Time, completed bool) (BoardUpdateResult, error) {
+	tasks, matchedCount, updatedCount, err := s.repo.UpdateAllTasksCompletion(familyID, userID, date, completed)
 	if err != nil {
-		return domain.Board{}, 0, err
+		return BoardUpdateResult{}, err
 	}
 
-	return BuildBoard(date, tasks), updatedCount, nil
+	return BoardUpdateResult{
+		Board:        BuildBoard(date, tasks),
+		MatchedCount: matchedCount,
+		UpdatedCount: updatedCount,
+	}, nil
 }

@@ -14,34 +14,48 @@ import (
 var (
 	subjectAliases = map[string]string{
 		"数":  "数学",
-		"数学":  "数学",
+		"数学": "数学",
 		"英":  "英语",
-		"英语":  "英语",
+		"英语": "英语",
 		"语":  "语文",
-		"语文":  "语文",
-		"科学":  "科学",
-		"物理":  "物理",
-		"化学":  "化学",
-		"生物":  "生物",
-		"历史":  "历史",
-		"地理":  "地理",
-		"道法":  "道法",
-		"政治":  "道法",
-		"美术":  "美术",
-		"音乐":  "音乐",
-		"体育":  "体育",
-		"信息":  "信息",
-		"劳动":  "劳动",
-		"阅读":  "阅读",
-		"班会":  "班会",
+		"语文": "语文",
+		"科学": "科学",
+		"物理": "物理",
+		"化学": "化学",
+		"生物": "生物",
+		"历史": "历史",
+		"地理": "地理",
+		"道法": "道法",
+		"政治": "道法",
+		"美术": "美术",
+		"音乐": "音乐",
+		"体育": "体育",
+		"信息": "信息",
+		"劳动": "劳动",
+		"阅读": "阅读",
+		"班会": "班会",
 	}
-	whitespacePattern    = regexp.MustCompile(`\s+`)
-	headingPattern       = regexp.MustCompile(`^([\p{Han}A-Za-z]+[^：:]*)[：:]\s*(.*)$`)
-	headingKeyPattern    = regexp.MustCompile(`^[\p{Han}A-Za-z0-9.\-]+$`)
-	mainItemPattern      = regexp.MustCompile(`^\d+\s*[、.．]\s*(.+)$`)
-	subItemPattern       = regexp.MustCompile(`^[（(]\d+[）)]\s*(.+)$`)
-	jsonFencePattern     = regexp.MustCompile("(?s)^```(?:json)?\\s*(.*?)\\s*```$")
-	reviewSignalKeywords = []string{"部分学生", "可免", "选做", "如需", "如果", "酌情"}
+	whitespacePattern          = regexp.MustCompile(`\s+`)
+	headingPattern             = regexp.MustCompile(`^([\p{Han}A-Za-z]+[^：:]*)[：:]\s*(.*)$`)
+	headingKeyPattern          = regexp.MustCompile(`^[\p{Han}A-Za-z0-9.\-]+$`)
+	mainItemPattern            = regexp.MustCompile(`^\d+\s*[、.．)）]\s*(.+)$`)
+	bracketedSubItemPattern    = regexp.MustCompile(`^[（(]\d+[）)]\s*(.+)$`)
+	numberedSubItemPattern     = regexp.MustCompile(`^\d+\s*[)）]\s*(.+)$`)
+	circledSubItemPattern      = regexp.MustCompile(`^[①②③④⑤⑥⑦⑧⑨⑩]\s*(.+)$`)
+	bulletSubItemPattern       = regexp.MustCompile(`^[-•·]\s*(.+)$`)
+	taskTargetReferencePattern = regexp.MustCompile(`[A-Za-z]+\d+|\d`)
+	jsonFencePattern           = regexp.MustCompile("(?s)^```(?:json)?\\s*(.*?)\\s*```$")
+	conditionalSignalKeywords  = []string{"可免", "选做", "如需", "如果", "酌情", "全对", "完成后", "做完后"}
+	conditionalSignalPatterns  = []*regexp.Regexp{
+		regexp.MustCompile(`(^|[，,；;。:：\s])若(?:有|需|未|完成|全对|正确|时间|背会|默写)`),
+	}
+	audienceSignalKeywords = []string{"部分学生", "个别同学", "相关同学", "有需要的同学", "需要的同学", "未完成的同学", "未交的同学", "没交的同学"}
+	correctionKeywords     = []string{"订正", "改错", "更正"}
+	continuationKeywords   = []string{"续做", "继续", "接着", "补做"}
+	taskTargetKeywords     = []string{
+		"本", "卷", "册", "页", "课", "课文", "单词", "错词", "错题", "练习", "练习册", "试卷",
+		"校本", "作业", "口算", "作文", "默写", "听写", "知识点", "音标", "录音", "题",
+	}
 )
 
 var parsePatternSelection = agentic.PatternSelection{
@@ -105,6 +119,14 @@ type structureOutline struct {
 	RawLineCount     int
 }
 
+type taskSignalEvaluation struct {
+	HasConditional     bool
+	HasAudienceScope   bool
+	HasCorrection      bool
+	HasContinuation    bool
+	HasAmbiguousTarget bool
+}
+
 type Service struct {
 	llmClient llm.Client
 }
@@ -133,14 +155,234 @@ func normalizeSubject(rawSubject string) string {
 	return subject
 }
 
-func containsReviewSignal(values ...string) bool {
+func normalizedKeywordText(values ...string) string {
 	combined := strings.TrimSpace(strings.Join(values, " "))
-	for _, keyword := range reviewSignalKeywords {
-		if strings.Contains(combined, keyword) {
+	return strings.TrimSpace(whitespacePattern.ReplaceAllString(combined, " "))
+}
+
+func normalizedSignalParts(values ...string) []string {
+	parts := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := trimStructuralMarker(value)
+		trimmed = normalizedKeywordText(trimmed)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		parts = append(parts, trimmed)
+	}
+	return parts
+}
+
+func normalizedSignalText(values ...string) string {
+	return normalizedKeywordText(normalizedSignalParts(values...)...)
+}
+
+func containsAnyKeyword(text string, keywords []string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
 			return true
 		}
 	}
 	return false
+}
+
+func containsConditionalSignal(values ...string) bool {
+	text := normalizedSignalText(values...)
+	if containsAnyKeyword(text, conditionalSignalKeywords) {
+		return true
+	}
+	for _, pattern := range conditionalSignalPatterns {
+		if pattern.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAudienceSignal(values ...string) bool {
+	return containsAnyKeyword(normalizedSignalText(values...), audienceSignalKeywords)
+}
+
+func containsCorrectionSignal(values ...string) bool {
+	return containsAnyKeyword(normalizedSignalText(values...), correctionKeywords)
+}
+
+func containsContinuationSignal(values ...string) bool {
+	return containsAnyKeyword(normalizedSignalText(values...), continuationKeywords)
+}
+
+func trimStructuralMarker(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if matches := mainItemPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := bracketedSubItemPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := numberedSubItemPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := circledSubItemPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := bulletSubItemPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	return trimmed
+}
+
+func hasExplicitTaskTarget(text string) bool {
+	text = trimStructuralMarker(text)
+	if containsAnyKeyword(text, taskTargetKeywords) {
+		return true
+	}
+	if taskTargetReferencePattern.MatchString(text) {
+		return true
+	}
+	return false
+}
+
+func hasAmbiguousTaskTarget(values ...string) bool {
+	combined := normalizedSignalText(values...)
+	if combined == "" {
+		return false
+	}
+	if !containsCorrectionSignal(combined) && !containsContinuationSignal(combined) {
+		return false
+	}
+	if hasExplicitTaskTarget(combined) {
+		return false
+	}
+
+	remainder := combined
+	for _, keyword := range audienceSignalKeywords {
+		remainder = strings.ReplaceAll(remainder, keyword, "")
+	}
+	for _, keyword := range correctionKeywords {
+		remainder = strings.ReplaceAll(remainder, keyword, "")
+	}
+	for _, keyword := range continuationKeywords {
+		remainder = strings.ReplaceAll(remainder, keyword, "")
+	}
+	remainder = strings.TrimSpace(strings.Trim(remainder, "，,。；;：:（）()"))
+	return remainder == "" || len([]rune(remainder)) <= 4
+}
+
+func containsReviewSignal(values ...string) bool {
+	return containsConditionalSignal(values...) || containsAudienceSignal(values...) || hasAmbiguousTaskTarget(values...)
+}
+
+func evaluateTaskSignals(subject, groupTitle, title string) taskSignalEvaluation {
+	return taskSignalEvaluation{
+		HasConditional:     containsConditionalSignal(groupTitle, title),
+		HasAudienceScope:   containsAudienceSignal(groupTitle, title),
+		HasCorrection:      containsCorrectionSignal(groupTitle, title),
+		HasContinuation:    containsContinuationSignal(groupTitle, title),
+		HasAmbiguousTarget: hasAmbiguousTaskTarget(groupTitle, title),
+	}
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func mergeNotes(existing []string, extra ...string) []string {
+	merged := make([]string, 0, len(existing)+len(extra))
+	for _, note := range existing {
+		trimmed := strings.TrimSpace(note)
+		if trimmed != "" {
+			merged = appendUnique(merged, trimmed)
+		}
+	}
+	for _, note := range extra {
+		trimmed := strings.TrimSpace(note)
+		if trimmed != "" {
+			merged = appendUnique(merged, trimmed)
+		}
+	}
+	return merged
+}
+
+func buildReviewNotes(subject string, signals taskSignalEvaluation) []string {
+	notes := make([]string, 0, 4)
+	if subject == "未分类" {
+		notes = append(notes, "学科不明确，建议家长确认归类。")
+	}
+	if signals.HasConditional {
+		notes = append(notes, "包含条件性说明，建议家长确认触发条件。")
+	}
+	if signals.HasAudienceScope {
+		notes = append(notes, "作业适用对象不明确，建议家长确认是否针对孩子。")
+	}
+	if signals.HasAmbiguousTarget {
+		notes = append(notes, "订正/续做任务未写明具体对象，建议家长确认完成内容。")
+	}
+	return notes
+}
+
+func scoreTaskConfidence(base float64, subject string, signals taskSignalEvaluation) float64 {
+	confidence := base
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 1 {
+		confidence = 1
+	}
+	if confidence == 0 {
+		confidence = 0.84
+	}
+	if subject == "未分类" && confidence > 0.68 {
+		confidence = 0.68
+	}
+	if signals.HasConditional && confidence > 0.72 {
+		confidence = 0.72
+	}
+	if signals.HasAudienceScope && confidence > 0.64 {
+		confidence = 0.64
+	}
+	if signals.HasAmbiguousTarget && confidence > 0.58 {
+		confidence = 0.58
+	}
+	if confidence < 0 {
+		confidence = 0
+	}
+	return confidence
+}
+
+func normalizeTaskMetadata(subject, groupTitle, title string, confidence float64, needsReview bool, notes []string) (float64, bool, []string) {
+	signals := evaluateTaskSignals(subject, groupTitle, title)
+	normalizedNotes := mergeNotes(notes, buildReviewNotes(subject, signals)...)
+	normalizedConfidence := scoreTaskConfidence(confidence, subject, signals)
+	normalizedNeedsReview := needsReview || subject == "未分类" || signals.HasConditional || signals.HasAudienceScope || signals.HasAmbiguousTarget || normalizedConfidence < 0.7
+	return normalizedConfidence, normalizedNeedsReview, normalizedNotes
+}
+
+func parseSubItemLine(line string, allowLooseNumbering bool) (string, bool) {
+	if matches := bracketedSubItemPattern.FindStringSubmatch(line); len(matches) == 2 {
+		return strings.TrimSpace(matches[1]), true
+	}
+	if allowLooseNumbering {
+		if matches := numberedSubItemPattern.FindStringSubmatch(line); len(matches) == 2 {
+			return strings.TrimSpace(matches[1]), true
+		}
+		if matches := circledSubItemPattern.FindStringSubmatch(line); len(matches) == 2 {
+			return strings.TrimSpace(matches[1]), true
+		}
+		if matches := bulletSubItemPattern.FindStringSubmatch(line); len(matches) == 2 {
+			return strings.TrimSpace(matches[1]), true
+		}
+	}
+	return "", false
 }
 
 func flattenSectionsToTasks(sections []outlineSection) []ParsedTask {
@@ -165,15 +407,7 @@ func flattenSectionsToTasks(sections []outlineSection) []ParsedTask {
 			}
 
 			for _, atomicTitle := range atomicTitles {
-				notes := make([]string, 0)
-				if containsReviewSignal(groupTitle, atomicTitle) {
-					notes = append(notes, "包含条件性说明，建议家长确认适用范围。")
-				}
-
-				confidence := 0.84
-				if len(notes) > 0 {
-					confidence = 0.72
-				}
+				confidence, needsReview, notes := normalizeTaskMetadata(section.Subject, groupTitle, atomicTitle, 0.84, false, nil)
 
 				tasks = append(tasks, ParsedTask{
 					Subject:     section.Subject,
@@ -181,7 +415,7 @@ func flattenSectionsToTasks(sections []outlineSection) []ParsedTask {
 					Title:       atomicTitle,
 					Type:        "homework",
 					Confidence:  confidence,
-					NeedsReview: len(notes) > 0,
+					NeedsReview: needsReview,
 					Notes:       notes,
 				})
 			}
@@ -247,6 +481,22 @@ func extractStructureOutline(rawText string) structureOutline {
 	}
 
 	for _, line := range lines {
+		if containsConditionalSignal(line) {
+			markSignal("conditional_notes")
+		}
+		if containsAudienceSignal(line) {
+			markSignal("audience_constraints")
+		}
+		if containsCorrectionSignal(line) {
+			markSignal("correction_tasks")
+		}
+		if containsContinuationSignal(line) {
+			markSignal("continuation_tasks")
+		}
+		if hasAmbiguousTaskTarget(line) {
+			markSignal("ambiguous_targets")
+		}
+
 		headingMatch := headingPattern.FindStringSubmatch(line)
 		if len(headingMatch) == 3 {
 			headingKey := whitespacePattern.ReplaceAllString(headingMatch[1], "")
@@ -264,6 +514,18 @@ func extractStructureOutline(rawText string) structureOutline {
 			}
 		}
 
+		if subitem, ok := parseSubItemLine(line, currentTask != nil); ok {
+			markSignal("nested_subtasks")
+			if currentSection == nil {
+				currentSection = ensureSection("未分类")
+			}
+			if currentTask == nil {
+				currentTask = &outlineItem{Text: "补充说明"}
+			}
+			currentTask.Subitems = append(currentTask.Subitems, subitem)
+			continue
+		}
+
 		if matches := mainItemPattern.FindStringSubmatch(line); len(matches) == 2 {
 			markSignal("numbered_tasks")
 			flushTask()
@@ -272,22 +534,6 @@ func extractStructureOutline(rawText string) structureOutline {
 			}
 			currentTask = &outlineItem{Text: strings.TrimSpace(matches[1])}
 			continue
-		}
-
-		if matches := subItemPattern.FindStringSubmatch(line); len(matches) == 2 {
-			markSignal("nested_subtasks")
-			if currentSection == nil {
-				currentSection = ensureSection("未分类")
-			}
-			if currentTask == nil {
-				currentTask = &outlineItem{Text: "补充说明"}
-			}
-			currentTask.Subitems = append(currentTask.Subitems, strings.TrimSpace(matches[1]))
-			continue
-		}
-
-		if containsReviewSignal(line) {
-			markSignal("conditional_notes")
 		}
 
 		if currentSection == nil {
@@ -339,15 +585,6 @@ func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
 	groupTitle = strings.TrimSpace(whitespacePattern.ReplaceAllString(groupTitle, " "))
 
 	confidence := item.Confidence
-	if confidence < 0 {
-		confidence = 0
-	}
-	if confidence > 1 {
-		confidence = 1
-	}
-	if confidence == 0 {
-		confidence = 0.78
-	}
 
 	notes := make([]string, 0, len(item.Notes))
 	for _, note := range item.Notes {
@@ -357,13 +594,7 @@ func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
 		}
 	}
 
-	needsReview := item.NeedsReview
-	if subject == "未分类" || confidence < 0.7 || containsReviewSignal(groupTitle, title) {
-		needsReview = true
-	}
-	if needsReview && len(notes) == 0 && containsReviewSignal(groupTitle, title) {
-		notes = append(notes, "包含条件性说明，建议家长确认适用范围。")
-	}
+	confidence, needsReview, notes := normalizeTaskMetadata(subject, groupTitle, title, confidence, item.NeedsReview, notes)
 
 	taskType := strings.TrimSpace(item.Type)
 	if taskType == "" {

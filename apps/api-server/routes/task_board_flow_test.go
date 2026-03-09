@@ -190,6 +190,9 @@ func TestTaskBoardStatusFlowForMarch6Demo(t *testing.T) {
 	}
 
 	itemBoard := decodeTaskBoardResponse(t, itemRecorder)
+	if itemBoard.UpdatedCount != 1 {
+		t.Fatalf("expected single-item updated_count 1, got %d", itemBoard.UpdatedCount)
+	}
 	if !itemBoard.Tasks[0].Completed || itemBoard.Tasks[0].Status != "completed" {
 		t.Fatalf("expected first task completed, got %+v", itemBoard.Tasks[0])
 	}
@@ -214,6 +217,9 @@ func TestTaskBoardStatusFlowForMarch6Demo(t *testing.T) {
 	}
 
 	groupBoard := decodeTaskBoardResponse(t, groupRecorder)
+	if groupBoard.UpdatedCount != 3 {
+		t.Fatalf("expected homework-group updated_count 3, got %d", groupBoard.UpdatedCount)
+	}
 	previewGroup := findHomeworkGroup(t, groupBoard.HomeworkGroups, "英语", "预习M1U2")
 	if previewGroup.Completed != 3 || previewGroup.Pending != 0 || previewGroup.Status != "completed" {
 		t.Fatalf("unexpected homework group after group update: %+v", previewGroup)
@@ -238,6 +244,9 @@ func TestTaskBoardStatusFlowForMarch6Demo(t *testing.T) {
 	}
 
 	subjectBoard := decodeTaskBoardResponse(t, subjectRecorder)
+	if subjectBoard.UpdatedCount != 2 {
+		t.Fatalf("expected subject updated_count 2, got %d", subjectBoard.UpdatedCount)
+	}
 	chineseGroup := findGroup(t, subjectBoard.Groups, "语文")
 	if chineseGroup.Completed != 2 || chineseGroup.Pending != 0 || chineseGroup.Status != "completed" {
 		t.Fatalf("unexpected chinese group after subject update: %+v", chineseGroup)
@@ -257,6 +266,9 @@ func TestTaskBoardStatusFlowForMarch6Demo(t *testing.T) {
 	}
 
 	finalBoard := decodeTaskBoardResponse(t, allRecorder)
+	if finalBoard.UpdatedCount != 3 {
+		t.Fatalf("expected bulk updated_count 3, got %d", finalBoard.UpdatedCount)
+	}
 	if finalBoard.Summary.Completed != 9 || finalBoard.Summary.Pending != 0 || finalBoard.Summary.Status != "completed" {
 		t.Fatalf("unexpected final summary: %+v", finalBoard.Summary)
 	}

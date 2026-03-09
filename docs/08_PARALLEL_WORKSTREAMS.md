@@ -226,6 +226,8 @@
 
 ## 6. 多 Codex 工作方式
 
+具体终端命名、启动命令和开场提示词见 `docs/09_CODEX_TERMINAL_COMMANDS.md`。
+
 推荐每个组固定一个 Codex 会话，并把工作目录切到自己的主目录：
 
 1. `Go-API Codex`

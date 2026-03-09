@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -119,8 +118,7 @@ func respondWithBoard(c *gin.Context, board taskboarddomain.Board, extra gin.H) 
 
 func (h *TaskHandler) CreateTask(c *gin.Context) {
 	var req CreateTaskReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
@@ -137,7 +135,16 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		if strings.Contains(err.Error(), "cannot be empty") || strings.Contains(err.Error(), "YYYY-MM-DD") {
 			status = http.StatusBadRequest
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		errorCode := "internal_error"
+		details := any(nil)
+		if status == http.StatusBadRequest {
+			errorCode = "invalid_request"
+			if strings.Contains(err.Error(), "YYYY-MM-DD") {
+				errorCode = "invalid_date"
+				details = gin.H{"field": "assigned_date"}
+			}
+		}
+		respondError(c, status, errorCode, err.Error(), details)
 		return
 	}
 
@@ -150,42 +157,39 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 
 func (h *TaskHandler) ParseAndCreateTasks(c *gin.Context) {
 	var req ParseTaskReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
 	parsed, err := h.parser.Parse(context.Background(), strings.TrimSpace(req.RawText))
 	if err != nil {
 		log.Printf("Failed to parse parent input via Go parser: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to parse task text"})
+		respondError(c, http.StatusBadGateway, "parser_unavailable", "Failed to parse task text", nil)
 		return
 	}
 
 	if parsed.Status != "success" || len(parsed.Data) == 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{
-			"error":          "Agent workflow could not extract valid tasks",
+		respondError(c, http.StatusUnprocessableEntity, "tasks_not_extractable", "Agent workflow could not extract valid tasks", gin.H{
 			"agent_response": parsed,
 		})
 		return
 	}
 
-	assignedDate, err := taskboardapp.ParseAssignedDate(req.AssignedDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	assignedDate, ok := parseOptionalDateOrAbort(c, "assigned_date", req.AssignedDate)
+	if !ok {
 		return
 	}
 
 	createdTasks := mapParsedTasksToCreateReqs(req.FamilyID, req.AssigneeID, assignedDate.Format("2006-01-02"), parsed.Data)
 	if len(createdTasks) == 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Parser returned tasks without usable content"})
+		respondError(c, http.StatusUnprocessableEntity, "tasks_not_extractable", "Parser returned tasks without usable content", nil)
 		return
 	}
 
 	if req.AutoCreate {
 		if _, err := h.taskboard.CreateTasks(createdTasks); err != nil {
 			log.Printf("Failed to persist parsed tasks: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store parsed tasks in markdown"})
+			respondError(c, http.StatusInternalServerError, "internal_error", "Failed to store parsed tasks in markdown", nil)
 			return
 		}
 	}
@@ -203,19 +207,19 @@ func (h *TaskHandler) ParseAndCreateTasks(c *gin.Context) {
 
 func (h *TaskHandler) ConfirmTasks(c *gin.Context) {
 	var req ConfirmTasksReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
 	if len(req.Tasks) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tasks cannot be empty"})
+		respondError(c, http.StatusBadRequest, "invalid_request", "tasks cannot be empty", gin.H{
+			"field": "tasks",
+		})
 		return
 	}
 
-	assignedDate, err := taskboardapp.ParseAssignedDate(req.AssignedDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	assignedDate, ok := parseOptionalDateOrAbort(c, "assigned_date", req.AssignedDate)
+	if !ok {
 		return
 	}
 
@@ -237,13 +241,15 @@ func (h *TaskHandler) ConfirmTasks(c *gin.Context) {
 	}
 
 	if len(createdTasks) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No valid tasks were provided for confirmation"})
+		respondError(c, http.StatusBadRequest, "invalid_request", "No valid tasks were provided for confirmation", gin.H{
+			"field": "tasks",
+		})
 		return
 	}
 
 	if _, err := h.taskboard.CreateTasks(createdTasks); err != nil {
 		log.Printf("Failed to persist confirmed tasks: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store confirmed tasks in markdown"})
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to store confirmed tasks in markdown", nil)
 		return
 	}
 
@@ -256,36 +262,30 @@ func (h *TaskHandler) ConfirmTasks(c *gin.Context) {
 }
 
 func (h *TaskHandler) ListTasks(c *gin.Context) {
-	familyIDStr := c.Query("family_id")
-	userIDStr := c.Query("user_id")
-
-	if familyIDStr == "" || userIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "family_id and user_id query params are required"})
+	queryValues, ok := requireQueryParams(c, "family_id", "user_id")
+	if !ok {
 		return
 	}
 
-	familyID, err := strconv.ParseUint(familyIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "family_id must be a valid unsigned integer"})
+	familyID, ok := parseUintQueryParam(c, "family_id", queryValues["family_id"])
+	if !ok {
 		return
 	}
 
-	userID, err := strconv.ParseUint(userIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id must be a valid unsigned integer"})
+	userID, ok := parseUintQueryParam(c, "user_id", queryValues["user_id"])
+	if !ok {
 		return
 	}
 
-	targetDate, err := taskboardapp.ParseAssignedDate(c.Query("date"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	targetDate, ok := parseOptionalDateOrAbort(c, "date", c.Query("date"))
+	if !ok {
 		return
 	}
 
-	board, err := h.taskboard.ListBoard(uint(familyID), uint(userID), targetDate)
+	board, err := h.taskboard.ListBoard(familyID, userID, targetDate)
 	if err != nil {
 		log.Printf("Error reading markdown tasks: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tasks from markdown"})
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to fetch tasks from markdown", nil)
 		return
 	}
 
@@ -294,61 +294,84 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 
 func (h *TaskHandler) UpdateSingleTaskStatus(c *gin.Context) {
 	var req UpdateTaskStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
-	targetDate, err := taskboardapp.ParseAssignedDate(req.AssignedDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	targetDate, ok := parseOptionalDateOrAbort(c, "assigned_date", req.AssignedDate)
+	if !ok {
 		return
 	}
 
-	board, updatedCount, err := h.taskboard.UpdateTaskStatusByID(req.FamilyID, req.AssigneeID, targetDate, req.TaskID, req.Completed)
+	result, err := h.taskboard.UpdateTaskStatusByID(req.FamilyID, req.AssigneeID, targetDate, req.TaskID, req.Completed)
 	if err != nil {
 		log.Printf("Failed to update single task status: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task status"})
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to update task status", nil)
 		return
 	}
-	if updatedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+	if result.MatchedCount == 0 {
+		respondError(c, http.StatusNotFound, "task_not_found", "Task not found", gin.H{
+			"task_id": req.TaskID,
+		})
+		return
+	}
+	if result.UpdatedCount == 0 {
+		respondError(c, http.StatusConflict, "status_unchanged", "Task status is already "+statusLabel(req.Completed), gin.H{
+			"task_id": req.TaskID,
+			"status":  statusLabel(req.Completed),
+		})
 		return
 	}
 
-	respondWithBoard(c, board, gin.H{
+	respondWithBoard(c, result.Board, gin.H{
 		"message":       "Single task status updated successfully",
-		"updated_count": updatedCount,
+		"updated_count": result.UpdatedCount,
 	})
 }
 
 func (h *TaskHandler) UpdateTaskGroupStatus(c *gin.Context) {
 	var req UpdateTaskGroupStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
-	targetDate, err := taskboardapp.ParseAssignedDate(req.AssignedDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if strings.TrimSpace(req.Subject) == "" {
+		respondError(c, http.StatusBadRequest, "missing_required_fields", "Required fields are missing", gin.H{
+			"fields": []string{"subject"},
+		})
 		return
 	}
 
-	board, updatedCount, err := h.taskboard.UpdateTaskStatusByGroup(req.FamilyID, req.AssigneeID, targetDate, req.Subject, req.GroupTitle, req.Completed)
+	targetDate, ok := parseOptionalDateOrAbort(c, "assigned_date", req.AssignedDate)
+	if !ok {
+		return
+	}
+
+	result, err := h.taskboard.UpdateTaskStatusByGroup(req.FamilyID, req.AssigneeID, targetDate, req.Subject, req.GroupTitle, req.Completed)
 	if err != nil {
 		log.Printf("Failed to update task group status: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task group status"})
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to update task group status", nil)
 		return
 	}
-	if updatedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No tasks found for the provided subject"})
+	if result.MatchedCount == 0 {
+		respondError(c, http.StatusNotFound, "task_group_not_found", "No tasks found for the provided subject", gin.H{
+			"subject":     strings.TrimSpace(req.Subject),
+			"group_title": strings.TrimSpace(req.GroupTitle),
+		})
+		return
+	}
+	if result.UpdatedCount == 0 {
+		respondError(c, http.StatusConflict, "status_unchanged", "Matched tasks are already "+statusLabel(req.Completed), gin.H{
+			"subject":     strings.TrimSpace(req.Subject),
+			"group_title": strings.TrimSpace(req.GroupTitle),
+			"status":      statusLabel(req.Completed),
+		})
 		return
 	}
 
-	respondWithBoard(c, board, gin.H{
+	respondWithBoard(c, result.Board, gin.H{
 		"message":       "Task group status updated successfully",
-		"updated_count": updatedCount,
+		"updated_count": result.UpdatedCount,
 		"subject":       strings.TrimSpace(req.Subject),
 		"group_title":   strings.TrimSpace(req.GroupTitle),
 	})
@@ -356,26 +379,41 @@ func (h *TaskHandler) UpdateTaskGroupStatus(c *gin.Context) {
 
 func (h *TaskHandler) UpdateAllTasksStatus(c *gin.Context) {
 	var req UpdateAllTasksStatusReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+	if !bindJSONOrAbort(c, &req) {
 		return
 	}
 
-	targetDate, err := taskboardapp.ParseAssignedDate(req.AssignedDate)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	targetDate, ok := parseOptionalDateOrAbort(c, "assigned_date", req.AssignedDate)
+	if !ok {
 		return
 	}
 
-	board, updatedCount, err := h.taskboard.UpdateAllTaskStatuses(req.FamilyID, req.AssigneeID, targetDate, req.Completed)
+	result, err := h.taskboard.UpdateAllTaskStatuses(req.FamilyID, req.AssigneeID, targetDate, req.Completed)
 	if err != nil {
 		log.Printf("Failed to update all task statuses: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update all task statuses"})
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to update all task statuses", nil)
+		return
+	}
+	if result.MatchedCount == 0 {
+		respondError(c, http.StatusNotFound, "task_not_found", "No tasks found to update", nil)
+		return
+	}
+	if result.UpdatedCount == 0 {
+		respondError(c, http.StatusConflict, "status_unchanged", "All tasks are already "+statusLabel(req.Completed), gin.H{
+			"status": statusLabel(req.Completed),
+		})
 		return
 	}
 
-	respondWithBoard(c, board, gin.H{
+	respondWithBoard(c, result.Board, gin.H{
 		"message":       "All task statuses updated successfully",
-		"updated_count": updatedCount,
+		"updated_count": result.UpdatedCount,
 	})
+}
+
+func statusLabel(completed bool) string {
+	if completed {
+		return "completed"
+	}
+	return "pending"
 }

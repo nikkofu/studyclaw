@@ -112,9 +112,12 @@ func TestUpdateTaskCompletionFlows(t *testing.T) {
 		t.Fatalf("AddTask returned error: %v", err)
 	}
 
-	tasks, updatedCount, err := repository.UpdateTaskCompletionByID(familyID, userID, date, 1, true)
+	tasks, matchedCount, updatedCount, err := repository.UpdateTaskCompletionByID(familyID, userID, date, 1, true)
 	if err != nil {
 		t.Fatalf("UpdateTaskCompletionByID returned error: %v", err)
+	}
+	if matchedCount != 1 {
+		t.Fatalf("expected single-task matched count 1, got %d", matchedCount)
 	}
 	if updatedCount != 1 {
 		t.Fatalf("expected single-task update count 1, got %d", updatedCount)
@@ -123,20 +126,26 @@ func TestUpdateTaskCompletionFlows(t *testing.T) {
 		t.Fatalf("expected first task completed, got %+v", tasks[0])
 	}
 
-	tasks, updatedCount, err = repository.UpdateTaskCompletionBySubject(familyID, userID, date, "数学", true)
+	tasks, matchedCount, updatedCount, err = repository.UpdateTaskCompletionBySubject(familyID, userID, date, "数学", true)
 	if err != nil {
 		t.Fatalf("UpdateTaskCompletionBySubject returned error: %v", err)
 	}
-	if updatedCount != 2 {
-		t.Fatalf("expected subject update count 2, got %d", updatedCount)
+	if matchedCount != 2 {
+		t.Fatalf("expected subject matched count 2, got %d", matchedCount)
+	}
+	if updatedCount != 1 {
+		t.Fatalf("expected subject update count 1, got %d", updatedCount)
 	}
 	if !tasks[1].Completed {
 		t.Fatalf("expected second math task completed, got %+v", tasks[1])
 	}
 
-	tasks, updatedCount, err = repository.UpdateTaskCompletionByHomeworkGroup(familyID, userID, date, "英语", "预习M1U2", true)
+	tasks, matchedCount, updatedCount, err = repository.UpdateTaskCompletionByHomeworkGroup(familyID, userID, date, "英语", "预习M1U2", true)
 	if err != nil {
 		t.Fatalf("UpdateTaskCompletionByHomeworkGroup returned error: %v", err)
+	}
+	if matchedCount != 2 {
+		t.Fatalf("expected homework-group matched count 2, got %d", matchedCount)
 	}
 	if updatedCount != 2 {
 		t.Fatalf("expected homework-group update count 2, got %d", updatedCount)
@@ -145,16 +154,30 @@ func TestUpdateTaskCompletionFlows(t *testing.T) {
 		t.Fatalf("expected english group tasks completed, got %+v", tasks)
 	}
 
-	tasks, updatedCount, err = repository.UpdateAllTasksCompletion(familyID, userID, date, true)
+	tasks, matchedCount, updatedCount, err = repository.UpdateAllTasksCompletion(familyID, userID, date, true)
 	if err != nil {
 		t.Fatalf("UpdateAllTasksCompletion returned error: %v", err)
+	}
+	if matchedCount != 4 {
+		t.Fatalf("expected all-task matched count 4, got %d", matchedCount)
+	}
+	if updatedCount != 0 {
+		t.Fatalf("expected duplicate all-task update count 0, got %d", updatedCount)
+	}
+
+	tasks, matchedCount, updatedCount, err = repository.UpdateAllTasksCompletion(familyID, userID, date, false)
+	if err != nil {
+		t.Fatalf("UpdateAllTasksCompletion returned error: %v", err)
+	}
+	if matchedCount != 4 {
+		t.Fatalf("expected all-task matched count 4, got %d", matchedCount)
 	}
 	if updatedCount != 4 {
 		t.Fatalf("expected all-task update count 4, got %d", updatedCount)
 	}
 	for _, task := range tasks {
-		if !task.Completed {
-			t.Fatalf("expected all tasks completed, got %+v", task)
+		if task.Completed {
+			t.Fatalf("expected all tasks pending, got %+v", task)
 		}
 	}
 
@@ -167,7 +190,7 @@ func TestUpdateTaskCompletionFlows(t *testing.T) {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
 
-	expectedMarkdown := "# 2026年03月06日 - 今日成长轨迹\n\n## 🎯 任务清单\n\n### 数学\n\n#### 校本作业\n- [x] 校本P14～15\n\n#### 练习册\n- [x] 练习册P12～13\n\n### 英语\n\n#### 预习M1U2\n- [x] 书本上标注好“黄页”出现单词的音标\n- [x] 沪学习听录音跟读\n"
+	expectedMarkdown := "# 2026年03月06日 - 今日成长轨迹\n\n## 🎯 任务清单\n\n### 数学\n\n#### 校本作业\n- [ ] 校本P14～15\n\n#### 练习册\n- [ ] 练习册P12～13\n\n### 英语\n\n#### 预习M1U2\n- [ ] 书本上标注好“黄页”出现单词的音标\n- [ ] 沪学习听录音跟读\n"
 	if string(content) != expectedMarkdown {
 		t.Fatalf("unexpected markdown content:\n%s", string(content))
 	}

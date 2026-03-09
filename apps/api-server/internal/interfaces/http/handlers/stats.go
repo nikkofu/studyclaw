@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	weeklyinsights "github.com/nikkofu/studyclaw/api-server/internal/modules/agent/weeklyinsights"
@@ -22,32 +20,30 @@ func NewStatsHandler(taskboard *taskboardapp.Service, weekly *weeklyinsights.Ser
 }
 
 func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
-	familyIDStr := c.Query("family_id")
-	userIDStr := c.Query("user_id")
-
-	if familyIDStr == "" || userIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "family_id and user_id query params are required"})
+	queryValues, ok := requireQueryParams(c, "family_id", "user_id")
+	if !ok {
 		return
 	}
 
-	familyID, err := strconv.ParseUint(familyIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "family_id must be a valid unsigned integer"})
+	familyID, ok := parseUintQueryParam(c, "family_id", queryValues["family_id"])
+	if !ok {
 		return
 	}
 
-	userID, err := strconv.ParseUint(userIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id must be a valid unsigned integer"})
+	userID, ok := parseUintQueryParam(c, "user_id", queryValues["user_id"])
+	if !ok {
 		return
 	}
 
-	endDate := time.Now()
+	endDate, ok := parseOptionalDateOrAbort(c, "end_date", c.Query("end_date"))
+	if !ok {
+		return
+	}
 	startDate := endDate.AddDate(0, 0, -6)
 
 	allDailyData := make([]map[string]interface{}, 0)
 	for date := startDate; !date.After(endDate); date = date.AddDate(0, 0, 1) {
-		tasks, err := h.taskboard.ListTasks(uint(familyID), uint(userID), date)
+		tasks, err := h.taskboard.ListTasks(familyID, userID, date)
 		if err == nil && len(tasks) > 0 {
 			allDailyData = append(allDailyData, map[string]interface{}{
 				"date":  date.Format("2006-01-02"),

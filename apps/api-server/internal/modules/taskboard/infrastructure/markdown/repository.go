@@ -268,20 +268,20 @@ func (r *Repository) GetTasks(familyID, userID uint, date time.Time) ([]domain.T
 	return tasks, scanner.Err()
 }
 
-func (r *Repository) updateTaskSet(familyID, userID uint, date time.Time, matcher func(task domain.Task) bool, completed bool) ([]domain.Task, int, error) {
-	path, err := r.EnsureDailyFile(familyID, userID, date)
-	if err != nil {
-		return nil, 0, err
-	}
-
+func (r *Repository) updateTaskSet(familyID, userID uint, date time.Time, matcher func(task domain.Task) bool, completed bool) ([]domain.Task, int, int, error) {
 	tasks, err := r.GetTasks(familyID, userID, date)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
+	matchedCount := 0
 	updatedCount := 0
 	for index := range tasks {
 		if !matcher(tasks[index]) {
+			continue
+		}
+		matchedCount++
+		if tasks[index].Completed == completed {
 			continue
 		}
 		tasks[index].Completed = completed
@@ -293,35 +293,40 @@ func (r *Repository) updateTaskSet(familyID, userID uint, date time.Time, matche
 		updatedCount++
 	}
 
-	if err := writeTasksToMD(path, date, tasks); err != nil {
-		return nil, 0, err
+	if updatedCount > 0 {
+		path, err := r.EnsureDailyFile(familyID, userID, date)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if err := writeTasksToMD(path, date, tasks); err != nil {
+			return nil, 0, 0, err
+		}
 	}
 
-	updatedTasks, err := r.GetTasks(familyID, userID, date)
-	return updatedTasks, updatedCount, err
+	return tasks, matchedCount, updatedCount, nil
 }
 
-func (r *Repository) UpdateTaskCompletionByID(familyID, userID uint, date time.Time, taskID int, completed bool) ([]domain.Task, int, error) {
+func (r *Repository) UpdateTaskCompletionByID(familyID, userID uint, date time.Time, taskID int, completed bool) ([]domain.Task, int, int, error) {
 	return r.updateTaskSet(familyID, userID, date, func(task domain.Task) bool {
 		return task.TaskID == taskID
 	}, completed)
 }
 
-func (r *Repository) UpdateTaskCompletionBySubject(familyID, userID uint, date time.Time, subject string, completed bool) ([]domain.Task, int, error) {
+func (r *Repository) UpdateTaskCompletionBySubject(familyID, userID uint, date time.Time, subject string, completed bool) ([]domain.Task, int, int, error) {
 	normalizedSubject, _, _ := normalizeStoredTask(subject, "", "placeholder")
 	return r.updateTaskSet(familyID, userID, date, func(task domain.Task) bool {
 		return task.Subject == normalizedSubject
 	}, completed)
 }
 
-func (r *Repository) UpdateTaskCompletionByHomeworkGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) ([]domain.Task, int, error) {
+func (r *Repository) UpdateTaskCompletionByHomeworkGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) ([]domain.Task, int, int, error) {
 	normalizedSubject, normalizedGroupTitle, _ := normalizeStoredTask(subject, groupTitle, "placeholder")
 	return r.updateTaskSet(familyID, userID, date, func(task domain.Task) bool {
 		return task.Subject == normalizedSubject && task.GroupTitle == normalizedGroupTitle
 	}, completed)
 }
 
-func (r *Repository) UpdateAllTasksCompletion(familyID, userID uint, date time.Time, completed bool) ([]domain.Task, int, error) {
+func (r *Repository) UpdateAllTasksCompletion(familyID, userID uint, date time.Time, completed bool) ([]domain.Task, int, int, error) {
 	return r.updateTaskSet(familyID, userID, date, func(task domain.Task) bool {
 		return true
 	}, completed)

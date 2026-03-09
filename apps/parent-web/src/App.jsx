@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { flattenSectionsToTasks, parseSchoolTaskMessage, REFERENCE_GROUP_MESSAGE } from "./schoolTaskParser"
 
 const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"
 let draftTaskCounter = 0
+
+function formatDateInputValue(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
 
 async function requestJSON(url, options = {}) {
   const response = await fetch(url, options)
@@ -21,6 +28,95 @@ function StatCard({ label, value, hint }) {
       <span className="stat-label">{label}</span>
       <strong className="stat-value">{value}</strong>
       <span className="stat-hint">{hint}</span>
+    </div>
+  )
+}
+
+function WorkflowSteps({ previewTaskCount, draftTaskCount, riskyTaskCount, selectedTaskCount, createdTaskCount, parseStatus, createStatus }) {
+  const steps = [
+    {
+      id: "preview",
+      index: "01",
+      title: "解析预览",
+      detail: previewTaskCount > 0 ? `本地已预估 ${previewTaskCount} 条任务` : "先粘贴学校群原文并检查结构",
+      state: previewTaskCount > 0 ? "active" : "idle",
+    },
+    {
+      id: "review",
+      index: "02",
+      title: "编辑确认",
+      detail:
+        draftTaskCount > 0
+          ? `AI 草稿 ${draftTaskCount} 条，其中 ${riskyTaskCount} 条风险优先处理`
+          : parseStatus?.tone === "error"
+            ? "解析失败，可直接修改原文后重试"
+            : "提交到 API 后进入草稿审核",
+      state: parseStatus?.tone === "error" ? "warning" : draftTaskCount > 0 ? "active" : "idle",
+    },
+    {
+      id: "create",
+      index: "03",
+      title: "创建任务",
+      detail:
+        createdTaskCount > 0
+          ? `本次已创建 ${createdTaskCount} 条任务`
+          : selectedTaskCount > 0
+            ? `已选 ${selectedTaskCount} 条任务，等待创建`
+            : createStatus?.tone === "error"
+              ? "创建失败，草稿与选中项均已保留"
+              : "确认选中任务后写入今日清单",
+      state: createStatus?.tone === "error" ? "warning" : createdTaskCount > 0 || selectedTaskCount > 0 ? "active" : "idle",
+    },
+  ]
+
+  return (
+    <div className="workflow-strip" aria-label="家长操作路径">
+      {steps.map((step) => (
+        <article className={`workflow-card workflow-${step.state}`} key={step.id}>
+          <span className="workflow-index">{step.index}</span>
+          <div>
+            <strong>{step.title}</strong>
+            <p>{step.detail}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function StatusBanner({
+  status,
+  actionLabel,
+  onAction,
+  actionDisabled = false,
+  secondaryActionLabel,
+  onSecondaryAction,
+  secondaryActionDisabled = false,
+}) {
+  if (!status) {
+    return null
+  }
+
+  return (
+    <div className={`status-banner banner-${status.tone || "info"}`} role="status" aria-live="polite">
+      <div className="status-banner-copy">
+        <strong>{status.title}</strong>
+        <p>{status.message}</p>
+      </div>
+      {actionLabel || secondaryActionLabel ? (
+        <div className="status-banner-actions">
+          {secondaryActionLabel ? (
+            <button className="ghost-button compact" type="button" onClick={onSecondaryAction} disabled={secondaryActionDisabled}>
+              {secondaryActionLabel}
+            </button>
+          ) : null}
+          {actionLabel ? (
+            <button className="ghost-button compact" type="button" onClick={onAction} disabled={actionDisabled}>
+              {actionLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -298,6 +394,79 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
   return { byId: diagnosticsById, summary }
 }
 
+function getDraftTaskRiskMeta(task, diagnostics = { issues: [], hasBlocking: false }) {
+  const confidence = Number(task.confidence || 0)
+  const firstBlockingIssue = diagnostics.issues.find((issue) => issue.severity === "block")
+  const firstWarningIssue = diagnostics.issues.find((issue) => issue.severity === "warn")
+  const reasons = []
+
+  if (task.needs_review) {
+    reasons.push("后端标记 needs_review")
+  }
+
+  if (confidence < 0.7) {
+    reasons.push(`低置信 ${Math.round(confidence * 100)}%`)
+  }
+
+  if (diagnostics.hasBlocking) {
+    if (!reasons.length) {
+      reasons.push("存在阻断项")
+    }
+    return {
+      label: "需修正",
+      tone: "block",
+      order: 0,
+      caption: firstBlockingIssue?.message || "修正阻断项后才能创建。",
+      reasons,
+    }
+  }
+
+  if (task.needs_review || confidence < 0.7) {
+    if (!reasons.length) {
+      reasons.push("建议人工确认")
+    }
+
+    let label = "高风险"
+    let caption = "建议逐条确认后再创建。"
+
+    if (task.needs_review && confidence >= 0.7) {
+      label = "待确认"
+      caption = "后端要求家长确认后再创建。"
+    } else if (!task.needs_review && confidence < 0.7) {
+      label = "低置信"
+      caption = "置信度偏低，建议先修改标题再创建。"
+    } else if (task.needs_review && confidence < 0.7) {
+      caption = "同时出现 needs_review 与低置信，建议优先处理。"
+    }
+
+    return {
+      label,
+      tone: "high",
+      order: 1,
+      caption,
+      reasons,
+    }
+  }
+
+  if (firstWarningIssue) {
+    return {
+      label: "有提醒",
+      tone: "warn",
+      order: 2,
+      caption: firstWarningIssue.message,
+      reasons: ["存在相似或归类提醒"],
+    }
+  }
+
+  return {
+    label: "可创建",
+    tone: "ready",
+    order: 3,
+    caption: "后端未标记 needs_review，可直接进入创建。",
+    reasons: ["建议直接创建"],
+  }
+}
+
 function DraftTaskList({
   tasks,
   selectedTaskIds,
@@ -305,26 +474,66 @@ function DraftTaskList({
   onToggle,
   onFieldChange,
   onRemove,
-  onSelectHighConfidence,
+  onSelectRecommended,
   onSelectCleanTasks,
   onSelectAll,
   onClearSelection,
   onAddManualTask,
 }) {
-  const highConfidenceCount = tasks.filter((task) => !task.needs_review && Number(task.confidence || 0) >= 0.7).length
+  const taskEntries = [...tasks]
+    .map((task) => {
+      const diagnostics = diagnosticsById[task.id] || { issues: [], hasBlocking: false }
+      return {
+        task,
+        diagnostics,
+        riskMeta: getDraftTaskRiskMeta(task, diagnostics),
+      }
+    })
+    .sort((left, right) => {
+      if (left.riskMeta.order !== right.riskMeta.order) {
+        return left.riskMeta.order - right.riskMeta.order
+      }
+
+      const leftConfidence = Number(left.task.confidence || 0)
+      const rightConfidence = Number(right.task.confidence || 0)
+      if (leftConfidence !== rightConfidence) {
+        return leftConfidence - rightConfidence
+      }
+
+      return String(left.task.title || "").localeCompare(String(right.task.title || ""), "zh-CN")
+    })
+
+  const riskyTaskCount = taskEntries.filter((entry) => entry.riskMeta.order <= 1).length
+  const warningTaskCount = taskEntries.filter((entry) => entry.riskMeta.order === 2).length
+  const recommendedCount = taskEntries.filter(
+    (entry) => !entry.diagnostics.hasBlocking && !entry.task.needs_review && Number(entry.task.confidence || 0) >= 0.7,
+  ).length
 
   return (
     <section className="panel">
       <div className="panel-heading">
-        <h3>AI 建议任务</h3>
+        <h3>2. AI 草稿审核</h3>
         <span>{tasks.length} 条</span>
       </div>
+
+      <div className="review-summary">
+        <div>
+          <strong>风险任务已自动置顶</strong>
+          <p>`needs_review` 和低置信任务优先展示，先处理这些卡片，再批量创建其余任务。</p>
+        </div>
+        <div className="summary-pill-row">
+          <span className="summary-pill summary-risk">风险 {riskyTaskCount}</span>
+          <span className="summary-pill summary-warn">提醒 {warningTaskCount}</span>
+          <span className="summary-pill summary-ready">建议直接创建 {recommendedCount}</span>
+        </div>
+      </div>
+
       <div className="draft-toolbar">
-        <button className="ghost-button compact" type="button" onClick={onSelectHighConfidence}>
-          全选高置信 ({highConfidenceCount})
+        <button className="ghost-button compact" type="button" onClick={onSelectRecommended}>
+          全选建议创建 ({recommendedCount})
         </button>
         <button className="ghost-button compact" type="button" onClick={onSelectCleanTasks}>
-          全选无冲突
+          全选无阻断
         </button>
         <button className="ghost-button compact" type="button" onClick={onSelectAll}>
           全选全部
@@ -336,32 +545,50 @@ function DraftTaskList({
           手动补一条
         </button>
       </div>
+
       {tasks.length === 0 ? (
         <p className="empty-state">先点击“AI 解析任务”，再确认哪些任务写入今日清单。</p>
       ) : (
         <div className="draft-list">
-          {tasks.map((task, index) => {
+          {taskEntries.map(({ task, diagnostics, riskMeta }, index) => {
             const isSelected = selectedTaskIds.includes(task.id)
             const confidence = Number(task.confidence || 0)
             const notes = Array.isArray(task.notes) ? task.notes : []
             const confidenceMeta = getConfidenceMeta(confidence)
-            const diagnostics = diagnosticsById[task.id] || { issues: [], hasBlocking: false }
 
             return (
               <article
-                className={`draft-card ${task.needs_review ? "needs-review" : ""} ${diagnostics.hasBlocking ? "has-blocking" : ""}`}
+                className={`draft-card risk-${riskMeta.tone} ${task.needs_review ? "needs-review" : ""} ${
+                  diagnostics.hasBlocking ? "has-blocking" : ""
+                } ${isSelected ? "is-selected" : ""}`}
+                data-testid="draft-card"
                 key={`${task.id}-${index}`}
               >
                 <div className="draft-header">
-                  <input type="checkbox" checked={isSelected} onChange={() => onToggle(task.id)} />
+                  <input
+                    aria-label={`选择任务 ${task.title || task.group_title || task.subject}`}
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggle(task.id)}
+                  />
                   <span className="task-subject">{task.subject}</span>
                   <span className={`confidence-pill confidence-${confidenceMeta.tone}`}>{confidenceMeta.label}</span>
-                  {task.needs_review ? <span className="review-pill">需确认</span> : null}
+                  <span className={`risk-badge badge-${riskMeta.tone}`}>{riskMeta.label}</span>
                   {task.source === "manual" ? <span className="review-pill manual-pill">手动补充</span> : null}
                   <button className="inline-link danger" type="button" onClick={() => onRemove(task.id)}>
                     删除
                   </button>
                 </div>
+
+                <div className="risk-reason-row">
+                  {riskMeta.reasons.map((reason, reasonIndex) => (
+                    <span className={`risk-reason reason-${riskMeta.tone}`} key={`${task.id}-reason-${reasonIndex}`}>
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+
+                <p className={`risk-caption caption-${riskMeta.tone}`}>{riskMeta.caption}</p>
 
                 <div className="draft-edit-grid">
                   <label>
@@ -404,39 +631,79 @@ function DraftTaskList({
   )
 }
 
-function QualityPanel({ diagnosticsSummary, selectedTasks, diagnosticsById }) {
+function CreatePanel({
+  diagnosticsSummary,
+  selectedTasks,
+  diagnosticsById,
+  recommendedCount,
+  assignedDate,
+  onSelectRecommended,
+  onConfirm,
+  isConfirming,
+  createStatus,
+}) {
   const selectedBlockingCount = selectedTasks.filter((task) => diagnosticsById[task.id]?.hasBlocking).length
-  const selectedWarningCount = selectedTasks.filter(
-    (task) => !diagnosticsById[task.id]?.hasBlocking && (diagnosticsById[task.id]?.issues.length || 0) > 0,
+  const selectedRiskCount = selectedTasks.filter((task) => {
+    const riskMeta = getDraftTaskRiskMeta(task, diagnosticsById[task.id] || { issues: [], hasBlocking: false })
+    return riskMeta.order <= 1 && !(diagnosticsById[task.id]?.hasBlocking)
+  }).length
+  const selectedReadyCount = selectedTasks.filter(
+    (task) => !diagnosticsById[task.id]?.hasBlocking && !task.needs_review && Number(task.confidence || 0) >= 0.7,
   ).length
+  const canSubmit = selectedTasks.length > 0 && selectedBlockingCount === 0 && !isConfirming
 
   return (
     <section className="panel">
       <div className="panel-heading">
-        <h3>创建前质量检查</h3>
-        <span>本地诊断</span>
+        <h3>3. 编辑确认并创建</h3>
+        <span>{selectedTasks.length} 条已选</span>
       </div>
 
-      <div className="analysis-grid">
+      <div className="analysis-grid confirm-grid">
         <div className="analysis-card">
-          <span>阻断项任务</span>
-          <strong>{diagnosticsSummary.blockTasks}</strong>
+          <span>已选任务</span>
+          <strong>{selectedTasks.length}</strong>
         </div>
         <div className="analysis-card">
-          <span>提醒项任务</span>
-          <strong>{diagnosticsSummary.warningTasks}</strong>
+          <span>已选风险任务</span>
+          <strong>{selectedRiskCount}</strong>
         </div>
         <div className="analysis-card">
-          <span>无冲突任务</span>
-          <strong>{diagnosticsSummary.cleanTasks}</strong>
+          <span>已选阻断项</span>
+          <strong>{selectedBlockingCount}</strong>
+        </div>
+        <div className="analysis-card">
+          <span>建议直接创建</span>
+          <strong>{selectedReadyCount}</strong>
         </div>
       </div>
 
       <ul className="rule-list compact">
-        <li>已选任务中有 {selectedBlockingCount} 条存在阻断项，不能直接创建。</li>
-        <li>已选任务中有 {selectedWarningCount} 条存在提醒项，可以创建，但建议先人工确认。</li>
-        <li>精确重复会被拦截，高相似任务仅提醒，不强制阻断。</li>
+        <li>阻断项任务 {diagnosticsSummary.blockTasks} 条，必须先修正后才能创建。</li>
+        <li>提醒项任务 {diagnosticsSummary.warningTasks} 条，可创建但建议先人工确认。</li>
+        <li>`needs_review` 和低置信会保留原始后端含义，只在前端做风险高亮，不改变字段语义。</li>
       </ul>
+
+      <p className="inline-hint">当前所选任务会创建到 {assignedDate || "未选择日期"}。</p>
+      {selectedBlockingCount > 0 ? <p className="inline-hint hint-error">当前选中项含阻断风险，先修正标题或去重后再创建。</p> : null}
+      {selectedRiskCount > 0 ? <p className="inline-hint hint-warning">当前选中项含 {selectedRiskCount} 条高风险任务，建议逐条核对。</p> : null}
+      {selectedTasks.length === 0 ? <p className="inline-hint">先在上方勾选要创建的任务，再进入创建。</p> : null}
+
+      <div className="confirm-action-row">
+        <button className="ghost-button" type="button" onClick={onSelectRecommended}>
+          只选建议创建 ({recommendedCount})
+        </button>
+        <button className="primary-button secondary" type="button" disabled={!canSubmit} onClick={onConfirm}>
+          {isConfirming ? "创建中..." : `确认创建选中任务 (${selectedTasks.length})`}
+        </button>
+      </div>
+
+      <StatusBanner
+        status={createStatus}
+        actionLabel={createStatus?.retryable ? (isConfirming ? "重试中..." : "重试创建") : undefined}
+        onAction={createStatus?.retryable ? onConfirm : undefined}
+        actionDisabled={!createStatus?.retryable || !canSubmit}
+      />
     </section>
   )
 }
@@ -497,16 +764,18 @@ export default function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL)
   const [familyId, setFamilyId] = useState("101")
   const [assigneeId, setAssigneeId] = useState("201")
+  const [assignedDate, setAssignedDate] = useState(() => formatDateInputValue())
   const [rawText, setRawText] = useState(REFERENCE_GROUP_MESSAGE)
   const [draftTasks, setDraftTasks] = useState([])
   const [selectedTaskIds, setSelectedTaskIds] = useState([])
   const [createdTasks, setCreatedTasks] = useState([])
   const [todayTasks, setTodayTasks] = useState([])
   const [todayDate, setTodayDate] = useState("")
-  const [error, setError] = useState("")
-  const [message, setMessage] = useState("")
   const [parserMode, setParserMode] = useState("")
   const [analysis, setAnalysis] = useState(null)
+  const [parseStatus, setParseStatus] = useState(null)
+  const [createStatus, setCreateStatus] = useState(null)
+  const [refreshError, setRefreshError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -516,6 +785,13 @@ export default function App() {
   const completedCount = todayTasks.filter((task) => task.completed).length
   const diagnostics = buildTaskDiagnostics(draftTasks, todayTasks)
   const selectedDraftTasks = draftTasks.filter((task) => selectedTaskIds.includes(task.id))
+  const riskyDraftTaskCount = draftTasks.filter((task) => {
+    const riskMeta = getDraftTaskRiskMeta(task, diagnostics.byId[task.id] || { issues: [], hasBlocking: false })
+    return riskMeta.order <= 1
+  }).length
+  const recommendedTaskCount = draftTasks.filter(
+    (task) => !diagnostics.byId[task.id]?.hasBlocking && !task.needs_review && Number(task.confidence || 0) >= 0.7,
+  ).length
 
   async function refreshTasks() {
     if (!familyId || !assigneeId) {
@@ -523,7 +799,7 @@ export default function App() {
     }
 
     setIsRefreshing(true)
-    setError("")
+    setRefreshError("")
 
     try {
       const data = await requestJSON(
@@ -532,7 +808,7 @@ export default function App() {
       setTodayTasks(Array.isArray(data.tasks) ? data.tasks : [])
       setTodayDate(data.date || "")
     } catch (requestError) {
-      setError(requestError.message)
+      setRefreshError(requestError.message)
     } finally {
       setIsRefreshing(false)
     }
@@ -579,9 +855,11 @@ export default function App() {
     setSelectedTaskIds((current) => [...current, manualTask.id])
   }
 
-  function selectHighConfidenceTasks() {
+  function selectRecommendedTasks() {
     setSelectedTaskIds(
-      draftTasks.filter((task) => !task.needs_review && Number(task.confidence || 0) >= 0.7).map((task) => task.id),
+      draftTasks
+        .filter((task) => !diagnostics.byId[task.id]?.hasBlocking && !task.needs_review && Number(task.confidence || 0) >= 0.7)
+        .map((task) => task.id),
     )
   }
 
@@ -599,13 +877,27 @@ export default function App() {
     setSelectedTaskIds([])
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-    setError("")
-    setMessage("")
+  async function runParse() {
+    setParseStatus(null)
+    setCreateStatus(null)
+
+    if (!assignedDate) {
+      setParseStatus({
+        tone: "error",
+        title: "无法开始解析",
+        message: "请先选择任务日期，明确本次任务要创建到哪一天。",
+        retryable: false,
+      })
+      return
+    }
 
     if (!rawText.trim()) {
-      setError("请先粘贴学校群任务内容。")
+      setParseStatus({
+        tone: "error",
+        title: "无法开始解析",
+        message: "请先粘贴学校群任务内容。",
+        retryable: false,
+      })
       return
     }
 
@@ -615,6 +907,7 @@ export default function App() {
       const payload = {
         family_id: Number(familyId),
         assignee_id: Number(assigneeId),
+        assigned_date: assignedDate,
         raw_text: rawText.trim(),
         auto_create: false,
       }
@@ -633,70 +926,133 @@ export default function App() {
       setCreatedTasks([])
       setParserMode(data.parser_mode || "")
       setAnalysis(data.analysis || null)
-      setMessage(`AI 已识别 ${data.parsed_count || 0} 个建议任务，请审核后确认创建。`)
+
+      if (parsedTasks.length === 0) {
+        setParseStatus({
+          tone: "warning",
+          title: "解析完成，但未生成草稿",
+          message: `原文和本地结构预览已保留。当前目标日期为 ${assignedDate}，可以调整原文格式后再次解析。`,
+          retryable: true,
+        })
+      } else {
+        setParseStatus({
+          tone: "success",
+          title: "AI 草稿已生成",
+          message: `已识别 ${data.parsed_count || parsedTasks.length} 个建议任务，目标日期 ${assignedDate}，请先处理风险项再确认创建。`,
+          retryable: false,
+        })
+      }
     } catch (requestError) {
-      setError(requestError.message)
+      setParseStatus({
+        tone: "error",
+        title: draftTasks.length > 0 ? "解析失败，上一轮草稿已保留" : "解析失败，输入内容已保留",
+        message: requestError.message,
+        retryable: true,
+      })
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  async function handleConfirmCreate() {
-    setError("")
-    setMessage("")
+  function handleSubmit(event) {
+    event.preventDefault()
+    void runParse()
+  }
+
+  async function runConfirmCreate() {
+    setCreateStatus(null)
+
+    if (!assignedDate) {
+      setCreateStatus({
+        tone: "error",
+        title: "无法开始创建",
+        message: "请先选择任务日期，明确本次任务要创建到哪一天。",
+        retryable: false,
+      })
+      return
+    }
 
     if (selectedDraftTasks.length === 0) {
-      setError("请至少选择一条建议任务再确认创建。")
+      setCreateStatus({
+        tone: "error",
+        title: "无法开始创建",
+        message: "请至少选择一条建议任务再确认创建。",
+        retryable: false,
+      })
+      return
+    }
+
+    const blockingTasks = selectedDraftTasks.filter((task) => diagnostics.byId[task.id]?.hasBlocking)
+    if (blockingTasks.length > 0) {
+      setCreateStatus({
+        tone: "error",
+        title: "当前选中项含阻断风险",
+        message: `当前选中的任务里有 ${blockingTasks.length} 条存在重复或标题为空，请先修改后再确认创建。`,
+        retryable: false,
+      })
+      return
+    }
+
+    const sanitizedTasks = selectedDraftTasks
+      .map((task) => ({
+        subject: task.subject.trim(),
+        group_title: (task.group_title || task.title).trim(),
+        title: task.title.trim(),
+        confidence: task.confidence,
+        needs_review: task.needs_review,
+        notes: task.notes,
+      }))
+      .filter((task) => task.title)
+
+    if (sanitizedTasks.length === 0) {
+      setCreateStatus({
+        tone: "error",
+        title: "当前选中项无法创建",
+        message: "选中的任务标题不能为空。",
+        retryable: false,
+      })
       return
     }
 
     setIsConfirming(true)
 
     try {
-      const blockingTasks = selectedDraftTasks.filter((task) => diagnostics.byId[task.id]?.hasBlocking)
-      if (blockingTasks.length > 0) {
-        throw new Error(`当前选中的任务里有 ${blockingTasks.length} 条存在重复或标题为空，请先修改后再确认创建。`)
-      }
-
-      const sanitizedTasks = selectedDraftTasks
-        .map((task) => ({
-          subject: task.subject.trim(),
-          group_title: (task.group_title || task.title).trim(),
-          title: task.title.trim(),
-          confidence: task.confidence,
-          needs_review: task.needs_review,
-          notes: task.notes,
-        }))
-        .filter((task) => task.title)
-
-      if (sanitizedTasks.length === 0) {
-        throw new Error("选中的任务标题不能为空。")
-      }
-
+      const selectedIds = new Set(selectedDraftTasks.map((task) => task.id))
       const data = await requestJSON(`${apiBaseUrl}/api/v1/tasks/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           family_id: Number(familyId),
           assignee_id: Number(assigneeId),
+          assigned_date: assignedDate,
           tasks: sanitizedTasks,
         }),
       })
 
       setCreatedTasks(Array.isArray(data.tasks) ? data.tasks : [])
-      setDraftTasks((current) => current.filter((task) => !selectedTaskIds.includes(task.id)))
-      setSelectedTaskIds([])
-      setMessage(`已确认并创建 ${data.created_count || 0} 个任务。`)
+      setDraftTasks((current) => current.filter((task) => !selectedIds.has(task.id)))
+      setSelectedTaskIds((current) => current.filter((taskId) => !selectedIds.has(taskId)))
+      setCreateStatus({
+        tone: "success",
+        title: "任务已创建",
+        message: `已确认并创建 ${data.created_count || sanitizedTasks.length} 个任务到 ${assignedDate}。`,
+        retryable: false,
+      })
       await refreshTasks()
     } catch (requestError) {
-      setError(requestError.message)
+      setCreateStatus({
+        tone: "error",
+        title: "创建失败，草稿与选中项已保留",
+        message: requestError.message,
+        retryable: true,
+      })
     } finally {
       setIsConfirming(false)
     }
   }
 
   useEffect(() => {
-    refreshTasks()
+    void refreshTasks()
   }, [])
 
   return (
@@ -724,6 +1080,16 @@ export default function App() {
             <span>最小录入页</span>
           </div>
 
+          <WorkflowSteps
+            previewTaskCount={previewTasks.length}
+            draftTaskCount={draftTasks.length}
+            riskyTaskCount={riskyDraftTaskCount}
+            selectedTaskCount={selectedDraftTasks.length}
+            createdTaskCount={createdTasks.length}
+            parseStatus={parseStatus}
+            createStatus={createStatus}
+          />
+
           <div className="field-grid">
             <label>
               <span>API 地址</span>
@@ -737,7 +1103,13 @@ export default function App() {
               <span>孩子 ID</span>
               <input value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} />
             </label>
+            <label>
+              <span>任务日期</span>
+              <input type="date" value={assignedDate} onChange={(event) => setAssignedDate(event.target.value)} />
+            </label>
           </div>
+
+          <p className="field-note">当前解析与确认创建都会写入 {assignedDate || "未选择日期"}。</p>
 
           <label className="text-field">
             <span>学校群原文</span>
@@ -759,25 +1131,27 @@ export default function App() {
             <button className="primary-button" type="submit" disabled={isSubmitting}>
               {isSubmitting ? "AI 解析中..." : "AI 解析任务"}
             </button>
-            <button className="primary-button secondary" type="button" disabled={isConfirming} onClick={handleConfirmCreate}>
-              {isConfirming ? "创建中..." : `确认创建选中任务 (${selectedDraftTasks.length})`}
-            </button>
           </div>
 
-          {message ? <p className="status success">{message}</p> : null}
-          {error ? <p className="status error">{error}</p> : null}
+          <StatusBanner
+            status={parseStatus}
+            actionLabel={parseStatus?.retryable ? (isSubmitting ? "重试中..." : "重新解析") : undefined}
+            onAction={parseStatus?.retryable ? () => void runParse() : undefined}
+            actionDisabled={!parseStatus?.retryable || isSubmitting}
+          />
+          {refreshError ? <p className="inline-hint hint-error">刷新今日任务失败: {refreshError}</p> : null}
         </form>
 
         <section className="column-stack">
           <section className="panel">
             <div className="panel-heading">
-              <h2>群消息结构预览</h2>
+              <h2>1. 群消息结构预览</h2>
               <span>本地即时解析</span>
             </div>
             <SectionPreview sections={previewSections} />
           </section>
 
-          <ServerTaskList title="本地结构预览" tasks={previewTasks} emptyText="等待识别群消息内容。" />
+          <ServerTaskList title="1. 本地结构任务预览" tasks={previewTasks} emptyText="等待识别群消息内容。" />
           <DraftTaskList
             tasks={draftTasks}
             selectedTaskIds={selectedTaskIds}
@@ -785,13 +1159,23 @@ export default function App() {
             onToggle={toggleSelectedTask}
             onFieldChange={updateDraftTask}
             onRemove={removeDraftTask}
-            onSelectHighConfidence={selectHighConfidenceTasks}
+            onSelectRecommended={selectRecommendedTasks}
             onSelectCleanTasks={selectCleanTasks}
             onSelectAll={selectAllTasks}
             onClearSelection={clearTaskSelection}
             onAddManualTask={addManualTask}
           />
-          <QualityPanel diagnosticsSummary={diagnostics.summary} selectedTasks={selectedDraftTasks} diagnosticsById={diagnostics.byId} />
+          <CreatePanel
+            diagnosticsSummary={diagnostics.summary}
+            selectedTasks={selectedDraftTasks}
+            diagnosticsById={diagnostics.byId}
+            recommendedCount={recommendedTaskCount}
+            assignedDate={assignedDate}
+            onSelectRecommended={selectRecommendedTasks}
+            onConfirm={() => void runConfirmCreate()}
+            isConfirming={isConfirming}
+            createStatus={createStatus}
+          />
           <AnalysisPanel parserMode={parserMode} analysis={analysis} />
         </section>
       </section>
@@ -810,7 +1194,7 @@ export default function App() {
           <li>支持 `数学3.6：`、`英：`、`语文：` 这种带日期或简称的学科标题。</li>
           <li>支持 `1、`、`1.` 作为主任务编号。</li>
           <li>支持 `（1）`、`（2）`、`（3）` 作为同一任务下的补充步骤。</li>
-          <li>提交后调用 `/api/v1/tasks/parse`，并自动刷新 `/api/v1/tasks` 结果。</li>
+          <li>提交后调用 `/api/v1/tasks/parse`，审核后调用 `/api/v1/tasks/confirm`，并自动刷新 `/api/v1/tasks`。</li>
         </ul>
       </section>
     </main>
