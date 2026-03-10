@@ -1,314 +1,308 @@
-# StudyClaw 下一阶段详细派单文档
+# StudyClaw 下一轮正式派单文档
 
-本文档是当前唯一正式派单入口，用于把 StudyClaw 从 `v0.1.1` 联调基线推进到 `v0.2.0` 第一阶段交付版。
+本文档是当前唯一正式派单入口，用于把 StudyClaw 从 `v0.1.1` 联调基线推进到第一阶段可签收版本。
 
 适用状态：
 
-- 日期：`2026-03-09`
-- 当前项目版本：`v0.1.1`
+- 日期：`2026-03-10`
+- 当前仓库基线：`v0.1.1`
 - 当前目标版本：`v0.2.0`
-- 当前阶段目标：完成第一阶段 7 类核心产品能力
+- 当前结论：`可演示，但还未达到第一阶段正式签收`
 
-相关入口：
+必须先阅读的主文档：
 
 - `docs/01_PRD.md`
 - `docs/03_ROADMAP.md`
 - `docs/04_AGENTIC_DESIGN.md`
-- `docs/15_CODEX_DIRECT_DISPATCH.md`
-- `docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`
 - `docs/06_RUNBOOK.md`
 - `docs/13_RELEASE_CHECKLIST.md`
-- `scripts/demo_local_stack.sh`
+- `docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`
+- `docs/17_DELIVERY_READINESS.md`
 
-## 1. 下一阶段总目标
+## 1. 当前这轮真正要解决的问题
 
-下一阶段不再只围绕“演示脚本和联调基线”，而是进入真正的第一阶段产品交付。
+经过交付审计，当前主线不是缺“新架构”，而是缺“统一后端事实源”。
 
-总目标：
+本轮只解决 3 个第一阶段正式签收阻塞项：
 
-1. 家长能发布某一天的老师作业
-2. AI 能返回可审核的结构化任务草稿
-3. 孩子能在 Pad 上完成当天任务
-4. 家长能看到及时同步的完成情况和当日反馈
-5. 单词清单可在 Pad 上逐词播放
-6. 积分可自动结算，也可由家长手工 `+/-`
-7. 日 / 周 / 月数据可视化和 AI 鼓励可用
+1. 单词清单和听写播放仍有本地态，尚未形成 `Parent Web -> Go API -> Pad` 的真实闭环
+2. 积分流水、余额、孩子端积分展示尚未完全统一到 Go 后端
+3. 月报和部分日反馈仍有前端聚合 / 前端估算，不是完全的后端确定性统计
 
-## 2. 第一阶段退出标准
+本轮不做：
 
-只有下面条件都满足，才算 `v0.2.0` 可验收：
+- 新增第二阶段功能
+- 扩展多模态
+- 新增复杂消息推送
+- 重做现有任务发布主链路
 
-1. 家长端支持“输入 -> 解析 -> 审核 -> 发布”
-2. 任务草稿包含 `subject / group_title / title / confidence / needs_review`
-3. Pad 端支持当天任务拉取、勾选、刷新和错误反馈
-4. 家长端支持查看当天完成统计和最近同步结果
-5. 家长可创建单词清单，Pad 可逐词播放
-6. 积分支持自动和手工两种来源，并双端可见
-7. 日 / 周 / 月图表和 AI 鼓励可用
+## 2. 本轮退出标准
 
-## 3. 各 Codex 优先级总表
+只有下面条件都满足，才允许把版本朝 `v0.2.0` 签收推进：
 
-| Codex | 主目标 | 优先级 | 核心产出 |
+1. Parent Web 单词清单改为真实后端 `word-lists`，不再以 `localStorage` 为事实源
+2. Pad 单词播放改为真实后端 `dictation-session`，不再以样例词文本为主路径
+3. Parent Web 积分改为真实后端 `points/ledger` 与 `points/balance`
+4. Pad 积分展示改为真实后端数据，不再使用本地估算积分
+5. Parent Web 月视图改为真实后端 `/api/v1/stats/monthly`
+6. 日 / 周 / 月鼓励文案继续遵循“统计值由后端确定，Agent 只解释不改写”
+7. `preflight / smoke / demo / go test / web test-build / pad analyze-test-build` 全部通过
+
+## 3. 本轮工作流总表
+
+| Codex | 本轮主目标 | 优先级 | 交付物 |
 | --- | --- | --- | --- |
-| `SC-01-GO-API` | 第一阶段领域模型与接口冻结 | P0 | 任务发布、积分、统计、单词清单 API |
-| `SC-02-GO-AGENT` | 解析与报告 Agent 收口 | P0 | 解析质量、日报周报月报鼓励、pattern 约束 |
-| `SC-03-FLUTTER-PAD` | 孩子端任务 + 播放 + 积分 | P0 | 今日任务板、单词播放、孩子端简报 |
-| `SC-04-PARENT-WEB` | 家长端发布 + 报告 + 积分 | P0 | 发布流、报告页、积分页、单词清单管理 |
-| `SC-05-INTEGRATION` | 需求、脚本、验收与发布收口 | P0 | PRD/Runbook/Checklist/派单/演示清单 |
+| `SC-01-GO-API` | 冻结统计 / 积分 / 单词 / 听写 API 契约 | P0 | DTO、handler、route test、契约文档 |
+| `SC-02-GO-AGENT` | 收口 daily / weekly / monthly 鼓励与解析边界 | P0 | agent pattern 元数据、fixture、回归测试 |
+| `SC-03-FLUTTER-PAD` | Pad 改为消费真实单词 / 听写 / 积分数据 | P0 | 页面、repository、测试、演示链路 |
+| `SC-04-PARENT-WEB` | 家长端改为消费真实单词 / 积分 / 月报数据 | P0 | UI、API 集成、测试、构建 |
+| `SC-05-INTEGRATION` | 继续维护交付文档、演示路径、验收入口 | P0 | readiness / checklist / dispatch / demo 文档同步 |
 
 ## 4. 各 Codex 详细任务
 
 ### 4.1 `SC-01-GO-API`
 
-```text
-[SC-01-GO-API]
-目标：把第一阶段核心业务数据和接口固定下来，避免 Parent Web / Pad 在实现时反复追着字段改。
+目标：
 
-边界：
-- apps/api-server/cmd
-- apps/api-server/config
-- apps/api-server/internal/app
-- apps/api-server/internal/interfaces/http
-- apps/api-server/internal/modules/taskboard
-- apps/api-server/routes
+- 把第一阶段真正会被双端消费的接口冻结下来，避免前端继续本地猜字段
+
+唯一边界：
+
+- `apps/api-server/cmd`
+- `apps/api-server/config`
+- `apps/api-server/internal/app`
+- `apps/api-server/internal/interfaces/http`
+- `apps/api-server/internal/modules/taskboard`
+- `apps/api-server/routes`
 
 必须完成：
-1. 设计并落地第一阶段核心实体在 API 层的表达：
-   - daily assignment draft / publish
-   - task item
-   - points ledger / points balance
-   - word list / word item / dictation session
-   - daily / weekly / monthly stats response
-2. 固化“家长发布任务”和“Pad 拉取当天任务”的接口契约。
-3. 增加积分流水相关接口，并明确自动积分与手工积分的来源字段。
-4. 增加日 / 周 / 月统计接口，确保图表数据由后端确定性生成。
-5. 输出第一阶段 API 冻结说明，明确哪些字段是双端稳定依赖。
+
+1. 冻结并补齐以下接口的稳定返回结构、错误码和示例：
+   - `/api/v1/stats/daily`
+   - `/api/v1/stats/monthly`
+   - `/api/v1/points/ledger`
+   - `/api/v1/points/balance`
+   - `/api/v1/word-lists`
+   - `/api/v1/dictation-sessions/start`
+   - `/api/v1/dictation-sessions/:session_id`
+   - `/api/v1/dictation-sessions/:session_id/replay`
+   - `/api/v1/dictation-sessions/:session_id/next`
+2. 明确积分字段口径：
+   - 总余额
+   - 自动积分
+   - 手工积分
+   - 当日变化
+   - 流水来源类型
+3. 明确单词与听写字段口径：
+   - word list 查询条件
+   - item 结构
+   - dictation session 当前词、索引、总量、状态
+4. 补 route test / contract test，确保 Parent Web 和 Pad 不需要本地猜测字段。
+5. 更新 API 契约文档与 smoke 文档，给 SC-03 / SC-04 可直接消费的示例。
 
 验收：
-1. go test ./... 通过
-2. API_ERROR_CONTRACT.md 补齐第一阶段新增接口和错误路径
-3. TASKBOARD_API_SMOKE.md 或同级 smoke 文档能覆盖第一阶段主链路
-4. Parent Web 和 Pad 不需要自行猜测接口结构
+
+1. `go test ./...` 通过
+2. `API_ERROR_CONTRACT.md` 与真实实现一致
+3. `TASKBOARD_API_SMOKE.md` 或同级文档包含本轮新增主链路
+4. 至少有一组 route test 覆盖 points / words / monthly stats 主路径
 
 禁止修改：
-- apps/api-server/internal/modules/agent
-- apps/pad-app
-- apps/parent-web
-```
+
+- `apps/api-server/internal/modules/agent`
+- `apps/pad-app`
+- `apps/parent-web`
 
 ### 4.2 `SC-02-GO-AGENT`
 
-```text
-[SC-02-GO-AGENT]
-目标：把第一阶段需要的 AI 能力严格收口在“任务解析”和“正向反馈总结”两个地方，不让 Agent 越界。
+目标：
 
-边界：
-- apps/api-server/internal/modules/agent
-- apps/api-server/internal/platform/llm
-- apps/api-server/internal/shared/agentic
+- 严格落实 Google Agentic design pattern：Agent 只负责解析和解释，不负责改统计、不负责越权写业务状态
+
+唯一边界：
+
+- `apps/api-server/internal/modules/agent`
+- `apps/api-server/internal/platform/llm`
+- `apps/api-server/internal/shared/agentic`
 
 必须完成：
-1. 继续提升学校群式任务解析质量，重点覆盖：
+
+1. 把第一阶段报告型能力继续收口到：
+   - daily encouragement
+   - weekly encouragement
+   - monthly encouragement
+2. 所有报告输入必须来自确定性统计结构，不能让 Agent 自行计算任务数、积分、完成率。
+3. 补 daily / monthly encouragement fixture 和回归测试。
+4. 继续提升学校群式作业解析样本，重点覆盖：
    - 多学科混合
    - 子步骤拆分
    - 条件任务
    - 续做 / 订正但对象不明确
-   - 不该误判的普通任务
-2. 设计并落地日报 / 周报 / 月报的 AI 总结能力：
-   - 输入必须来自确定性统计
-   - 输出必须是正向、支持型文案
-   - 模型不可用时有模板回退
-3. 把第一阶段 Agentic pattern 选择写入代码元数据和文档，确保和 Google 设计约束一致。
-4. 产出第一阶段 agent fixture，便于联调和回归。
+5. 在代码元数据或文档中明确本轮采用的 agentic pattern，并说明为什么适合第一阶段。
 
 验收：
-1. go test ./internal/modules/agent/... ./internal/platform/llm/... ./internal/shared/agentic/... 通过
-2. 解析结果对 front-end 可解释
-3. 报告文案不改写统计值
-4. 不改 taskboard、积分和 HTTP 状态写入逻辑
+
+1. `go test ./internal/modules/agent/... ./internal/platform/llm/... ./internal/shared/agentic/...` 通过
+2. Agent 输出不改写统计值
+3. 模型不可用时仍有稳定模板回退
+4. 不修改 taskboard / points / words 的业务写入路径
 
 禁止修改：
-- apps/api-server/internal/modules/taskboard
-- apps/api-server/internal/interfaces/http
-- apps/pad-app
-- apps/parent-web
-```
+
+- `apps/api-server/internal/modules/taskboard`
+- `apps/api-server/internal/interfaces/http`
+- `apps/pad-app`
+- `apps/parent-web`
 
 ### 4.3 `SC-03-FLUTTER-PAD`
 
-```text
-[SC-03-FLUTTER-PAD]
-目标：把孩子端做成第一阶段真实可用的执行端，而不是只停留在任务列表演示。
+目标：
 
-边界：
-- apps/pad-app
+- 把 Pad 从“可演示”推进到“真实消费后端事实源”
+
+唯一边界：
+
+- `apps/pad-app`
 
 必须完成：
-1. 做好“当天任务板”主路径：
-   - 默认加载当天任务
-   - 单任务勾选
-   - 分组勾选
-   - 全部完成
-   - 刷新与错误反馈
-2. 增加“单词播放模式”：
+
+1. 单词播放主路径改为真实后端：
+   - 按 `family_id + child_id + assigned_date` 获取单词清单
+   - 启动 dictation session
    - 当前词播放
-   - 重播
+   - 重播当前词
    - 下一词
-   - 播放进度展示
-3. 在孩子端展示：
-   - 今日积分
-   - 今日完成进度
-   - 简化版日报 / 周报入口
-4. 补 widget / integration 测试，覆盖任务同步和单词播放关键路径。
+   - 展示当前进度
+2. 去掉主路径上的样例词初始化和手工文本框依赖。
+3. 孩子端积分改为消费后端数据：
+   - 今日积分变化
+   - 当前积分或余额
+   - 不再使用 `completed * 常量` 估算
+4. 若后端已提供 daily stats，则孩子端简报优先基于 daily stats 展示。
+5. 补 widget / integration 测试，覆盖：
+   - 任务执行
+   - 单词播放
+   - 积分 / 简报展示
 
 验收：
-1. flutter analyze 通过
-2. flutter test 通过
-3. flutter build web --dart-define=API_BASE_URL=http://localhost:8080 通过
-4. Chrome 或真实设备上可以完成“任务执行 + 单词播放 + 查看积分”
+
+1. `flutter analyze` 通过
+2. `flutter test` 通过
+3. `flutter build web --dart-define=API_BASE_URL=http://localhost:8080` 通过
+4. Chrome 或真实设备上可演示：
+   - 打开当天任务
+   - 完成任务
+   - 拉取单词清单并播放
+   - 显示后端积分结果
 
 禁止修改：
-- apps/api-server
-- apps/parent-web
-```
+
+- `apps/api-server`
+- `apps/parent-web`
 
 ### 4.4 `SC-04-PARENT-WEB`
 
-```text
-[SC-04-PARENT-WEB]
-目标：把家长端做成第一阶段的主控制台，完成任务发布、积分管理、单词清单管理和报告查看。
+目标：
 
-边界：
-- apps/parent-web/src
-- apps/parent-web/package.json
-- apps/parent-web/package-lock.json
-- apps/parent-web/index.html
+- 把家长端的几个关键“本地态”清掉，真正切到 Go 后端事实源
+
+唯一边界：
+
+- `apps/parent-web/src`
+- `apps/parent-web/package.json`
+- `apps/parent-web/package-lock.json`
+- `apps/parent-web/index.html`
 
 必须完成：
-1. 做好“某一天作业发布”主路径：
-   - 选择孩子
-   - 选择日期
-   - 输入原文
-   - parse
-   - 风险审核
-   - 编辑 / 删除 / 补充
-   - publish
-2. 做好“家长查看反馈”主路径：
-   - 当日完成率
-   - 积分变化
-   - 日报摘要
-   - 周 / 月图表入口
-3. 做好“积分操作”主路径：
-   - 家长手工加分
-   - 家长手工扣分
-   - 录入表扬 / 批评原因
-4. 做好“单词清单管理”：
-   - 创建清单
-   - 编辑词项
-   - 绑定到某个孩子和日期
+
+1. 单词清单改为真实后端：
+   - 创建 / 更新清单走 `/api/v1/word-lists`
+   - 按孩子和日期读取清单
+   - 不再以 `localStorage` 为事实源
+2. 积分改为真实后端：
+   - 提交后读取或刷新 `/api/v1/points/ledger`
+   - 展示 `/api/v1/points/balance`
+   - 最近明细不再只靠本地数组
+3. 月视图改为真实后端：
+   - 使用 `/api/v1/stats/monthly`
+   - 不再以前端 28 天任务聚合为主路径
+4. 保持现有 `parse -> review -> confirm -> refresh` 主链路稳定，不倒退。
+5. 补测试，明确验证：
+   - word list 持久化来自后端
+   - monthly view 使用真实接口
+   - points 视图使用后端余额 / 流水
 
 验收：
-1. npm run test 通过
-2. npm run build 通过
-3. 家长端可完成“发布任务 + 看报告 + 调积分 + 配单词清单”
+
+1. `npm run test` 通过
+2. `npm run build` 通过
+3. 家长端可演示：
+   - 发布当天任务
+   - 查看当日 / 周 / 月反馈
+   - 创建单词清单
+   - 查看积分流水与余额
 
 禁止修改：
-- apps/api-server
-- apps/pad-app
-```
+
+- `apps/api-server`
+- `apps/pad-app`
 
 ### 4.5 `SC-05-INTEGRATION`
 
-```text
-[SC-05-INTEGRATION]
-目标：把第一阶段需求、演示路径、验收流程和派单方式继续收口成团队主入口。
+目标：
 
-边界：
-- docs
-- scripts
-- README.md
-- .env.example
-- CHANGELOG.md
+- 持续维护“交付就绪度”这条主线，让团队不再按旧文档和旧派单做事
+
+唯一边界：
+
+- `docs`
+- `scripts`
+- `README.md`
+- `.env.example`
+- `CHANGELOG.md`
 
 必须完成：
-1. 把 docs/01_PRD.md、docs/03_ROADMAP.md、docs/04_AGENTIC_DESIGN.md 和 docs/14_NEXT_PHASE_DISPATCH.md 收口到第一阶段目标。
-2. 继续维护 demo_local_stack.sh、Runbook 和 release checklist，让新人能按第一阶段链路演示。
-3. 为第一阶段增加更明确的演示清单：
-   - 发布当天作业
-   - Pad 完成任务
-   - 家长查看统计
-   - 单词播放
-   - 积分变化
-   - 日 / 周 / 月反馈与 AI 鼓励
-4. 为后续 GitHub 同步维护固定的“验证 -> scoped add -> commit -> push”模板。
+
+1. 以 `docs/17_DELIVERY_READINESS.md` 为准，持续更新这轮阻塞项状态。
+2. 维护 `Runbook / release checklist / demo checklist / dispatch` 一致。
+3. 当 SC-03 / SC-04 合并后，第一时间补一轮：
+   - `check_no_tracked_runtime_env`
+   - `preflight_local_env`
+   - `smoke_local_stack`
+   - `demo_local_stack`
+   - Go / Parent Web / Pad 的标准验证
+4. 把“先验证，再 scoped add，再 commit，再 push”的模板继续维护成固定发布入口。
 
 验收：
-1. bash scripts/check_no_tracked_runtime_env.sh 通过
-2. bash scripts/preflight_local_env.sh 通过
-3. bash scripts/smoke_local_stack.sh 通过
-4. bash scripts/demo_local_stack.sh 通过
-5. PRD / Roadmap / Agentic Design / Dispatch 四份文档对齐
+
+1. `bash scripts/check_no_tracked_runtime_env.sh` 通过
+2. `bash scripts/preflight_local_env.sh` 通过
+3. `bash scripts/smoke_local_stack.sh` 通过
+4. `bash scripts/demo_local_stack.sh` 通过
+5. `README / Runbook / Release Checklist / Delivery Readiness / Dispatch` 五份文档指向一致
 
 禁止修改：
-- apps/api-server
-- apps/pad-app
-- apps/parent-web
-```
+
+- `apps/api-server`
+- `apps/pad-app`
+- `apps/parent-web`
 
 ## 5. 推荐执行顺序
 
-### 第一批：先锁领域和约束
+建议顺序：
 
-- `SC-01-GO-API`
-- `SC-02-GO-AGENT`
-- `SC-05-INTEGRATION`
+1. `SC-01-GO-API` 先把双端依赖的 points / words / stats 契约冻结
+2. `SC-02-GO-AGENT` 并行收口 daily / monthly encouragement 和 parser fixture
+3. `SC-03-FLUTTER-PAD`、`SC-04-PARENT-WEB` 在契约冻结后并行接入
+4. `SC-05-INTEGRATION` 最后统一复核演示与签收入口
 
-原因：
+## 6. 交付提醒
 
-- 这三组决定第一阶段的数据边界、AI 边界和验收方式
-- 如果这一步不先收口，前端会反复返工
+本轮要追求的是：
 
-### 第二批：双端并行实现
+- 少本地态
+- 少前端估算
+- 少前端聚合
+- 多后端确定性事实源
 
-- `SC-04-PARENT-WEB`
-- `SC-03-FLUTTER-PAD`
-
-原因：
-
-- 家长端和孩子端都依赖第一批先稳定接口和文档
-- 一旦接口冻结，这两组可以高并行推进
-
-### 第三批：集成回归
-
-- `SC-05-INTEGRATION`
-- 必要时由 owner 组各自回收修复
-
-原因：
-
-- 最后一轮应回到演示、验收、发布前检查
-- 不应在最后阶段由集成组越界改业务代码
-
-## 6. 派单模板
-
-```text
-[终端名]
-目标：
-边界：
-必须完成：
-验收：
-禁止修改：
-```
-
-## 7. 使用方式
-
-你后续派任务时直接：
-
-1. 打开本文件
-2. 找到目标 Codex
-3. 复制对应代码块
-4. 粘贴到对应 Codex
-
-注意：
-
-- `docs/10`、`docs/11`、`docs/12` 只保留为历史记录
-- 本文件就是当前唯一正式派单入口
+只要这条原则守住，第一阶段就会明显更接近可签收版本。
