@@ -136,6 +136,27 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
 STUDYCLAW_SMOKE_API_BASE_URL=http://your-host:8080 bash scripts/smoke_local_stack.sh
 ```
 
+### 5.1 一键演示入口
+
+如果你已经把 Go 后端跑起来，希望快速进入演示流程，执行：
+
+```bash
+bash scripts/demo_local_stack.sh
+```
+
+它会：
+
+- 再跑一轮 `preflight`
+- 再跑一轮 `smoke`
+- 输出 Parent Web 和 Pad 的演示步骤
+- 指向当前最新的 release checklist 和派单文档
+
+当前固定入口：
+
+- 发布前检查：`docs/13_RELEASE_CHECKLIST.md`
+- 第一阶段演示清单：`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`
+- 当前唯一正式派单入口：`docs/14_NEXT_PHASE_DISPATCH.md`
+
 ## 6. 常用联调方式
 
 ### 6.1 手动给某一天新增一条任务
@@ -227,14 +248,38 @@ data/workspaces/family_306/user_1/2026-03-10.md
 bash scripts/smoke_local_stack.sh
 ```
 
-### 7.2 Go 后端
+### 7.2 一键演示入口
+
+```bash
+bash scripts/demo_local_stack.sh
+```
+
+### 7.3 第一阶段演示清单
+
+如果你不是只想确认环境是否能跑通，而是要按第一阶段产品链路完整演示，请直接使用：
+
+```text
+docs/16_FIRST_PHASE_DEMO_CHECKLIST.md
+```
+
+该清单覆盖：
+
+- 家长发布当天作业
+- AI 解析与审核
+- Pad 完成任务
+- 家长查看当日统计
+- 单词逐词播放
+- 积分变化
+- 日 / 周 / 月反馈与 AI 鼓励
+
+### 7.4 Go 后端
 
 ```bash
 cd apps/api-server
 GOCACHE="$(pwd)/../../.cache/go-build" go test ./...
 ```
 
-### 7.3 Parent Web
+### 7.5 Parent Web
 
 ```bash
 cd apps/parent-web
@@ -242,7 +287,7 @@ npm run test
 npm run build
 ```
 
-### 7.4 Pad App
+### 7.6 Pad App
 
 ```bash
 cd apps/pad-app

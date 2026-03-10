@@ -105,6 +105,27 @@ check_directory() {
   fi
 }
 
+resolve_docker_bin() {
+  local candidate
+
+  if candidate="$(command -v docker 2>/dev/null || true)" && [[ -n "$candidate" ]]; then
+    printf '%s' "$candidate"
+    return 0
+  fi
+
+  for candidate in \
+    "/Applications/Docker.app/Contents/Resources/bin/docker" \
+    "/usr/local/bin/docker" \
+    "/opt/homebrew/bin/docker"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 printf 'StudyClaw local preflight\n'
 printf 'Repository: %s\n' "$ROOT_DIR"
 printf 'Runtime env: %s\n\n' "$RUNTIME_ENV_FILE"
@@ -113,15 +134,17 @@ check_tool_version "Go" "go" "go version" "1.25.0"
 check_tool_version "Node.js" "node" "node --version" "20.0.0"
 check_tool_version "npm" "npm" "npm --version" "10.0.0"
 check_tool_version "Flutter" "flutter" "flutter --version" "3.24.0"
-if command -v docker >/dev/null 2>&1; then
-  check_tool_version "Docker" "docker" "docker --version" "20.10.0"
-  if docker compose version >/dev/null 2>&1; then
+
+DOCKER_BIN="$(resolve_docker_bin || true)"
+if [[ -n "$DOCKER_BIN" ]]; then
+  check_tool_version "Docker" "$DOCKER_BIN" "'$DOCKER_BIN' --version" "20.10.0"
+  if "$DOCKER_BIN" compose version >/dev/null 2>&1; then
     print_ok "Docker Compose 可用。"
   else
     print_warn "Docker Compose 不可用。当前演示链路不依赖 Redis，但如果后续启用 Redis，需要补齐 compose。"
   fi
 
-  if docker info >/dev/null 2>&1; then
+  if "$DOCKER_BIN" info >/dev/null 2>&1; then
     print_ok "Docker daemon 正常运行。"
   else
     print_warn "Docker 已安装，但 daemon 当前不可用。当前演示链路可继续；如需 Redis，请先启动 Docker。"

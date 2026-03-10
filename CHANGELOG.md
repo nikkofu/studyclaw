@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `scripts/demo_local_stack.sh` 作为本地演示入口
+- `docs/13_RELEASE_CHECKLIST.md` 作为发布前检查清单
+- `docs/14_NEXT_PHASE_DISPATCH.md` 作为最新的 Codex 派单文档
+- `docs/15_CODEX_DIRECT_DISPATCH.md` 作为可直接复制到 Codex 的快捷派单文档
+- 第一阶段正式需求收口到 `docs/01_PRD.md`
+- `docs/16_FIRST_PHASE_DEMO_CHECKLIST.md` 作为第一阶段功能演示清单
+- `docs/17_DELIVERY_READINESS.md` 作为第一阶段交付就绪度审计文档
+
+### Changed
+
+- `README.md` 与 `docs/06_RUNBOOK.md` 增加一键演示入口
+- 集成流程从“preflight + smoke”推进到“preflight + smoke + demo + release checklist”
+- `docs/09`、`docs/10`、`docs/11`、`docs/12` 增加归档说明，统一收口到 `docs/14_NEXT_PHASE_DISPATCH.md`
+- `docs/13_RELEASE_CHECKLIST.md` 增加固定的 GitHub 同步命令模板
+- `.env.example` 的数据库示例账号改为私有占位值，避免误用仓库内示例密码
+- `scripts/preflight_local_env.sh` 增加 Docker Desktop 常见路径兜底识别，降低 macOS 下的误判
+- `docs/03_ROADMAP.md` 改为围绕第一阶段 7 类核心能力的版本计划
+- `docs/04_AGENTIC_DESIGN.md` 改为围绕 Google Agentic design pattern 的第一阶段约束
+- `docs/14_NEXT_PHASE_DISPATCH.md` 改为第一阶段多 Codex 开发计划
+- `docs/06_RUNBOOK.md`、`docs/13_RELEASE_CHECKLIST.md`、`README.md`、`scripts/demo_local_stack.sh` 增加第一阶段演示清单入口
+- `README.md` 增加第一阶段交付就绪度审计入口
+
+### Verified
+
+- `bash scripts/check_no_tracked_runtime_env.sh`
+- `bash scripts/preflight_local_env.sh`
+- `bash scripts/smoke_local_stack.sh`
+- `bash scripts/demo_local_stack.sh`
+- `GOCACHE=/Users/admin/Documents/WORK/ai/studyclaw/.cache/go-build GOMODCACHE=/Users/admin/Documents/WORK/ai/studyclaw/apps/api-server/.gomodcache GOPROXY=off GOSUMDB=off go test ./...`
+- `cd apps/parent-web && npm run test`
+- `cd apps/parent-web && npm run build`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test`
+- `cd apps/pad-app && flutter build web`
+
 ## [0.1.1] - 2026-03-09
 
 ### Added

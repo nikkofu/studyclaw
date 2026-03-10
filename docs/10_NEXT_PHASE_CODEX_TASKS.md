@@ -1,5 +1,10 @@
 # StudyClaw 下一阶段 Codex 任务单
 
+归档说明：
+
+- 本文档已被 `docs/14_NEXT_PHASE_DISPATCH.md` 取代。
+- 若你现在要给 Codex 派任务，请不要继续从本文件复制，统一改用 `docs/14_NEXT_PHASE_DISPATCH.md`。
+
 本文档用于承接 `2026-03-09` 晚上第一批并行开发完成后的下一阶段工作分发。
 
 适用状态：

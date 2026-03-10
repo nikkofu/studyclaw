@@ -168,6 +168,36 @@ bash scripts/smoke_local_stack.sh
 - Parent Web 构建
 - Pad Web 构建
 
+### 6. 一键演示入口
+
+在 Go 后端已启动、Parent Web 和 Pad 需要准备演示前，执行：
+
+```bash
+bash scripts/demo_local_stack.sh
+```
+
+这个入口会：
+
+- 执行 `preflight`
+- 执行 `smoke`
+- 输出 Parent Web / Pad 的演示步骤和文档入口
+
+发布前检查清单见：
+
+- `docs/13_RELEASE_CHECKLIST.md`
+
+第一阶段功能演示清单见：
+
+- `docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`
+
+第一阶段交付就绪度审计见：
+
+- `docs/17_DELIVERY_READINESS.md`
+
+当前唯一正式派单入口见：
+
+- `docs/14_NEXT_PHASE_DISPATCH.md`
+
 ## 如何添加某一天的任务
 
 ### 方案一：手动新增一条任务

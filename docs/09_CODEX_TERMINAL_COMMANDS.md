@@ -1,5 +1,11 @@
 # StudyClaw 多 Codex 终端命令手册
 
+归档说明：
+
+- 本文档保留为第一批并行开发时的终端启动记录。
+- 当前唯一正式派单入口已切换为 `docs/14_NEXT_PHASE_DISPATCH.md`。
+- `docs/10_NEXT_PHASE_CODEX_TASKS.md`、`docs/11_NEXT_PHASE_DISPATCH.md`、`docs/12_NEXT_PHASE_DISPATCH.md` 仅保留历史参考，不再作为当前任务源。
+
 本文档用于 `2026-03-09` 晚上的第一批并行开发。目标是让多个 Codex 会话和若干运行终端同时工作，但不互相踩目录边界。
 
 当前统一基线：
@@ -9,9 +15,10 @@
 - 并行分工主文档：`docs/08_PARALLEL_WORKSTREAMS.md`
 - 安全文档：`docs/07_SECURITY.md`
 - 运行手册：`docs/06_RUNBOOK.md`
-- 下一阶段任务单：`docs/10_NEXT_PHASE_CODEX_TASKS.md`
-- 当前正式派单入口：`docs/11_NEXT_PHASE_DISPATCH.md`
-- 最新正式派单入口：`docs/12_NEXT_PHASE_DISPATCH.md`
+- 当前正式派单入口：`docs/14_NEXT_PHASE_DISPATCH.md`
+- 历史任务文档：`docs/10_NEXT_PHASE_CODEX_TASKS.md`
+- 历史派单文档：`docs/11_NEXT_PHASE_DISPATCH.md`
+- 历史派单文档：`docs/12_NEXT_PHASE_DISPATCH.md`
 
 ## 1. 使用规则
 
