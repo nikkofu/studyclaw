@@ -1,8 +1,90 @@
 [
   {
+    "id": "real_group_message_mixed_subjects",
+    "category": "真实学校群多学科样本",
+    "risk_type": "mixed_real_world",
+    "why": "模拟真实班级群里同一条消息包含多学科、多主任务、子步骤和条件说明的情况。",
+    "why_needs_review": "只有带条件说明或对象范围限制的原子任务才需要人工确认，其他任务应保持直接可执行。",
+    "should_not_misjudge_when": "同一条群消息里包含多个编号、多个学科和子步骤时，不应把所有任务都抬成 needs_review。",
+    "raw_text": "数学3.6：\n1、校本P14～15\n2、练习册P12～13\n\n英：\n1. 背默M1U1知识梳理单小作文\n2. 部分学生继续订正1号本\n3. 预习M1U2\n（1）书本上标注好“黄页”出现单词的音标\n（2）抄写单词（今天默写全对，可免抄）\n（3）沪学习听录音跟读\n\n语文：\n1. 背作文\n2. 练习卷",
+    "expected_task_count": 9,
+    "expected_needs_review_count": 2,
+    "expected_signals": [
+      "subject_headings",
+      "numbered_tasks",
+      "nested_subtasks",
+      "conditional_notes",
+      "audience_constraints"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "校本P14～15",
+        "title": "校本P14～15",
+        "needs_review": false
+      },
+      {
+        "subject": "英语",
+        "group_title": "部分学生继续订正1号本",
+        "title": "部分学生继续订正1号本",
+        "needs_review": true,
+        "required_notes": [
+          "作业适用对象不明确，建议家长确认是否针对孩子。"
+        ]
+      },
+      {
+        "subject": "英语",
+        "group_title": "预习M1U2",
+        "title": "抄写单词（今天默写全对，可免抄）",
+        "needs_review": true,
+        "required_notes": [
+          "包含条件性说明，建议家长确认触发条件。"
+        ]
+      },
+      {
+        "subject": "语文",
+        "group_title": "练习卷",
+        "title": "练习卷",
+        "needs_review": false
+      }
+    ]
+  },
+  {
+    "id": "runbook_simple_group_message",
+    "category": "真实学校群简洁样本",
+    "risk_type": "safe_actionable",
+    "why": "来自现有 runbook 风格的简洁群消息，验证普通多学科作业不会误判。",
+    "why_needs_review": "",
+    "should_not_misjudge_when": "普通的校本、练习册、背默、预习课文这类全班任务不应带 review note。",
+    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文",
+    "expected_task_count": 4,
+    "expected_needs_review_count": 0,
+    "expected_signals": [
+      "subject_headings",
+      "numbered_tasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "校本P16～17",
+        "title": "校本P16～17",
+        "needs_review": false
+      },
+      {
+        "subject": "英语",
+        "group_title": "预习课文",
+        "title": "预习课文",
+        "needs_review": false
+      }
+    ]
+  },
+  {
     "id": "correction_explicit_target",
     "category": "订正且目标明确",
+    "risk_type": "safe_actionable",
     "why": "已写明订正对象和页码，孩子可直接执行，不需要额外确认。",
+    "why_needs_review": "",
+    "should_not_misjudge_when": "订正任务已经写明本子、卷子、页码或错题对象时，不应因为出现“订正”二字就误判 needs_review。",
     "raw_text": "英语：\n1. 订正默写本P3错词",
     "expected_task_count": 1,
     "expected_needs_review_count": 0,
@@ -18,7 +100,10 @@
   {
     "id": "correction_ambiguous_target",
     "category": "订正但目标不明确",
+    "risk_type": "ambiguous_target",
     "why": "只有订正动作，没有写明具体对象，家长需要确认到底改哪一项。",
+    "why_needs_review": "只有动作没有目标，系统无法判断要订正哪份作业、哪一页或哪一类错题。",
+    "should_not_misjudge_when": "如果文本已经明确写出本子、卷子、页码或错题对象，则不应再按“目标不明确”处理。",
     "raw_text": "英语：\n1. 继续订正",
     "expected_task_count": 1,
     "expected_needs_review_count": 1,
@@ -42,7 +127,10 @@
   {
     "id": "continuation_explicit_target",
     "category": "续做且目标明确",
+    "risk_type": "safe_actionable",
     "why": "写明了校本页码，属于可直接执行的续做任务，不应误报。",
+    "why_needs_review": "",
+    "should_not_misjudge_when": "续做任务已经写明页码、卷号或册别时，不应因为出现“继续/续做”就误判 needs_review。",
     "raw_text": "数学：\n1. 继续完成校本P18",
     "expected_task_count": 1,
     "expected_needs_review_count": 0,
@@ -61,7 +149,10 @@
   {
     "id": "continuation_ambiguous_target",
     "category": "续做但目标不明确",
+    "risk_type": "ambiguous_target",
     "why": "只有续做动作，没有对象或页码，家长无法确认要接着完成什么。",
+    "why_needs_review": "只有续做动作，没有对象或页码，系统无法确认孩子需要接着完成什么。",
+    "should_not_misjudge_when": "如果续做任务已明确写出校本、练习册、卷号或页码，就应按可直接执行任务处理。",
     "raw_text": "数学：\n1. 继续完成",
     "expected_task_count": 1,
     "expected_needs_review_count": 1,
@@ -84,7 +175,10 @@
   {
     "id": "conditional_task",
     "category": "条件任务",
+    "risk_type": "conditional",
     "why": "存在“全对可免抄”这类条件触发语义，系统不能替家长判断孩子是否满足条件。",
+    "why_needs_review": "任务是否要做取决于先决条件，系统不能替家长判断孩子是否满足条件。",
+    "should_not_misjudge_when": "正常出现“完成”“假若”等非条件语义时，不应仅凭个别字词误判成条件任务。",
     "raw_text": "英语：\n1. 默写全对可免抄M2单词",
     "expected_task_count": 1,
     "expected_needs_review_count": 1,
@@ -104,9 +198,62 @@
     ]
   },
   {
+    "id": "conditional_optional_selection",
+    "category": "选做任务",
+    "risk_type": "conditional",
+    "why": "老师明确写了“选做”，说明不是对所有孩子强制执行的固定任务。",
+    "why_needs_review": "选做任务的适用范围和执行决策需要家长确认，系统不能默认强制创建。",
+    "should_not_misjudge_when": "普通必做任务即使包含编号或附加说明，也不应因为语气简短被判成选做。",
+    "raw_text": "数学：\n1. 口算本第8页选做",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "conditional_notes"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "口算本第8页选做",
+        "title": "口算本第8页选做",
+        "needs_review": true,
+        "required_notes": [
+          "包含条件性说明，建议家长确认触发条件。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "conditional_if_time_pattern",
+    "category": "若有时间",
+    "risk_type": "conditional",
+    "why": "老师以“若有时间”描述任务，属于条件触发而不是固定必做项。",
+    "why_needs_review": "任务是否执行取决于时间条件，系统不能替家长判断当天是否满足。",
+    "should_not_misjudge_when": "正常出现“完成”或“时间”字样但不构成条件短语时，不应误判成条件任务。",
+    "raw_text": "数学：\n1. 若有时间完成口算一页",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "conditional_notes"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "若有时间完成口算一页",
+        "title": "若有时间完成口算一页",
+        "needs_review": true,
+        "required_notes": [
+          "包含条件性说明，建议家长确认触发条件。"
+        ]
+      }
+    ]
+  },
+  {
     "id": "partial_students_scope",
     "category": "部分同学",
+    "risk_type": "audience_scope",
     "why": "作业只针对群体中的部分学生，系统无法确定是否对应当前孩子。",
+    "why_needs_review": "适用对象是群体中的部分孩子，系统无法确认当前孩子是否属于该范围。",
+    "should_not_misjudge_when": "面向全班的普通任务不应因为有编号或附加说明就误判成对象范围不明确。",
     "raw_text": "语文：\n1. 部分学生订正练习卷",
     "expected_task_count": 1,
     "expected_needs_review_count": 1,
@@ -129,7 +276,10 @@
   {
     "id": "individual_students_scope",
     "category": "个别同学",
+    "risk_type": "audience_scope",
     "why": "老师指向的是个别同学，系统应保守提示家长确认适用范围。",
+    "why_needs_review": "“个别同学”没有给出名单，系统无法自动判断是否针对当前孩子。",
+    "should_not_misjudge_when": "如果任务直接面向全班且目标明确，不应因为是续做任务就被误判成对象范围不明确。",
     "raw_text": "语文：\n1. 个别同学继续完成口算本P9",
     "expected_task_count": 1,
     "expected_needs_review_count": 1,
@@ -152,7 +302,10 @@
   {
     "id": "related_students_scope",
     "category": "相关同学",
+    "risk_type": "audience_scope",
     "why": "“相关同学”缺乏确定边界，需要人工确认后再创建任务。",
+    "why_needs_review": "“相关同学”缺乏名单或条件边界，系统无法判断是否适用当前孩子。",
+    "should_not_misjudge_when": "正常指向全班的背诵、预习、完成页码等任务不应被误判成对象范围不明确。",
     "raw_text": "语文：\n1. 相关同学背诵第3课",
     "expected_task_count": 1,
     "expected_needs_review_count": 1,
@@ -172,9 +325,99 @@
     ]
   },
   {
+    "id": "students_with_missing_submission_scope",
+    "category": "未完成的同学",
+    "risk_type": "audience_scope",
+    "why": "“未完成的同学”属于带条件的对象范围，需要家长确认孩子是否落在该集合内。",
+    "why_needs_review": "系统无法仅凭群消息判断孩子是否属于未完成作业的学生名单。",
+    "should_not_misjudge_when": "明确面向全班的补做、续做或订正任务，不应仅因出现动词就误判为对象范围限制。",
+    "raw_text": "英语：\n1. 未完成的同学补做阅读卷",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "audience_constraints",
+      "continuation_tasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "英语",
+        "group_title": "未完成的同学补做阅读卷",
+        "title": "未完成的同学补做阅读卷",
+        "needs_review": true,
+        "required_notes": [
+          "作业适用对象不明确，建议家长确认是否针对孩子。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "students_with_need_scope",
+    "category": "有需要的同学",
+    "risk_type": "audience_scope",
+    "why": "“有需要的同学”不构成确定名单，系统应提示人工确认。",
+    "why_needs_review": "老师没有写清适用名单或条件边界，系统无法自动决定是否创建任务。",
+    "should_not_misjudge_when": "同样是补充练习，如果直接面向全班或写明对象，就不应判成对象范围不明确。",
+    "raw_text": "数学：\n1. 有需要的同学再做一张口算纸",
+    "expected_task_count": 1,
+    "expected_needs_review_count": 1,
+    "expected_signals": [
+      "audience_constraints"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "数学",
+        "group_title": "有需要的同学再做一张口算纸",
+        "title": "有需要的同学再做一张口算纸",
+        "needs_review": true,
+        "required_notes": [
+          "作业适用对象不明确，建议家长确认是否针对孩子。"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "normal_multi_subject_with_nested_steps",
+    "category": "正常多学科子步骤",
+    "risk_type": "false_positive_guard",
+    "why": "真实群消息常把预习任务拆成多个子步骤，但这不应自动变成高风险。",
+    "why_needs_review": "",
+    "should_not_misjudge_when": "只要没有条件词、对象范围限制或目标不明确，多个子步骤也应保持可直接执行。",
+    "raw_text": "英语：\n1. 背默M1U2单词\n2. 预习M1U3\n（1）书本标出新单词\n（2）听录音跟读两遍\n\n语文：\n1. 背诵古诗\n2. 完成练习册第4页",
+    "expected_task_count": 5,
+    "expected_needs_review_count": 0,
+    "expected_signals": [
+      "subject_headings",
+      "numbered_tasks",
+      "nested_subtasks"
+    ],
+    "expected_tasks": [
+      {
+        "subject": "英语",
+        "group_title": "预习M1U3",
+        "title": "书本标出新单词",
+        "needs_review": false
+      },
+      {
+        "subject": "英语",
+        "group_title": "预习M1U3",
+        "title": "听录音跟读两遍",
+        "needs_review": false
+      },
+      {
+        "subject": "语文",
+        "group_title": "完成练习册第4页",
+        "title": "完成练习册第4页",
+        "needs_review": false
+      }
+    ]
+  },
+  {
     "id": "normal_tasks_no_false_positive",
     "category": "误报控制",
+    "risk_type": "false_positive_guard",
     "why": "正常编号任务、明确对象的订正/续做、正常子步骤都不应被误判为条件任务或高风险。",
+    "why_needs_review": "",
+    "should_not_misjudge_when": "正常编号任务、包含“完成”字样的普通动作、书名中的“假若”、以及明确对象的订正/续做都不应触发 needs_review。",
     "raw_text": "数学：\n1. 完成口算本第5页\n2. 继续完成校本P19\n3. 订正第2页错题\n\n语文：\n1. 阅读《假若给我三天光明》并摘抄好词\n2. 预习第6课\n1）圈画生字\n2）朗读课文三遍",
     "expected_task_count": 6,
     "expected_needs_review_count": 0,

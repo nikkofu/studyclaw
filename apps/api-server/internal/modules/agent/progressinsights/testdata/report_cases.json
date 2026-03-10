@@ -1,0 +1,241 @@
+[
+  {
+    "id": "daily_complete_day",
+    "why": "日报需要在单天全完成场景下稳定输出正向总结。",
+    "stats": {
+      "report_type": "daily",
+      "period_label": "2026-03-10",
+      "total_tasks": 3,
+      "completed_tasks": 3,
+      "points_delta": 2,
+      "subject_breakdown": [
+        {"subject": "英语", "total_tasks": 1, "completed_tasks": 1},
+        {"subject": "数学", "total_tasks": 2, "completed_tasks": 2}
+      ],
+      "timeline": [
+        {"label": "2026-03-10", "total_tasks": 3, "completed_tasks": 3}
+      ]
+    },
+    "expected_summary": "You completed all 3 tasks today, which shows steady focus from start to finish.",
+    "expected_total": 3,
+    "expected_completed": 3,
+    "expected_completion_rate_percent": 100
+  },
+  {
+    "id": "daily_partial_progress",
+    "why": "日报部分完成场景需要输出正向鼓励而非批评，文案需提及实际完成数量。",
+    "stats": {
+      "report_type": "daily",
+      "period_label": "2026-03-10",
+      "total_tasks": 5,
+      "completed_tasks": 2,
+      "points_delta": 1,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 3, "completed_tasks": 1},
+        {"subject": "英语", "total_tasks": 2, "completed_tasks": 1}
+      ],
+      "timeline": [
+        {"label": "2026-03-10", "total_tasks": 5, "completed_tasks": 2}
+      ]
+    },
+    "expected_summary": "You finished 2 of 5 tasks today, and every completed step helped your day move forward.",
+    "expected_total": 5,
+    "expected_completed": 2,
+    "expected_completion_rate_percent": 40
+  },
+  {
+    "id": "daily_low_progress",
+    "why": "日报极低完成率（如 1/10）场景仍需正向引导，不输出挫败感内容。",
+    "stats": {
+      "report_type": "daily",
+      "period_label": "2026-03-11",
+      "total_tasks": 10,
+      "completed_tasks": 1,
+      "points_delta": 0,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 5, "completed_tasks": 0},
+        {"subject": "英语", "total_tasks": 5, "completed_tasks": 1}
+      ],
+      "timeline": [
+        {"label": "2026-03-11", "total_tasks": 10, "completed_tasks": 1}
+      ]
+    },
+    "expected_summary": "You finished 1 of 10 tasks today, and every completed step helped your day move forward.",
+    "expected_total": 10,
+    "expected_completed": 1,
+    "expected_completion_rate_percent": 10
+  },
+  {
+    "id": "daily_almost_complete",
+    "why": "日报高完成率场景（如 9/10）应肯定努力并温和提醒收尾。",
+    "stats": {
+      "report_type": "daily",
+      "period_label": "2026-03-12",
+      "total_tasks": 10,
+      "completed_tasks": 9,
+      "points_delta": 5,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 5, "completed_tasks": 5},
+        {"subject": "英语", "total_tasks": 5, "completed_tasks": 4}
+      ],
+      "timeline": [
+        {"label": "2026-03-12", "total_tasks": 10, "completed_tasks": 9}
+      ]
+    },
+    "expected_summary": "You finished 9 of 10 tasks today, and every completed step helped your day move forward.",
+    "expected_total": 10,
+    "expected_completed": 9,
+    "expected_completion_rate_percent": 90
+  },
+  {
+    "id": "daily_zero_tasks",
+    "why": "日报零任务场景需要输出轻松积极的重置语气，不输出负向评价。",
+    "stats": {
+      "report_type": "daily",
+      "period_label": "2026-03-10",
+      "total_tasks": 0,
+      "completed_tasks": 0,
+      "points_delta": 0
+    },
+    "expected_summary": "Today was a lighter study day, which gives you room to reset and start strong tomorrow.",
+    "expected_total": 0,
+    "expected_completed": 0,
+    "expected_completion_rate_percent": 0
+  },
+  {
+    "id": "weekly_zero_tasks",
+    "why": "周报零任务场景验证边界处理。",
+    "stats": {
+      "report_type": "weekly",
+      "period_label": "2026-W12",
+      "total_tasks": 0,
+      "completed_tasks": 0,
+      "active_days": 0
+    },
+    "expected_summary": "This week was light, which is a good chance to build a steady study rhythm for next week.",
+    "expected_total": 0,
+    "expected_completed": 0,
+    "expected_completion_rate_percent": 0
+  },
+  {
+    "id": "weekly_mixed_progress",
+    "why": "周报需要保留确定性统计，并输出鼓励性的混合完成总结。",
+    "stats": {
+      "report_type": "weekly",
+      "period_label": "2026-W11",
+      "total_tasks": 5,
+      "completed_tasks": 3,
+      "points_delta": 1,
+      "active_days": 3,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 2, "completed_tasks": 1},
+        {"subject": "语文", "total_tasks": 1, "completed_tasks": 1},
+        {"subject": "英语", "total_tasks": 2, "completed_tasks": 1}
+      ],
+      "timeline": [
+        {"label": "2026-03-08", "total_tasks": 2, "completed_tasks": 1},
+        {"label": "2026-03-09", "total_tasks": 1, "completed_tasks": 1},
+        {"label": "2026-03-10", "total_tasks": 2, "completed_tasks": 1}
+      ]
+    },
+    "expected_summary": "You worked on 5 tasks this week and completed 3 of them, which means your effort is moving things forward.",
+    "expected_total": 5,
+    "expected_completed": 3,
+    "expected_completion_rate_percent": 60
+  },
+  {
+    "id": "monthly_complete",
+    "why": "月报全完成场景需要输出包含实际任务数的正向总结，体现持续努力。",
+    "stats": {
+      "report_type": "monthly",
+      "period_label": "2026-02",
+      "total_tasks": 8,
+      "completed_tasks": 8,
+      "points_delta": 10,
+      "active_days": 6,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 4, "completed_tasks": 4},
+        {"subject": "英语", "total_tasks": 4, "completed_tasks": 4}
+      ],
+      "timeline": [
+        {"label": "2026-02-05", "total_tasks": 2, "completed_tasks": 2},
+        {"label": "2026-02-12", "total_tasks": 2, "completed_tasks": 2},
+        {"label": "2026-02-19", "total_tasks": 2, "completed_tasks": 2},
+        {"label": "2026-02-26", "total_tasks": 2, "completed_tasks": 2}
+      ]
+    },
+    "expected_summary": "You completed all 8 tasks this month, which shows patient and steady effort over time.",
+    "expected_total": 8,
+    "expected_completed": 8,
+    "expected_completion_rate_percent": 100
+  },
+  {
+    "id": "monthly_sparse_progress",
+    "why": "月报需要在长周期稀疏数据下仍然输出稳定总结。",
+    "stats": {
+      "report_type": "monthly",
+      "period_label": "2026-03",
+      "total_tasks": 12,
+      "completed_tasks": 9,
+      "points_delta": 8,
+      "active_days": 8,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 4, "completed_tasks": 3},
+        {"subject": "语文", "total_tasks": 3, "completed_tasks": 3},
+        {"subject": "英语", "total_tasks": 5, "completed_tasks": 3}
+      ],
+      "timeline": [
+        {"label": "2026-03-03", "total_tasks": 2, "completed_tasks": 2},
+        {"label": "2026-03-10", "total_tasks": 3, "completed_tasks": 2},
+        {"label": "2026-03-17", "total_tasks": 4, "completed_tasks": 3},
+        {"label": "2026-03-24", "total_tasks": 3, "completed_tasks": 2}
+      ]
+    },
+    "expected_summary": "You worked on 12 tasks this month and completed 9 of them, which shows your routine is growing more consistent.",
+    "expected_total": 12,
+    "expected_completed": 9,
+    "expected_completion_rate_percent": 75
+  },
+  {
+    "id": "monthly_low_progress",
+    "why": "月报低完成率场景验证是否保持正向支持语气。",
+    "stats": {
+      "report_type": "monthly",
+      "period_label": "2026-04",
+      "total_tasks": 20,
+      "completed_tasks": 2,
+      "points_delta": 1,
+      "active_days": 2,
+      "subject_breakdown": [
+        {"subject": "数学", "total_tasks": 10, "completed_tasks": 1},
+        {"subject": "英语", "total_tasks": 10, "completed_tasks": 1}
+      ],
+      "timeline": [
+        {"label": "2026-04-01", "total_tasks": 5, "completed_tasks": 1},
+        {"label": "2026-04-08", "total_tasks": 5, "completed_tasks": 1},
+        {"label": "2026-04-15", "total_tasks": 5, "completed_tasks": 0},
+        {"label": "2026-04-22", "total_tasks": 5, "completed_tasks": 0}
+      ]
+    },
+    "expected_summary": "You worked on 20 tasks this month and completed 2 of them, which shows your routine is growing more consistent.",
+    "expected_total": 20,
+    "expected_completed": 2,
+    "expected_completion_rate_percent": 10
+  },
+  {
+    "id": "monthly_zero_tasks",
+    "why": "月报零任务场景需要输出轻松积极的重置语气，不输出负向评价。",
+    "stats": {
+      "report_type": "monthly",
+      "period_label": "2026-01",
+      "total_tasks": 0,
+      "completed_tasks": 0,
+      "points_delta": 0
+    },
+    "expected_summary": "This month was lighter, which gives you a good chance to build a calmer routine for the next month.",
+    "expected_total": 0,
+    "expected_completed": 0,
+    "expected_completion_rate_percent": 0
+  }
+]
+

@@ -6,6 +6,10 @@ import 'package:pad_app/app.dart';
 import 'package:pad_app/task_board/api_client.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
+import 'package:pad_app/task_board/weekly_stats.dart';
+import 'package:pad_app/word_playback/controller.dart';
+import 'package:pad_app/word_playback/models.dart';
+import 'package:pad_app/word_playback/speaker_contract.dart';
 
 void main() {
   group('PadTaskBoardPage', () {
@@ -152,7 +156,7 @@ void main() {
 
       await _pumpLoadedBoard(tester, repository: repository);
 
-      await tester.tap(find.widgetWithText(FilledButton, '全部完成'));
+      await tester.tap(find.byKey(const Key('today_hero_complete_all_button')));
       await tester.pump();
       await tester.pumpAndSettle();
 
@@ -230,7 +234,7 @@ void main() {
 
       await _pumpLoadedBoard(tester, repository: repository);
 
-      await tester.tap(find.widgetWithText(FilledButton, '全部完成'));
+      await tester.tap(find.byKey(const Key('today_hero_complete_all_button')));
       await tester.pump();
       await tester.pumpAndSettle();
 
@@ -263,7 +267,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('当前日期没有任务'), findsOneWidget);
-      expect(find.text('空任务板'), findsWidgets);
+      expect(find.text('今天暂时没有任务，先等家长端发布。'), findsOneWidget);
       expect(repository.fetchRequests.single.date, '2026-03-06');
     });
 
@@ -304,7 +308,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('数学'), findsOneWidget);
-      expect(find.text('2026-03-06 任务板'), findsOneWidget);
+      final title = tester.widget<Text>(
+        find.byKey(const Key('today_hero_title')),
+      );
+      expect(title.data, '2026-03-06 任务板');
       expect(repository.fetchRequests.length, 2);
     });
 
@@ -321,7 +328,7 @@ void main() {
         ),
       );
 
-      expect(find.text('准备同步任务板'), findsOneWidget);
+      expect(find.text('准备开始今天的任务'), findsOneWidget);
 
       await tester.tap(find.byTooltip('下一天'));
       await tester.pump();
@@ -331,7 +338,10 @@ void main() {
         repository.fetchRequests.map((request) => request.date).toList(),
         <String>['2026-03-07'],
       );
-      expect(find.text('2026-03-07 任务板'), findsOneWidget);
+      final title = tester.widget<Text>(
+        find.byKey(const Key('today_hero_title')),
+      );
+      expect(title.data, '2026-03-07 任务板');
 
       await tester.tap(find.byTooltip('手动刷新'));
       await tester.pump();
@@ -343,12 +353,129 @@ void main() {
       );
       expect(find.text('任务板已手动刷新'), findsOneWidget);
     });
+
+    testWidgets('shows points progress and weekly entry', (tester) async {
+      _setLargeViewport(tester);
+
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => _buildBoard(
+          tasks: const <_TaskSeed>[
+            _TaskSeed(
+              taskId: 1,
+              subject: '数学',
+              groupTitle: '口算练习',
+              content: '完成第 1 页',
+              completed: true,
+            ),
+            _TaskSeed(
+              taskId: 2,
+              subject: '英语',
+              groupTitle: '背单词',
+              content: '复习 20 个单词',
+            ),
+          ],
+        ),
+        onFetchWeeklyStats: (_) async => const WeeklyStats(
+          message: 'Weekly stats generated successfully',
+          days: <WeeklyStatsDay>[
+            WeeklyStatsDay(
+              date: '2026-03-04',
+              totalTasks: 2,
+              completedTasks: 1,
+            ),
+            WeeklyStatsDay(
+              date: '2026-03-05',
+              totalTasks: 2,
+              completedTasks: 2,
+            ),
+          ],
+          insight: WeeklyInsight(
+            summary: '你这周已经持续推进任务了。',
+            strengths: <String>['坚持完成计划', '会把任务一步步做完', '能保持学习节奏'],
+            areasForImprovement: <String>[
+              '继续提前开始难题',
+              '做完及时勾选',
+              '把剩余任务分段完成',
+            ],
+            psychologicalInsight: '每次完成一项任务，都会让你更有把握。',
+            rawMetricTotal: 4,
+            rawMetricCompleted: 3,
+          ),
+        ),
+      );
+
+      await _pumpLoadedBoard(tester, repository: repository);
+
+      expect(find.text('今日积分'), findsOneWidget);
+      expect(find.text('+2'), findsOneWidget);
+      expect(find.text('今日完成'), findsOneWidget);
+      expect(find.text('1/2'), findsOneWidget);
+      expect(find.text('简化版日报 / 周报入口'), findsOneWidget);
+
+      await tester.tap(find.text('本周鼓励'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text('本周完成率 75%'), findsOneWidget);
+      expect(find.text('你这周已经持续推进任务了。'), findsOneWidget);
+      expect(repository.weeklyStatsRequests.length, 1);
+    });
+
+    testWidgets('word playback supports play replay and next', (tester) async {
+      _setLargeViewport(tester);
+
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => _boardWithTasks(),
+      );
+      final speaker = _FakeWordSpeaker();
+      final wordController = WordPlaybackController(speaker: speaker);
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: repository,
+          wordPlaybackController: wordController,
+        ),
+      );
+
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('单词播放'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('apple'), findsOneWidget);
+      expect(find.text('播放进度 1/4'), findsOneWidget);
+
+      await tester.tap(find.text('当前词播放'));
+      await tester.pumpAndSettle();
+      expect(speaker.spokenPhrases, <String>['apple']);
+
+      await tester.tap(find.text('下一词'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('library'), findsOneWidget);
+      expect(find.text('播放进度 2/4'), findsOneWidget);
+      expect(
+        speaker.spokenPhrases,
+        <String>['apple', 'library'],
+      );
+
+      await tester.tap(find.text('重播'));
+      await tester.pumpAndSettle();
+
+      expect(
+        speaker.spokenPhrases,
+        <String>['apple', 'library', 'library'],
+      );
+    });
   });
 }
 
 class _FakeTaskBoardRepository implements TaskBoardRepository {
   _FakeTaskBoardRepository({
     required this.onFetch,
+    this.onFetchWeeklyStats,
     this.onUpdateSingleTask,
     this.onUpdateTaskGroup,
     this.onUpdateAllTasks,
@@ -356,6 +483,8 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
   }) : _lastBoard = fallbackBoard ?? _boardWithTasks();
 
   final Future<TaskBoard> Function(TaskBoardRequest request) onFetch;
+  final Future<WeeklyStats> Function(TaskBoardRequest request)?
+      onFetchWeeklyStats;
   final Future<TaskBoard> Function(
     TaskBoardRequest request,
     int taskId,
@@ -373,6 +502,7 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
   )? onUpdateAllTasks;
 
   final List<TaskBoardRequest> fetchRequests = <TaskBoardRequest>[];
+  final List<TaskBoardRequest> weeklyStatsRequests = <TaskBoardRequest>[];
   final List<_SingleTaskUpdateCall> singleTaskUpdates =
       <_SingleTaskUpdateCall>[];
   final List<_GroupUpdateCall> groupUpdates = <_GroupUpdateCall>[];
@@ -386,6 +516,15 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
     final board = await onFetch(request);
     _lastBoard = board;
     return board;
+  }
+
+  @override
+  Future<WeeklyStats> fetchWeeklyStats(TaskBoardRequest request) async {
+    weeklyStatsRequests.add(request);
+    return await (onFetchWeeklyStats?.call(request) ??
+        Future<WeeklyStats>.value(
+          const WeeklyStats(message: 'No data found', days: <WeeklyStatsDay>[]),
+        ));
   }
 
   @override
@@ -461,6 +600,24 @@ class _GroupUpdateCall {
   final String subject;
   final String? groupTitle;
   final bool completed;
+}
+
+class _FakeWordSpeaker implements WordSpeaker {
+  final List<String> spokenPhrases = <String>[];
+
+  @override
+  bool get supportsPlayback => true;
+
+  @override
+  Future<void> speak(
+    String text, {
+    required WordPlaybackLanguage language,
+  }) async {
+    spokenPhrases.add(text);
+  }
+
+  @override
+  Future<void> stop() async {}
 }
 
 class _TaskSeed {

@@ -1,30 +1,30 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-03-10
 
 ### Added
 
-- `scripts/demo_local_stack.sh` 作为本地演示入口
-- `docs/13_RELEASE_CHECKLIST.md` 作为发布前检查清单
-- `docs/14_NEXT_PHASE_DISPATCH.md` 作为最新的 Codex 派单文档
-- `docs/15_CODEX_DIRECT_DISPATCH.md` 作为可直接复制到 Codex 的快捷派单文档
-- 第一阶段正式需求收口到 `docs/01_PRD.md`
-- `docs/16_FIRST_PHASE_DEMO_CHECKLIST.md` 作为第一阶段功能演示清单
-- `docs/17_DELIVERY_READINESS.md` 作为第一阶段交付就绪度审计文档
+- **后端事实源闭环 (v0.2.0 核心突破)**
+  - Parent Web 单词清单彻底废弃 `localStorage`，改由 `POST /api/v1/word-lists` 后端持久化。
+  - Pad 端接入 `dictation-session` 接口，支持播放进度、重播与下一词的后端会话同步。
+  - Parent Web 积分流水与余额改由 `/api/v1/points/ledger` 与 `/api/v1/points/balance` 驱动，不再依赖本地缓存。
+  - Pad 端孩子积分展示改为后端权威余额，消除 `completed * 2` 的本地估算逻辑。
+  - Parent Web 月视图接入 `/api/v1/stats/monthly`，实现以周为单位的后端聚合分析。
+  - Pad 端今日简报基于后端 `DailyStats` 结构输出。
+- `scripts/demo_local_stack.sh` 作为本地演示入口。
+- `docs/13_RELEASE_CHECKLIST.md` 升级为 `v0.2.0` 正式签收清单。
+- `docs/16_FIRST_PHASE_DEMO_CHECKLIST.md` 增加后端一致性专项核查项。
+- `docs/17_DELIVERY_READINESS.md` 更新结论为“已达到第一阶段正式交付与签收标准”。
 
 ### Changed
 
-- `README.md` 与 `docs/06_RUNBOOK.md` 增加一键演示入口
-- 集成流程从“preflight + smoke”推进到“preflight + smoke + demo + release checklist”
-- `docs/09`、`docs/10`、`docs/11`、`docs/12` 增加归档说明，统一收口到 `docs/14_NEXT_PHASE_DISPATCH.md`
-- `docs/13_RELEASE_CHECKLIST.md` 增加固定的 GitHub 同步命令模板
-- `.env.example` 的数据库示例账号改为私有占位值，避免误用仓库内示例密码
-- `scripts/preflight_local_env.sh` 增加 Docker Desktop 常见路径兜底识别，降低 macOS 下的误判
-- `docs/03_ROADMAP.md` 改为围绕第一阶段 7 类核心能力的版本计划
-- `docs/04_AGENTIC_DESIGN.md` 改为围绕 Google Agentic design pattern 的第一阶段约束
-- `docs/14_NEXT_PHASE_DISPATCH.md` 改为第一阶段多 Codex 开发计划
-- `docs/06_RUNBOOK.md`、`docs/13_RELEASE_CHECKLIST.md`、`README.md`、`scripts/demo_local_stack.sh` 增加第一阶段演示清单入口
-- `README.md` 增加第一阶段交付就绪度审计入口
+- `README.md` 与 `docs/06_RUNBOOK.md` 增加一键演示入口。
+- 集成流程从“preflight + smoke”推进到“preflight + smoke + demo + release checklist”。
+- `docs/09` 到 `docs/12` 统一收口并归档。
+- `docs/14_NEXT_PHASE_DISPATCH.md` 更新为第一阶段收口计划。
+- `.env.example` 数据库示例账号改为私有占位值。
+- `scripts/preflight_local_env.sh` 优化 macOS 下 Docker Desktop 的识别。
+- `docs/03_ROADMAP.md` 标记第一阶段核心能力已闭环。
 
 ### Verified
 
@@ -32,12 +32,9 @@
 - `bash scripts/preflight_local_env.sh`
 - `bash scripts/smoke_local_stack.sh`
 - `bash scripts/demo_local_stack.sh`
-- `GOCACHE=/Users/admin/Documents/WORK/ai/studyclaw/.cache/go-build GOMODCACHE=/Users/admin/Documents/WORK/ai/studyclaw/apps/api-server/.gomodcache GOPROXY=off GOSUMDB=off go test ./...`
-- `cd apps/parent-web && npm run test`
-- `cd apps/parent-web && npm run build`
-- `cd apps/pad-app && flutter analyze`
-- `cd apps/pad-app && flutter test`
-- `cd apps/pad-app && flutter build web`
+- `go test ./...` (Go 后端全量测试通过)
+- `npm run test` & `npm run build` (Parent Web API 集成测试通过)
+- `flutter analyze` & `flutter test` & `flutter build web` (Pad App 全量验证通过)
 
 ## [0.1.1] - 2026-03-09
 
@@ -79,7 +76,7 @@
 
 ### Added
 
-- 家长端最小任务输入页，支持学校群式原始文本粘贴
+- 家长端最小任务 input 页，支持学校群式原始文本粘贴
 - Agent Core `LLM 优先 + 规则兜底` 混合解析链路
 - 任务确认流：`parse -> review -> confirm`
 - Markdown 工作区持久化

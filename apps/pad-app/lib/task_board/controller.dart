@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:pad_app/task_board/api_client.dart';
+import 'package:pad_app/task_board/feedback.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
+import 'package:pad_app/task_board/daily_stats.dart';
 
 enum TaskBoardScreenStatus { loading, empty, error, success }
 
@@ -13,6 +14,7 @@ class TaskBoardViewState {
   const TaskBoardViewState({
     required this.status,
     this.board,
+    this.dailyStats,
     this.errorMessage,
     this.noticeMessage,
     this.noticeTone = TaskBoardNoticeTone.success,
@@ -28,6 +30,7 @@ class TaskBoardViewState {
 
   final TaskBoardScreenStatus status;
   final TaskBoard? board;
+  final DailyStats? dailyStats;
   final String? errorMessage;
   final String? noticeMessage;
   final TaskBoardNoticeTone noticeTone;
@@ -58,6 +61,7 @@ class TaskBoardViewState {
   TaskBoardViewState copyWith({
     TaskBoardScreenStatus? status,
     Object? board = _missing,
+    Object? dailyStats = _missing,
     Object? errorMessage = _missing,
     Object? noticeMessage = _missing,
     Object? noticeTone = _missing,
@@ -69,6 +73,8 @@ class TaskBoardViewState {
     return TaskBoardViewState(
       status: status ?? this.status,
       board: board == _missing ? this.board : board as TaskBoard?,
+      dailyStats:
+          dailyStats == _missing ? this.dailyStats : dailyStats as DailyStats?,
       errorMessage: errorMessage == _missing
           ? this.errorMessage
           : errorMessage as String?,
@@ -161,8 +167,13 @@ class TaskBoardController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final board = await _repository.fetchBoard(request);
-      _applyBoard(board, noticeMessage: successMessage);
+      final results = await Future.wait([
+        _repository.fetchBoard(request),
+        _repository.fetchDailyStats(request),
+      ]);
+      final board = results[0] as TaskBoard;
+      final dailyStats = results[1] as DailyStats;
+      _applyBoard(board, dailyStats: dailyStats, noticeMessage: successMessage);
     } catch (error) {
       _handleError(error);
     }
@@ -182,6 +193,7 @@ class TaskBoardController extends ChangeNotifier {
     bool completed,
   ) async {
     await _runMutation(
+      request,
       () => _repository.updateSingleTask(
         request,
         taskId: task.taskId,
@@ -197,6 +209,7 @@ class TaskBoardController extends ChangeNotifier {
     bool completed,
   ) async {
     await _runMutation(
+      request,
       () => _repository.updateTaskGroup(
         request,
         subject: group.subject,
@@ -214,6 +227,7 @@ class TaskBoardController extends ChangeNotifier {
     bool completed,
   ) async {
     await _runMutation(
+      request,
       () => _repository.updateTaskGroup(
         request,
         subject: group.subject,
@@ -231,12 +245,14 @@ class TaskBoardController extends ChangeNotifier {
     required bool completed,
   }) async {
     await _runMutation(
+      request,
       () => _repository.updateAllTasks(request, completed: completed),
       completed ? '已将全部任务同步为完成' : '已将全部任务恢复为待完成',
     );
   }
 
   Future<void> _runMutation(
+    TaskBoardRequest request,
     Future<TaskBoard> Function() action,
     String successMessage,
   ) async {
@@ -251,13 +267,16 @@ class TaskBoardController extends ChangeNotifier {
 
     try {
       final board = await action();
-      _applyBoard(board, noticeMessage: successMessage);
+      // After mutation, refresh daily stats too
+      final dailyStats = await _repository.fetchDailyStats(request);
+      _applyBoard(board, dailyStats: dailyStats, noticeMessage: successMessage);
     } catch (error) {
       _handleError(error);
     }
   }
 
-  void _applyBoard(TaskBoard board, {String? noticeMessage}) {
+  void _applyBoard(TaskBoard board,
+      {DailyStats? dailyStats, String? noticeMessage}) {
     _expandedHomeworkGroupKeys = board.homeworkGroups
         .where((group) => group.status != 'completed')
         .map((group) => _groupKey(group.subject, group.groupTitle))
@@ -270,6 +289,7 @@ class TaskBoardController extends ChangeNotifier {
     _state = _state.copyWith(
       status: _statusForBoard(board),
       board: board,
+      dailyStats: dailyStats,
       errorMessage: null,
       noticeMessage: _resolveNoticeMessage(board, noticeMessage),
       noticeTone: TaskBoardNoticeTone.success,
@@ -283,13 +303,15 @@ class TaskBoardController extends ChangeNotifier {
 
   void _handleError(Object error) {
     final board = _state.board;
-    final feedback = _describeFeedback(error);
+    final feedback = describePadApiFeedback(error);
     _state = _state.copyWith(
       status:
           board == null ? TaskBoardScreenStatus.error : _statusForBoard(board),
       errorMessage: feedback.isNotice ? null : feedback.message,
       noticeMessage: feedback.isNotice ? feedback.message : null,
-      noticeTone: feedback.noticeTone,
+      noticeTone: feedback.kind == PadApiFeedbackKind.infoNotice
+          ? TaskBoardNoticeTone.info
+          : TaskBoardNoticeTone.success,
       isRefreshing: false,
       isUpdating: false,
       hasLoadedOnce: true,
@@ -314,181 +336,7 @@ class TaskBoardController extends ChangeNotifier {
     return boardMessage;
   }
 
-  _TaskBoardFeedback _describeFeedback(Object error) {
-    if (error is TaskApiException) {
-      if (error.errorCode == 'status_unchanged') {
-        return _TaskBoardFeedback.notice(
-          _describeStatusUnchanged(error),
-          noticeTone: TaskBoardNoticeTone.info,
-        );
-      }
-      return _TaskBoardFeedback.error(_describeTaskApiError(error));
-    }
-    if (error is FormatException) {
-      return const _TaskBoardFeedback.error('服务端返回了无法解析的数据。');
-    }
-    return _TaskBoardFeedback.error('同步失败：$error');
-  }
-
-  String _describeTaskApiError(TaskApiException error) {
-    final details = error.details ?? const <String, dynamic>{};
-
-    switch (error.errorCode) {
-      case 'task_not_found':
-        final taskId = _detailInt(details, 'task_id');
-        if (taskId != null) {
-          return '任务 #$taskId 不存在，可能已被删除或日期已变更。';
-        }
-        return '当前日期没有可同步的任务，请先刷新任务板。';
-      case 'task_group_not_found':
-        final subject = _detailString(details, 'subject');
-        final groupTitle = _detailString(details, 'group_title');
-        if (subject != null && groupTitle != null) {
-          return '没有找到“$subject / $groupTitle”对应的任务分组，请先刷新任务板。';
-        }
-        if (subject != null) {
-          return '没有找到“$subject”学科下可同步的任务，请先刷新任务板。';
-        }
-        return '没有找到可同步的任务分组，请先刷新任务板。';
-      case 'missing_required_fields':
-        final fields = _detailStringList(details, 'fields');
-        if (fields.isNotEmpty) {
-          return '缺少必要参数：${fields.map(_fieldLabel).join('、')}。';
-        }
-        return '缺少必要参数，请检查同步配置后重试。';
-      case 'invalid_request_fields':
-        final fields = _detailStringList(details, 'fields');
-        if (fields.isNotEmpty) {
-          return '这些参数缺失或格式不正确：${fields.map(_fieldLabel).join('、')}。';
-        }
-        return '请求参数缺失或格式不正确，请检查后重试。';
-      case 'invalid_query_parameter':
-        final field = _detailString(details, 'field');
-        if (field != null) {
-          return '查询参数“${_fieldLabel(field)}”格式不正确。';
-        }
-        return '查询参数格式不正确，请检查后重试。';
-      case 'invalid_date':
-        final field = _detailString(details, 'field');
-        if (field != null) {
-          return '“${_fieldLabel(field)}”格式无效，请使用 YYYY-MM-DD。';
-        }
-        return '日期格式无效，请使用 YYYY-MM-DD。';
-      case 'invalid_json':
-        return '请求体格式无效，请重试。';
-      case 'invalid_request':
-        return '请求参数无效，请检查同步配置后重试。';
-      case 'parser_unavailable':
-        return '解析服务暂不可用，请稍后再试。';
-      case 'tasks_not_extractable':
-        return '任务内容暂时无法解析，请先回到家长端重新确认。';
-      case 'internal_error':
-        return '服务端处理失败，请稍后再试。';
-    }
-
-    if (error.statusCode > 0) {
-      return '请求失败（${error.statusCode}）：${error.message}';
-    }
-    return '网络请求失败：${error.message}';
-  }
-
-  String _describeStatusUnchanged(TaskApiException error) {
-    final details = error.details ?? const <String, dynamic>{};
-    final statusLabel = _statusLabel(_detailString(details, 'status'));
-    final taskId = _detailInt(details, 'task_id');
-    final subject = _detailString(details, 'subject');
-    final groupTitle = _detailString(details, 'group_title');
-
-    if (taskId != null) {
-      return '任务 #$taskId 已经是$statusLabel状态，无需重复同步。';
-    }
-    if (subject != null && groupTitle != null) {
-      return '“$subject / $groupTitle”分组已经是$statusLabel状态，无需重复同步。';
-    }
-    if (subject != null) {
-      return '“$subject”学科任务已经是$statusLabel状态，无需重复同步。';
-    }
-    return '全部任务已经是$statusLabel状态，无需重复同步。';
-  }
-
-  int? _detailInt(Map<String, dynamic> details, String key) {
-    final value = details[key];
-    if (value is int) {
-      return value;
-    }
-    if (value is num) {
-      return value.toInt();
-    }
-    return int.tryParse(value?.toString() ?? '');
-  }
-
-  String? _detailString(Map<String, dynamic> details, String key) {
-    final value = details[key]?.toString().trim();
-    if (value == null || value.isEmpty) {
-      return null;
-    }
-    return value;
-  }
-
-  List<String> _detailStringList(Map<String, dynamic> details, String key) {
-    final value = details[key];
-    if (value is! List) {
-      return const <String>[];
-    }
-
-    return value
-        .map((item) => item?.toString().trim() ?? '')
-        .where((item) => item.isNotEmpty)
-        .toList();
-  }
-
-  String _fieldLabel(String field) {
-    switch (field) {
-      case 'subject':
-        return '学科';
-      case 'group_title':
-        return '任务分组';
-      case 'task_id':
-        return '任务 ID';
-      case 'assigned_date':
-      case 'date':
-        return '任务日期';
-      case 'end_date':
-        return '结束日期';
-      case 'completed':
-        return '完成状态';
-      default:
-        return field;
-    }
-  }
-
-  String _statusLabel(String? status) {
-    switch (status) {
-      case 'completed':
-        return '已完成';
-      case 'pending':
-        return '待完成';
-      default:
-        return '当前';
-    }
-  }
-
   String _groupKey(String subject, String groupTitle) {
     return '$subject::$groupTitle';
   }
-}
-
-class _TaskBoardFeedback {
-  const _TaskBoardFeedback.error(this.message)
-      : isNotice = false,
-        noticeTone = TaskBoardNoticeTone.success;
-
-  const _TaskBoardFeedback.notice(
-    this.message, {
-    this.noticeTone = TaskBoardNoticeTone.info,
-  }) : isNotice = true;
-
-  final String message;
-  final bool isNotice;
-  final TaskBoardNoticeTone noticeTone;
 }

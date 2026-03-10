@@ -2,7 +2,26 @@
   {
     "id": "empty_data",
     "why": "空周数据时必须稳定回退，不能返回空结构或报错。",
+    "regression_focus": "验证零任务输入下 summary、strengths、areas_for_improvement、psychological_insight 仍然完整返回。",
+    "should_not_break_when": "没有 days_data 或 tasks 为空时，不应返回空对象、nil slice 或报错。",
     "days_data": [],
+    "expected_total": 0,
+    "expected_completed": 0,
+    "expected_summary": "This week was light, which is a good chance to build a steady study rhythm for next week."
+  },
+  {
+    "id": "days_without_tasks_field",
+    "why": "有日期但没有 tasks 字段是实际联调里常见的稀疏输入。",
+    "regression_focus": "验证聚合逻辑在 days_data 存在但 tasks 缺失时仍然稳定回退。",
+    "should_not_break_when": "单天或多天数据缺少 tasks 字段时，不应 panic，也不应生成不完整 insight。",
+    "days_data": [
+      {
+        "date": "2026-03-01"
+      },
+      {
+        "date": "2026-03-02"
+      }
+    ],
     "expected_total": 0,
     "expected_completed": 0,
     "expected_summary": "This week was light, which is a good chance to build a steady study rhythm for next week."
@@ -10,6 +29,8 @@
   {
     "id": "single_day_mixed_completion",
     "why": "只有单日数据时也要稳定输出周报，不应依赖满 7 天输入。",
+    "regression_focus": "验证单日混合完成率时，聚合逻辑仍能给出稳定 metrics 和默认总结。",
+    "should_not_break_when": "days_data 只有一天时，不应假设必须凑满 7 天才生成 insight。",
     "days_data": [
       {
         "date": "2026-03-08",
@@ -24,8 +45,37 @@
     "expected_summary": "You worked on 2 tasks this week and completed 1 of them, which means your effort is moving things forward."
   },
   {
+    "id": "sparse_week_with_empty_days",
+    "why": "真实周数据里经常只有少数几天有任务，其余天为空。",
+    "regression_focus": "验证稀疏周输入下，active day 和汇总指标不会被空天干扰。",
+    "should_not_break_when": "前后夹杂空天或 tasks 为空时，不应影响有任务那几天的统计结果。",
+    "days_data": [
+      {
+        "date": "2026-03-03",
+        "tasks": []
+      },
+      {
+        "date": "2026-03-04",
+        "tasks": [
+          {"completed": true},
+          {"completed": false},
+          {"completed": false}
+        ]
+      },
+      {
+        "date": "2026-03-05",
+        "tasks": []
+      }
+    ],
+    "expected_total": 3,
+    "expected_completed": 1,
+    "expected_summary": "You worked on 3 tasks this week and completed 1 of them, which means your effort is moving things forward."
+  },
+  {
     "id": "all_completed",
     "why": "全完成场景要给出确定性正向总结，避免因 LLM 缺失而丢失指标。",
+    "regression_focus": "验证 100% 完成率时的 summary 与 metrics 是确定性的，适合 smoke 比对。",
+    "should_not_break_when": "所有任务都完成时，不应回落成空泛默认文案或丢失完成数。",
     "days_data": [
       {
         "date": "2026-03-06",
@@ -43,6 +93,8 @@
   {
     "id": "all_incomplete",
     "why": "全未完成场景也必须返回完整 insight 结构，供前端稳定展示。",
+    "regression_focus": "验证 0% 完成率时仍返回完整 insight 结构和稳定文案。",
+    "should_not_break_when": "所有任务都未完成时，不应返回空 strengths、空 improvements 或异常。",
     "days_data": [
       {
         "date": "2026-03-06",
@@ -56,5 +108,25 @@
     "expected_total": 3,
     "expected_completed": 0,
     "expected_summary": "You worked on 3 tasks this week and completed 0 of them, which means your effort is moving things forward."
+  },
+  {
+    "id": "mixed_unknown_task_entries",
+    "why": "联调时可能会遇到混合异常条目，系统至少要保证不崩并保持统计可预期。",
+    "regression_focus": "验证 []interface{} 下混合对象、空对象和非对象条目时仍能稳定计数。",
+    "should_not_break_when": "tasks 中出现字符串、数字或空对象时，不应 panic，完成数只统计明确 completed=true 的项。",
+    "days_data": [
+      {
+        "date": "2026-03-06",
+        "tasks": [
+          {"completed": true},
+          "bad-task",
+          123,
+          {}
+        ]
+      }
+    ],
+    "expected_total": 4,
+    "expected_completed": 1,
+    "expected_summary": "You worked on 4 tasks this week and completed 1 of them, which means your effort is moving things forward."
   }
 ]

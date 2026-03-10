@@ -35,7 +35,7 @@ func TestGenerateMockCountsTypedDomainTasks(t *testing.T) {
 	if len(insight.AreasForImprovement) != 3 {
 		t.Fatalf("expected 3 improvement areas, got %+v", insight.AreasForImprovement)
 	}
-	if insight.AgenticPattern.Primary != "single-agent system" {
+	if insight.AgenticPattern.Primary != "custom logic pattern" {
 		t.Fatalf("unexpected primary pattern: %+v", insight.AgenticPattern)
 	}
 }
@@ -82,7 +82,7 @@ func TestGenerateNormalizesLLMOutputAndPreservesMetrics(t *testing.T) {
 	if insight.PsychologicalInsight != "Progress grows when you return to unfinished work." {
 		t.Fatalf("unexpected psychological insight: %q", insight.PsychologicalInsight)
 	}
-	if insight.AgenticPattern.Primary != "single-agent system" {
+	if insight.AgenticPattern.Primary != "custom logic pattern" {
 		t.Fatalf("unexpected primary pattern: %+v", insight.AgenticPattern)
 	}
 }
@@ -146,8 +146,8 @@ func TestBuildPromptUsesDeterministicWeeklyMetrics(t *testing.T) {
 	assertContains(t, prompt, `"completion_rate_percent":66`)
 	assertContains(t, prompt, `"active_days":2`)
 
-	date6 := strings.Index(prompt, `"date":"2026-03-06"`)
-	date7 := strings.Index(prompt, `"date":"2026-03-07"`)
+	date6 := strings.Index(prompt, `"label":"2026-03-06"`)
+	date7 := strings.Index(prompt, `"label":"2026-03-07"`)
 	if date6 == -1 || date7 == -1 || date6 >= date7 {
 		t.Fatalf("expected prompt dates to be sorted, got prompt %q", prompt)
 	}

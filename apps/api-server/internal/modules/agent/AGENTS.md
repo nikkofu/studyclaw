@@ -9,7 +9,7 @@ You are working inside the Go agent lane.
 - `docs/04_AGENTIC_DESIGN.md` when agentic design needs updating
 
 ### Goal
-- Improve task parsing and weekly insight quality
+- Improve task parsing and phase-one report quality
 - Keep LLM usage bounded and explicit
 - Follow Google agentic design patterns strictly
 

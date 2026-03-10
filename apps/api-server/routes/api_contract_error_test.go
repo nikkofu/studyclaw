@@ -1,9 +1,27 @@
 package routes
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 )
+
+func TestPingSmokeEndpoint(t *testing.T) {
+	router := SetupRouter()
+
+	recorder := performJSONRequest(t, router, http.MethodGet, "/ping", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected ping to return 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if payload["message"] != "pong" {
+		t.Fatalf("expected ping message pong, got %+v", payload)
+	}
+}
 
 func TestAuthLoginValidationUsesSharedErrorContract(t *testing.T) {
 	router := SetupRouter()

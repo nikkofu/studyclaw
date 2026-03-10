@@ -18,7 +18,10 @@ type regressionExpectedTask struct {
 type regressionCase struct {
 	ID                       string                   `json:"id"`
 	Category                 string                   `json:"category"`
+	RiskType                 string                   `json:"risk_type"`
 	Why                      string                   `json:"why"`
+	WhyNeedsReview           string                   `json:"why_needs_review"`
+	ShouldNotMisjudgeWhen    string                   `json:"should_not_misjudge_when"`
 	RawText                  string                   `json:"raw_text"`
 	ExpectedTaskCount        int                      `json:"expected_task_count"`
 	ExpectedNeedsReviewCount int                      `json:"expected_needs_review_count"`
@@ -49,6 +52,22 @@ func loadRegressionCases(t *testing.T) []regressionCase {
 func TestParseFallbackRegressionFixtures(t *testing.T) {
 	for _, tc := range loadRegressionCases(t) {
 		t.Run(tc.ID, func(t *testing.T) {
+			if tc.RiskType == "" {
+				t.Fatalf("expected risk_type metadata for %s", tc.ID)
+			}
+			if tc.Why == "" {
+				t.Fatalf("expected why metadata for %s", tc.ID)
+			}
+			if tc.ShouldNotMisjudgeWhen == "" {
+				t.Fatalf("expected should_not_misjudge_when metadata for %s", tc.ID)
+			}
+			if tc.ExpectedNeedsReviewCount > 0 && tc.WhyNeedsReview == "" {
+				t.Fatalf("expected why_needs_review metadata for risky case %s", tc.ID)
+			}
+			if tc.ExpectedNeedsReviewCount == 0 && tc.WhyNeedsReview != "" {
+				t.Fatalf("expected empty why_needs_review for safe case %s", tc.ID)
+			}
+
 			result := parseFallback(tc.RawText)
 			if result.Status != "success" {
 				t.Fatalf("%s: expected success, got %+v", tc.Why, result)

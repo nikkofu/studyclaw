@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pad_app/task_board/page.dart';
 import 'package:pad_app/task_board/repository.dart';
+import 'package:pad_app/word_playback/controller.dart';
+import 'package:pad_app/word_playback/speaker.dart';
 
 class StudyClawPadApp extends StatelessWidget {
   const StudyClawPadApp({
@@ -11,6 +13,7 @@ class StudyClawPadApp extends StatelessWidget {
     this.initialFamilyId,
     this.initialUserId,
     this.repository = const RemoteTaskBoardRepository(),
+    this.wordPlaybackController,
   });
 
   final bool autoLoad;
@@ -19,6 +22,7 @@ class StudyClawPadApp extends StatelessWidget {
   final int? initialFamilyId;
   final int? initialUserId;
   final TaskBoardRepository repository;
+  final WordPlaybackController? wordPlaybackController;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +41,7 @@ class StudyClawPadApp extends StatelessWidget {
         initialFamilyId: initialFamilyId,
         initialUserId: initialUserId,
         repository: repository,
+        wordPlaybackController: wordPlaybackController,
       ),
     );
   }

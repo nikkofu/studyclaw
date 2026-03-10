@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 type TaskHandler struct {
 	taskboard *taskboardapp.Service
+	phaseOne  *taskboardapp.PhaseOneService
 	parser    *taskparse.Service
 }
 
@@ -74,8 +76,8 @@ type UpdateAllTasksStatusReq struct {
 	AssignedDate string `json:"assigned_date,omitempty"`
 }
 
-func NewTaskHandler(taskboard *taskboardapp.Service, parser *taskparse.Service) *TaskHandler {
-	return &TaskHandler{taskboard: taskboard, parser: parser}
+func NewTaskHandler(taskboard *taskboardapp.Service, phaseOne *taskboardapp.PhaseOneService, parser *taskparse.Service) *TaskHandler {
+	return &TaskHandler{taskboard: taskboard, phaseOne: phaseOne, parser: parser}
 }
 
 func mapParsedTasksToCreateReqs(familyID, assigneeID uint, assignedDate string, parsedTasks []taskparse.ParsedTask) []taskboarddomain.CreateTaskInput {
@@ -98,6 +100,44 @@ func mapParsedTasksToCreateReqs(familyID, assigneeID uint, assignedDate string, 
 	}
 
 	return createdTasks
+}
+
+func mapParsedTasksToTaskItems(parsedTasks []taskparse.ParsedTask) []taskboarddomain.TaskItem {
+	items := make([]taskboarddomain.TaskItem, 0, len(parsedTasks))
+	for index, task := range parsedTasks {
+		subject, groupTitle, content := taskboardapp.NormalizeTaskFields(task.Subject, task.GroupTitle, task.Title)
+		if content == "" {
+			continue
+		}
+		items = append(items, taskboarddomain.TaskItem{
+			TaskID:      index + 1,
+			Subject:     subject,
+			GroupTitle:  groupTitle,
+			Title:       content,
+			Content:     content,
+			Type:        strings.TrimSpace(task.Type),
+			Confidence:  task.Confidence,
+			NeedsReview: task.NeedsReview,
+			Notes:       append([]string(nil), task.Notes...),
+			Completed:   false,
+			Status:      "pending",
+			PointsValue: 1,
+		})
+	}
+	return items
+}
+
+func analysisToMap(analysis taskparse.ParseAnalysis) map[string]any {
+	content, err := json.Marshal(analysis)
+	if err != nil {
+		return map[string]any{}
+	}
+
+	payload := make(map[string]any)
+	if err := json.Unmarshal(content, &payload); err != nil {
+		return map[string]any{}
+	}
+	return payload
 }
 
 func respondWithBoard(c *gin.Context, board taskboarddomain.Board, extra gin.H) {
@@ -148,10 +188,16 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		return
 	}
 
+	dailyAssignment, _, snapshotErr := h.phaseOne.UpsertAssignmentSnapshotFromBoard(req.FamilyID, req.AssigneeID, assignedDate, "", "")
+	if snapshotErr != nil {
+		log.Printf("Failed to sync legacy create into daily assignment snapshot: %v", snapshotErr)
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "Task written to daily markdown successfully",
-		"date":    assignedDate.Format("2006-01-02"),
-		"task":    req,
+		"message":          "Task written to daily markdown successfully",
+		"date":             assignedDate.Format("2006-01-02"),
+		"task":             req,
+		"daily_assignment": dailyAssignment,
 	})
 }
 
@@ -194,14 +240,33 @@ func (h *TaskHandler) ParseAndCreateTasks(c *gin.Context) {
 		}
 	}
 
+	draft, err := h.phaseOne.SaveDraft(req.FamilyID, req.AssigneeID, assignedDate, req.RawText, parsed.ParserMode, analysisToMap(parsed.Analysis), mapParsedTasksToTaskItems(parsed.Data))
+	if err != nil {
+		log.Printf("Failed to store parsed daily assignment draft: %v", err)
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to store parsed task draft", nil)
+		return
+	}
+
+	var publishedAssignment any
+	if req.AutoCreate {
+		assignment, _, snapshotErr := h.phaseOne.UpsertAssignmentSnapshotFromBoard(req.FamilyID, req.AssigneeID, assignedDate, draft.DraftID, req.RawText)
+		if snapshotErr != nil {
+			log.Printf("Failed to sync auto-created tasks into daily assignment snapshot: %v", snapshotErr)
+		} else {
+			publishedAssignment = assignment
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
-		"message":      "Tasks parsed successfully",
-		"parsed_count": len(createdTasks),
-		"parser_mode":  parsed.ParserMode,
-		"analysis":     parsed.Analysis,
-		"auto_created": req.AutoCreate,
-		"date":         assignedDate.Format("2006-01-02"),
-		"tasks":        parsed.Data,
+		"message":                "Tasks parsed successfully",
+		"parsed_count":           len(createdTasks),
+		"parser_mode":            parsed.ParserMode,
+		"analysis":               parsed.Analysis,
+		"auto_created":           req.AutoCreate,
+		"date":                   assignedDate.Format("2006-01-02"),
+		"tasks":                  parsed.Data,
+		"daily_assignment_draft": draft,
+		"daily_assignment":       publishedAssignment,
 	})
 }
 
@@ -253,11 +318,19 @@ func (h *TaskHandler) ConfirmTasks(c *gin.Context) {
 		return
 	}
 
+	dailyAssignment, _, snapshotErr := h.phaseOne.UpsertAssignmentSnapshotFromBoard(req.FamilyID, req.AssigneeID, assignedDate, "", "")
+	if snapshotErr != nil {
+		log.Printf("Failed to publish daily assignment snapshot from confirm route: %v", snapshotErr)
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to store published daily assignment", nil)
+		return
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
-		"message":       "Confirmed tasks written to daily markdown successfully",
-		"created_count": len(createdTasks),
-		"date":          assignedDate.Format("2006-01-02"),
-		"tasks":         createdTasks,
+		"message":          "Confirmed tasks written to daily markdown successfully",
+		"created_count":    len(createdTasks),
+		"date":             assignedDate.Format("2006-01-02"),
+		"tasks":            createdTasks,
+		"daily_assignment": dailyAssignment,
 	})
 }
 

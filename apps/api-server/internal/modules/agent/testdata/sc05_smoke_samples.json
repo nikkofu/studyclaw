@@ -1,8 +1,36 @@
 {
   "taskparse": [
     {
+      "id": "taskparse_real_group_message",
+      "purpose": "演示用真实学校群风格样本：多学科、多主任务、子步骤、条件任务同时出现。",
+      "manual_checks": [
+        "返回 task_count=9",
+        "needs_review 应只覆盖“部分学生继续订正1号本”和“抄写单词（今天默写全对，可免抄）”",
+        "数学和语文普通任务不应被连带抬成高风险"
+      ],
+      "raw_text": "数学3.6：\n1、校本P14～15\n2、练习册P12～13\n\n英：\n1. 背默M1U1知识梳理单小作文\n2. 部分学生继续订正1号本\n3. 预习M1U2\n（1）书本上标注好“黄页”出现单词的音标\n（2）抄写单词（今天默写全对，可免抄）\n（3）沪学习听录音跟读\n\n语文：\n1. 背作文\n2. 练习卷",
+      "expected": {
+        "task_count": 9,
+        "needs_review_titles": [
+          "部分学生继续订正1号本",
+          "抄写单词（今天默写全对，可免抄）"
+        ],
+        "safe_titles": [
+          "校本P14～15",
+          "练习册P12～13",
+          "背作文",
+          "练习卷"
+        ]
+      }
+    },
+    {
       "id": "taskparse_mixed_risk_and_safe",
       "purpose": "最小联调样本：同时覆盖明确订正、对象范围不明确、条件任务、正常子步骤。",
+      "manual_checks": [
+        "返回 task_count=5",
+        "needs_review 仅包含“部分学生续做1号卷剩余题”和“默写全对可免抄M2单词”",
+        "“订正默写本P3错词”“圈画生字”“朗读课文三遍”必须保持可直接执行，不应误报"
+      ],
       "raw_text": "英语：\n1. 订正默写本P3错词\n2. 部分学生续做1号卷剩余题\n3. 默写全对可免抄M2单词\n\n语文：\n1. 预习第6课\n1）圈画生字\n2）朗读课文三遍",
       "expected": {
         "task_count": 5,
@@ -20,6 +48,11 @@
     {
       "id": "taskparse_all_safe",
       "purpose": "验证正常编号任务、明确对象的订正/续做不会误报 needs_review。",
+      "manual_checks": [
+        "返回 task_count=3",
+        "needs_review_titles 为空",
+        "三条任务都应直接可创建，不带 review note"
+      ],
       "raw_text": "数学：\n1. 完成口算本第5页\n2. 继续完成校本P19\n3. 订正第2页错题",
       "expected": {
         "task_count": 3,
@@ -32,10 +65,101 @@
       }
     }
   ],
+  "progressinsights": [
+    {
+      "id": "daily_supportive_report",
+      "purpose": "验证日报总结只解释确定性统计，不改写数字。",
+      "manual_checks": [
+        "report_type=daily",
+        "raw_metric_total=4",
+        "raw_metric_completed=3",
+        "completion_rate_percent=75",
+        "summary、strengths、areas_for_improvement、psychological_insight 都非空且保持正向语气"
+      ],
+      "stats": {
+        "report_type": "daily",
+        "period_label": "2026-03-10",
+        "total_tasks": 4,
+        "completed_tasks": 3,
+        "points_delta": 2,
+        "subject_breakdown": [
+          {"subject": "数学", "total_tasks": 2, "completed_tasks": 1},
+          {"subject": "英语", "total_tasks": 2, "completed_tasks": 2}
+        ],
+        "timeline": [
+          {"label": "2026-03-10", "total_tasks": 4, "completed_tasks": 3}
+        ]
+      }
+    },
+    {
+      "id": "weekly_supportive_report",
+      "purpose": "验证周报总结和原有 weekly 能力保持一致，只由确定性统计驱动。",
+      "manual_checks": [
+        "report_type=weekly",
+        "raw_metric_total=5",
+        "raw_metric_completed=3",
+        "completion_rate_percent=60",
+        "文案可以鼓励，但不能改写统计值"
+      ],
+      "stats": {
+        "report_type": "weekly",
+        "period_label": "2026-W11",
+        "total_tasks": 5,
+        "completed_tasks": 3,
+        "points_delta": 1,
+        "active_days": 3,
+        "subject_breakdown": [
+          {"subject": "数学", "total_tasks": 2, "completed_tasks": 1},
+          {"subject": "语文", "total_tasks": 1, "completed_tasks": 1},
+          {"subject": "英语", "total_tasks": 2, "completed_tasks": 1}
+        ],
+        "timeline": [
+          {"label": "2026-03-08", "total_tasks": 2, "completed_tasks": 1},
+          {"label": "2026-03-09", "total_tasks": 1, "completed_tasks": 1},
+          {"label": "2026-03-10", "total_tasks": 2, "completed_tasks": 1}
+        ]
+      }
+    },
+    {
+      "id": "monthly_supportive_report",
+      "purpose": "验证月报在长周期统计下仍然返回稳定正向总结和模板回退。",
+      "manual_checks": [
+        "report_type=monthly",
+        "raw_metric_total=12",
+        "raw_metric_completed=9",
+        "completion_rate_percent=75",
+        "subject_breakdown 和核心文案都非空"
+      ],
+      "stats": {
+        "report_type": "monthly",
+        "period_label": "2026-03",
+        "total_tasks": 12,
+        "completed_tasks": 9,
+        "points_delta": 8,
+        "active_days": 8,
+        "subject_breakdown": [
+          {"subject": "数学", "total_tasks": 4, "completed_tasks": 3},
+          {"subject": "语文", "total_tasks": 3, "completed_tasks": 3},
+          {"subject": "英语", "total_tasks": 5, "completed_tasks": 3}
+        ],
+        "timeline": [
+          {"label": "2026-03-03", "total_tasks": 2, "completed_tasks": 2},
+          {"label": "2026-03-10", "total_tasks": 3, "completed_tasks": 2},
+          {"label": "2026-03-17", "total_tasks": 4, "completed_tasks": 3},
+          {"label": "2026-03-24", "total_tasks": 3, "completed_tasks": 2}
+        ]
+      }
+    }
+  ],
   "weeklyinsights": [
     {
       "id": "weekly_empty_week",
       "purpose": "验证空数据稳定回退。",
+      "manual_checks": [
+        "raw_metric_total=0",
+        "raw_metric_completed=0",
+        "summary、strengths、areas_for_improvement、psychological_insight 都非空"
+      ],
       "days_data": [],
       "expected": {
         "raw_metric_total": 0,
@@ -45,6 +169,11 @@
     {
       "id": "weekly_all_done",
       "purpose": "验证全完成时返回完整稳定的 insight。",
+      "manual_checks": [
+        "raw_metric_total=3",
+        "raw_metric_completed=3",
+        "summary 应体现全完成，不应丢失完整 insight 结构"
+      ],
       "days_data": [
         {
           "date": "2026-03-06",
@@ -58,6 +187,29 @@
       "expected": {
         "raw_metric_total": 3,
         "raw_metric_completed": 3
+      }
+    },
+    {
+      "id": "weekly_all_incomplete",
+      "purpose": "验证全未完成时也保持稳定 insight 结构，适合演示回退质量。",
+      "manual_checks": [
+        "raw_metric_total=3",
+        "raw_metric_completed=0",
+        "summary、strengths、areas_for_improvement、psychological_insight 都非空"
+      ],
+      "days_data": [
+        {
+          "date": "2026-03-06",
+          "tasks": [
+            {"completed": false},
+            {"completed": false},
+            {"completed": false}
+          ]
+        }
+      ],
+      "expected": {
+        "raw_metric_total": 3,
+        "raw_metric_completed": 0
       }
     }
   ]

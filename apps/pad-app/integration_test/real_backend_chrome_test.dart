@@ -14,24 +14,27 @@ const String liveApiBaseUrl = String.fromEnvironment(
   defaultValue: 'http://127.0.0.1:18081',
 );
 
+final int _liveRunId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('real backend chrome smoke', () {
     testWidgets('loads task board from the live backend', (tester) async {
       _setLargeViewport(tester);
-      const scenario = _Scenario(
-        familyId: 4301,
+      final scenario = _Scenario(
+        familyId: _familyIdFor(1),
         userId: 1,
         date: '2026-04-01',
       );
+      final content = _uniqueContent('完成第 1 页');
       await _seedTasks(
         scenario,
-        const <_TaskSeed>[
+        <_TaskSeed>[
           _TaskSeed(
             subject: '数学',
             groupTitle: '口算练习',
-            content: '完成第 1 页',
+            content: content,
           ),
         ],
       );
@@ -39,24 +42,28 @@ void main() {
       await _pumpLiveApp(tester, scenario);
 
       await _pumpUntilFound(tester, find.text('数学'));
-      expect(find.text('2026-04-01 任务板'), findsOneWidget);
-      expect(find.text('完成第 1 页'), findsOneWidget);
+      final title = tester.widget<Text>(
+        find.byKey(const Key('today_hero_title')),
+      );
+      expect(title.data, '2026-04-01 任务板');
+      expect(find.text(content), findsOneWidget);
     });
 
     testWidgets('single task sync updates the live backend', (tester) async {
       _setLargeViewport(tester);
-      const scenario = _Scenario(
-        familyId: 4302,
+      final scenario = _Scenario(
+        familyId: _familyIdFor(2),
         userId: 1,
         date: '2026-04-02',
       );
+      final content = _uniqueContent('完成第 1 页');
       await _seedTasks(
         scenario,
-        const <_TaskSeed>[
+        <_TaskSeed>[
           _TaskSeed(
             subject: '数学',
             groupTitle: '口算练习',
-            content: '完成第 1 页',
+            content: content,
           ),
         ],
       );
@@ -75,28 +82,28 @@ void main() {
 
     testWidgets('group sync updates the live backend', (tester) async {
       _setLargeViewport(tester);
-      const scenario = _Scenario(
-        familyId: 4303,
+      final scenario = _Scenario(
+        familyId: _familyIdFor(3),
         userId: 1,
         date: '2026-04-03',
       );
       await _seedTasks(
         scenario,
-        const <_TaskSeed>[
+        <_TaskSeed>[
           _TaskSeed(
             subject: '英语',
             groupTitle: '预习M1U2',
-            content: '书本上标注音标',
+            content: _uniqueContent('书本上标注音标'),
           ),
           _TaskSeed(
             subject: '英语',
             groupTitle: '预习M1U2',
-            content: '抄写单词',
+            content: _uniqueContent('抄写单词'),
           ),
           _TaskSeed(
             subject: '英语',
             groupTitle: '背默',
-            content: '背默课文',
+            content: _uniqueContent('背默课文'),
           ),
         ],
       );
@@ -118,31 +125,34 @@ void main() {
 
     testWidgets('complete all updates the live backend', (tester) async {
       _setLargeViewport(tester);
-      const scenario = _Scenario(
-        familyId: 4304,
+      final scenario = _Scenario(
+        familyId: _familyIdFor(4),
         userId: 1,
         date: '2026-04-04',
       );
       await _seedTasks(
         scenario,
-        const <_TaskSeed>[
+        <_TaskSeed>[
           _TaskSeed(
             subject: '数学',
             groupTitle: '口算练习',
-            content: '完成第 1 页',
+            content: _uniqueContent('完成第 1 页'),
           ),
           _TaskSeed(
             subject: '英语',
             groupTitle: '背默',
-            content: '背默单词',
+            content: _uniqueContent('背默单词'),
           ),
         ],
       );
 
       await _pumpLiveApp(tester, scenario);
-      await _pumpUntilFound(tester, find.widgetWithText(FilledButton, '全部完成'));
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const Key('today_hero_complete_all_button')),
+      );
 
-      await tester.tap(find.widgetWithText(FilledButton, '全部完成'));
+      await tester.tap(find.byKey(const Key('today_hero_complete_all_button')));
       await tester.pump();
       await _pumpUntilFound(tester, find.text('已将全部任务同步为完成'));
 
@@ -155,18 +165,18 @@ void main() {
     testWidgets('404 from the live backend maps to a clear pad message', (
       tester,
     ) async {
-      const scenario = _Scenario(
-        familyId: 4305,
+      final scenario = _Scenario(
+        familyId: _familyIdFor(5),
         userId: 1,
         date: '2026-04-05',
       );
       await _seedTasks(
         scenario,
-        const <_TaskSeed>[
+        <_TaskSeed>[
           _TaskSeed(
             subject: '数学',
             groupTitle: '口算练习',
-            content: '完成第 1 页',
+            content: _uniqueContent('完成第 1 页'),
           ),
         ],
       );
@@ -198,32 +208,35 @@ void main() {
     testWidgets('409 from the live backend shows an info prompt',
         (tester) async {
       _setLargeViewport(tester);
-      const scenario = _Scenario(
-        familyId: 4306,
+      final scenario = _Scenario(
+        familyId: _familyIdFor(6),
         userId: 1,
         date: '2026-04-06',
       );
       await _seedTasks(
         scenario,
-        const <_TaskSeed>[
+        <_TaskSeed>[
           _TaskSeed(
             subject: '语文',
             groupTitle: '背作文',
-            content: '背作文',
+            content: _uniqueContent('背作文'),
           ),
           _TaskSeed(
             subject: '语文',
             groupTitle: '练习卷',
-            content: '完成练习卷',
+            content: _uniqueContent('完成练习卷'),
           ),
         ],
       );
 
       await _pumpLiveApp(tester, scenario);
-      await _pumpUntilFound(tester, find.widgetWithText(FilledButton, '全部完成'));
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const Key('today_hero_complete_all_button')),
+      );
 
       await _patchAllTasks(scenario, completed: true);
-      await tester.tap(find.widgetWithText(FilledButton, '全部完成'));
+      await tester.tap(find.byKey(const Key('today_hero_complete_all_button')));
       await tester.pump();
       await _pumpUntilFound(tester, find.text('全部任务已经是已完成状态，无需重复同步。'));
 
@@ -263,6 +276,14 @@ class _TaskSeed {
   final String subject;
   final String groupTitle;
   final String content;
+}
+
+int _familyIdFor(int offset) {
+  return 430000 + (_liveRunId * 10) + offset;
+}
+
+String _uniqueContent(String base) {
+  return '$base [$_liveRunId]';
 }
 
 Future<void> _pumpLiveApp(WidgetTester tester, _Scenario scenario) async {

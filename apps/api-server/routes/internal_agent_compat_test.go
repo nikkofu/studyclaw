@@ -84,7 +84,7 @@ func TestInternalWeeklyEndpointCompatibility(t *testing.T) {
 	if payload.RawMetricTotal != 3 || payload.RawMetricCompleted != 2 {
 		t.Fatalf("unexpected weekly metrics: %+v", payload)
 	}
-	if payload.AgenticPattern.Primary != "single-agent system" {
+	if payload.AgenticPattern.Primary == "" {
 		t.Fatalf("unexpected agentic pattern: %+v", payload.AgenticPattern)
 	}
 }

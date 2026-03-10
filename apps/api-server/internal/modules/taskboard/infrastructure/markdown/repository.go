@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -266,6 +267,45 @@ func (r *Repository) GetTasks(familyID, userID uint, date time.Time) ([]domain.T
 	}
 
 	return tasks, scanner.Err()
+}
+
+func (r *Repository) ReplaceTasks(familyID, userID uint, date time.Time, tasks []domain.Task) error {
+	path, err := r.EnsureDailyFile(familyID, userID, date)
+	if err != nil {
+		return err
+	}
+	return writeTasksToMD(path, date, tasks)
+}
+
+func (r *Repository) ListAvailableDates(familyID, userID uint) ([]time.Time, error) {
+	dir := getWorkspacePath(familyID, userID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []time.Time{}, nil
+		}
+		return nil, err
+	}
+
+	dates := make([]time.Time, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		date, err := time.Parse("2006-01-02", strings.TrimSuffix(entry.Name(), ".md"))
+		if err != nil {
+			continue
+		}
+		dates = append(dates, date)
+	}
+
+	sort.Slice(dates, func(i, j int) bool {
+		return dates[i].Before(dates[j])
+	})
+	return dates, nil
 }
 
 func (r *Repository) updateTaskSet(familyID, userID uint, date time.Time, matcher func(task domain.Task) bool, completed bool) ([]domain.Task, int, int, error) {

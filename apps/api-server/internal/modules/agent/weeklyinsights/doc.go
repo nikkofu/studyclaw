@@ -1,10 +1,12 @@
-// Package weeklyinsights implements the weekly insight generation workflow.
+// Package weeklyinsights implements the compatibility wrapper for the weekly
+// encouragement report workflow.
 //
 // Agentic design pattern selection:
-//   - Primary: single-agent system
-//   - Supporting: custom logic pattern
+//   - Primary: custom logic pattern
+//   - Supporting: single-agent system
 //
-// The service performs deterministic data aggregation in Go, then asks one
-// bounded LLM call to produce a child-friendly summary. There is no need for a
-// multi-agent coordinator because the task is a single summarization problem.
+// The weekly service delegates to the shared phase-one report generator:
+// deterministic metrics are aggregated first, then one bounded LLM call or
+// template fallback produces a supportive weekly summary. The model never owns
+// statistics or task state.
 package weeklyinsights

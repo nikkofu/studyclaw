@@ -10,12 +10,14 @@ import (
 )
 
 type extremeCase struct {
-	ID                string                   `json:"id"`
-	Why               string                   `json:"why"`
-	DaysData          []map[string]interface{} `json:"days_data"`
-	ExpectedTotal     int                      `json:"expected_total"`
-	ExpectedCompleted int                      `json:"expected_completed"`
-	ExpectedSummary   string                   `json:"expected_summary"`
+	ID                 string                   `json:"id"`
+	Why                string                   `json:"why"`
+	RegressionFocus    string                   `json:"regression_focus"`
+	ShouldNotBreakWhen string                   `json:"should_not_break_when"`
+	DaysData           []map[string]interface{} `json:"days_data"`
+	ExpectedTotal      int                      `json:"expected_total"`
+	ExpectedCompleted  int                      `json:"expected_completed"`
+	ExpectedSummary    string                   `json:"expected_summary"`
 }
 
 func loadExtremeCases(t *testing.T) []extremeCase {
@@ -42,6 +44,9 @@ func TestGenerateExtremeFixtures(t *testing.T) {
 	service := NewService(nil)
 	for _, tc := range loadExtremeCases(t) {
 		t.Run(tc.ID, func(t *testing.T) {
+			if tc.Why == "" || tc.RegressionFocus == "" || tc.ShouldNotBreakWhen == "" {
+				t.Fatalf("expected weekly extreme case metadata for %s: %+v", tc.ID, tc)
+			}
 			insight, err := service.Generate(context.Background(), tc.DaysData)
 			if err != nil {
 				t.Fatalf("%s: expected nil error, got %v", tc.Why, err)

@@ -12,6 +12,8 @@ type Repository interface {
 	EnsureDailyFile(familyID, userID uint, date time.Time) (string, error)
 	AddTask(familyID, userID uint, subject, groupTitle, content string, date time.Time) error
 	GetTasks(familyID, userID uint, date time.Time) ([]domain.Task, error)
+	ReplaceTasks(familyID, userID uint, date time.Time, tasks []domain.Task) error
+	ListAvailableDates(familyID, userID uint) ([]time.Time, error)
 	UpdateTaskCompletionByID(familyID, userID uint, date time.Time, taskID int, completed bool) ([]domain.Task, int, int, error)
 	UpdateTaskCompletionBySubject(familyID, userID uint, date time.Time, subject string, completed bool) ([]domain.Task, int, int, error)
 	UpdateTaskCompletionByHomeworkGroup(familyID, userID uint, date time.Time, subject string, groupTitle string, completed bool) ([]domain.Task, int, int, error)
@@ -99,6 +101,14 @@ func (s *Service) CreateTasks(inputs []domain.CreateTaskInput) (time.Time, error
 
 func (s *Service) ListTasks(familyID, userID uint, date time.Time) ([]domain.Task, error) {
 	return s.repo.GetTasks(familyID, userID, date)
+}
+
+func (s *Service) ReplaceTasks(familyID, userID uint, date time.Time, tasks []domain.Task) error {
+	return s.repo.ReplaceTasks(familyID, userID, date, tasks)
+}
+
+func (s *Service) ListAvailableDates(familyID, userID uint) ([]time.Time, error) {
+	return s.repo.ListAvailableDates(familyID, userID)
 }
 
 func BuildBoard(date time.Time, tasks []domain.Task) domain.Board {

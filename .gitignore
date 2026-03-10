@@ -2,6 +2,11 @@
 .env
 .env.*
 !.env.example
+runtime.env
+runtime.env.*
+secrets.env
+secrets.env.*
+.secrets/
 
 # 系统文件
 .DS_Store
@@ -42,4 +47,5 @@ data/
 apps/.gocache/
 apps/.modcache/
 apps/api-server/.gopath/
+apps/api-server/.gomodcache/
 apps/api-server/main

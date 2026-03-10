@@ -58,12 +58,7 @@ var (
 	}
 )
 
-var parsePatternSelection = agentic.PatternSelection{
-	Primary:    "custom logic pattern",
-	Supporting: []string{"single-agent system", "human-in-the-loop pattern"},
-	Why:        "Homework parsing needs deterministic normalization, bounded LLM usage, and explicit parent confirmation before persistence.",
-	Reference:  agentic.GoogleDesignPatternGuideURL,
-}
+var parsePatternSelection = agentic.PhaseOneTaskParsePattern
 
 type ParsedTask struct {
 	Subject     string   `json:"subject"`
@@ -385,6 +380,16 @@ func parseSubItemLine(line string, allowLooseNumbering bool) (string, bool) {
 	return "", false
 }
 
+func normalizeInlineHeadingRemainder(remainder string) (string, bool, bool) {
+	if matches := mainItemPattern.FindStringSubmatch(remainder); len(matches) == 2 {
+		return strings.TrimSpace(matches[1]), true, false
+	}
+	if subitem, ok := parseSubItemLine(remainder, true); ok {
+		return subitem, false, true
+	}
+	return strings.TrimSpace(remainder), false, false
+}
+
 func flattenSectionsToTasks(sections []outlineSection) []ParsedTask {
 	tasks := make([]ParsedTask, 0)
 	for _, section := range sections {
@@ -506,7 +511,14 @@ func extractStructureOutline(rawText string) structureOutline {
 				currentSection = ensureSection(headingMatch[1])
 				remainder := strings.TrimSpace(headingMatch[2])
 				if remainder != "" {
-					currentTask = &outlineItem{Text: remainder}
+					normalizedRemainder, isMainItem, isSubitem := normalizeInlineHeadingRemainder(remainder)
+					if isMainItem {
+						markSignal("numbered_tasks")
+					}
+					if isSubitem {
+						markSignal("nested_subtasks")
+					}
+					currentTask = &outlineItem{Text: normalizedRemainder}
 				} else {
 					currentTask = nil
 				}
