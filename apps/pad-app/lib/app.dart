@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pad_app/ui_kit/kid_theme.dart';
 import 'package:pad_app/task_board/page.dart';
 import 'package:pad_app/task_board/repository.dart';
+import 'package:pad_app/voice_commands/speech_recognizer_contract.dart';
 import 'package:pad_app/word_playback/controller.dart';
 
 class StudyClawPadApp extends StatelessWidget {
@@ -14,6 +15,7 @@ class StudyClawPadApp extends StatelessWidget {
     this.initialUserId,
     this.repository = const RemoteTaskBoardRepository(),
     this.wordPlaybackController,
+    this.speechRecognizer,
   });
 
   final bool autoLoad;
@@ -23,6 +25,7 @@ class StudyClawPadApp extends StatelessWidget {
   final int? initialUserId;
   final TaskBoardRepository repository;
   final WordPlaybackController? wordPlaybackController;
+  final SpeechRecognizer? speechRecognizer;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +41,7 @@ class StudyClawPadApp extends StatelessWidget {
         initialUserId: initialUserId,
         repository: repository,
         wordPlaybackController: wordPlaybackController,
+        speechRecognizer: speechRecognizer,
       ),
     );
   }

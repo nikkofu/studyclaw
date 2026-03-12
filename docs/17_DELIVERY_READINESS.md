@@ -2,21 +2,21 @@
 
 本文档回答一个更具体的问题：
 
-在 `2026-03-12` 的当前仓库状态下，StudyClaw 第一阶段目标版本 `v0.2.0` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
+在 `2026-03-12` 的当前仓库状态下，StudyClaw 当前目标版本 `v0.3.0` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
 
 本审计以 `docs/01_PRD.md` 中定义的第一阶段 7 类能力为准，并以真实脚本、真实测试和真实本地联调结果作为证据。
 
 ## 1. 审计基线
 
 - 审计日期：`2026-03-12`
-- 当前交付版本：`v0.2.0`
+- 当前交付版本：`v0.3.0`
 - 仓库分支：`main`
-- GitHub 同步状态：已完成 scoped release commit / tag / push，`main` 与 `v0.2.0` 已同步到 GitHub
+- GitHub 同步状态：`v0.2.0` 历史正式版本已同步；`v0.3.0` 已完成 scoped release commit / tag / push
 
 当前结论分两层：
 
-- **产品与运行时结论**：`通过`。三端功能已经闭环，达到第一阶段正式交付标准。
-- **仓库同步结论**：`已完成`。GitHub release sync 已完成，当前仓库可以作为下一阶段开发与交接基线。
+- **产品与运行时结论**：`通过`。三端功能已经闭环，达到 `v0.3.0` 本地发布标准。
+- **仓库同步结论**：`通过`。GitHub release sync 已完成，当前仓库可以把 `v0.3.0` 当作新的远端交付标签。
 
 ## 2. 已执行验证
 
@@ -28,7 +28,7 @@
 - `npm test`
 - `npm run build`
 - `flutter analyze`
-- `flutter test`
+- `flutter test --no-pub`
 - `flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
 - `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
 - `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
@@ -48,10 +48,13 @@
 
 - 家长发布：`POST /api/v1/tasks/parse` -> `POST /api/v1/tasks/confirm`
 - 孩子同步：`GET /api/v1/tasks` -> `PATCH /api/v1/tasks/status/item`
+- 语音任务完成：`POST /api/v1/voice-commands/resolve` -> Pad 执行任务板按钮动作
 - 家长反馈：`GET /api/v1/stats/daily` -> `GET /api/v1/stats/monthly`
 - 积分闭环：`POST /api/v1/points/ledger` -> `GET /api/v1/points/ledger` -> `GET /api/v1/points/balance`
 - 词单闭环：`POST /api/v1/word-lists/parse` -> `POST /api/v1/word-lists`
 - 听写会话：`POST /api/v1/dictation-sessions/start` -> `POST /next` -> `POST /replay` -> `GET /api/v1/dictation-sessions`
+- 听写语音推进：Pad STT -> `/api/v1/voice-commands/resolve` -> `POST /dictation-sessions/:session_id/next`
+- 孩子端鼓励：任务完成即时鼓励、每日鼓励卡片、听写过程鼓励均可正常显示
 
 ## 3. 第一阶段主线需求审计
 
@@ -71,7 +74,13 @@
 状态：`已闭环`
 
 - 证据：Pad 端通过 `/api/v1/tasks` 与 `/api/v1/tasks/status/*` 读写同一任务板
-- 实测结果：`task_id=1` 更新成功后，任务板与统计结果同步反映完成数 `1/4`
+- 实测结果：`task_id=1` 更新成功后，任务板与统计结果同步反映完成数 `1/4`，Pad 同时显示成长型鼓励
+
+### `R3A` 孩子通过语音完成任务与推进听写
+状态：`已闭环`
+
+- 证据：Pad 新增语音助手，统一调用 `/api/v1/voice-commands/resolve`
+- 实测结果：任务板场景可识别“数学订正好了”，听写场景可识别“好了 / 下一个 / 重播”
 
 ### `R4` 家长查看每日完成情况和当天反馈
 状态：`已闭环`
@@ -95,11 +104,11 @@
 状态：`已闭环`
 
 - 证据：统计接口全部由后端按日期或月份聚合
-- 实测结果：月统计已正确反映任务、积分、词单、听写会话数量
+- 实测结果：月统计已正确反映任务、积分、词单、听写会话数量；Pad 会展示后端 `encouragement`
 
 ## 4. 已知非阻塞风险
 
-- `flutter build web` 会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。当前 HTML/Web 构建成功，因此不阻塞 `v0.2.0` 交付，但后续若要把 wasm 作为正式目标，需要单独处理。
+- `flutter build web` 会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。当前 HTML/Web 构建成功，因此不阻塞 `v0.3.0` 交付，但后续若要把 wasm 作为正式目标，需要单独处理。
 - `apps/api-server/.gopath/` 的历史跟踪缓存已在本次 release sync 中作为一次性仓库清洁项处理，并由 `scripts/check_release_scope.sh` 持续约束，避免后续再次把环境缓存带入 GitHub。
 
 ## 5. 审计结论
@@ -107,9 +116,9 @@
 ### 功能交付结论
 
 StudyClaw 第一阶段已经消除“前端本地估算是事实源”的关键问题，实现了以 Go 后端为唯一事实源的闭环架构。
-**`v0.2.0` 已达到第一阶段正式交付与签收标准。**
+`v0.3.0` 在此基础上进一步补齐了孩子端语音助手和正向鼓励体验，已经达到本地发布与交接标准。
 
 ### 仓库同步结论
 
-`2026-03-12` 已按 `docs/20_RELEASE_SYNC_PLAYBOOK.md` 完成 scoped release commit、版本标签 `v0.2.0` 和 GitHub push 复核。
-当前仓库已满足第一阶段正式签收标准，可以作为下一阶段的开发基线。
+`2026-03-12` 已按 `docs/20_RELEASE_SYNC_PLAYBOOK.md` 完成 `v0.3.0` 的 scoped release commit、版本标签和 GitHub push。
+当前仓库已具备下一阶段启动前的远端正式基线条件。

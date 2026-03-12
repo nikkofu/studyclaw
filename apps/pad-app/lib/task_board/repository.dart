@@ -2,6 +2,7 @@ import 'package:pad_app/task_board/api_client.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/weekly_stats.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
+import 'package:pad_app/voice_commands/models.dart';
 import 'package:pad_app/word_playback/models.dart';
 
 abstract interface class TaskBoardRepository {
@@ -53,6 +54,12 @@ abstract interface class TaskBoardRepository {
     required String photoBase64,
     required String language,
     required String mode,
+  });
+
+  Future<VoiceCommandResolution> resolveVoiceCommand(
+    TaskBoardRequest request, {
+    required String transcript,
+    required VoiceCommandContext context,
   });
 }
 
@@ -275,6 +282,25 @@ class RemoteTaskBoardRepository implements TaskBoardRepository {
     );
     return DictationSession.fromJson(
         payload['dictation_session'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<VoiceCommandResolution> resolveVoiceCommand(
+    TaskBoardRequest request, {
+    required String transcript,
+    required VoiceCommandContext context,
+  }) async {
+    final payload = await _clientFor(request).send(
+      'POST',
+      '/api/v1/voice-commands/resolve',
+      body: {
+        'transcript': transcript,
+        'context': context.toJson(),
+      },
+    );
+    return VoiceCommandResolution.fromJson(
+      payload['resolution'] as Map<String, dynamic>,
+    );
   }
 
   TaskBoardApiClient _clientFor(TaskBoardRequest request) {

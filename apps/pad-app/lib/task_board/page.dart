@@ -6,8 +6,12 @@ import 'package:pad_app/ui_kit/kid_theme.dart';
 import 'package:pad_app/ui_kit/kid_card.dart';
 import 'package:pad_app/ui_kit/kid_components.dart';
 import 'package:pad_app/task_board/controller.dart';
+import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
+import 'package:pad_app/voice_commands/models.dart';
+import 'package:pad_app/voice_commands/speech_recognizer.dart';
+import 'package:pad_app/voice_commands/speech_recognizer_contract.dart';
 import 'package:pad_app/word_playback/controller.dart';
 import 'package:pad_app/word_playback/models.dart';
 import 'package:pad_app/word_playback/speaker.dart';
@@ -18,6 +22,8 @@ const String defaultApiBaseUrl = String.fromEnvironment('API_BASE_URL',
 enum _PadHomeTab { tasks, words }
 
 enum _JourneyStepVisualState { complete, active, pending, failed }
+
+const Object _missingVoiceValue = Object();
 
 class _JourneyStepData {
   const _JourneyStepData({
@@ -176,6 +182,52 @@ List<String> _buildTracePills(DictationSession session) {
   return pills;
 }
 
+class _VoiceAssistantState {
+  const _VoiceAssistantState({
+    this.isListening = false,
+    this.isResolving = false,
+    this.lastTranscript,
+    this.noticeMessage,
+    this.errorMessage,
+    this.lastResolution,
+  });
+
+  final bool isListening;
+  final bool isResolving;
+  final String? lastTranscript;
+  final String? noticeMessage;
+  final String? errorMessage;
+  final VoiceCommandResolution? lastResolution;
+
+  bool get isBusy => isListening || isResolving;
+
+  _VoiceAssistantState copyWith({
+    bool? isListening,
+    bool? isResolving,
+    Object? lastTranscript = _missingVoiceValue,
+    Object? noticeMessage = _missingVoiceValue,
+    Object? errorMessage = _missingVoiceValue,
+    Object? lastResolution = _missingVoiceValue,
+  }) {
+    return _VoiceAssistantState(
+      isListening: isListening ?? this.isListening,
+      isResolving: isResolving ?? this.isResolving,
+      lastTranscript: lastTranscript == _missingVoiceValue
+          ? this.lastTranscript
+          : lastTranscript as String?,
+      noticeMessage: noticeMessage == _missingVoiceValue
+          ? this.noticeMessage
+          : noticeMessage as String?,
+      errorMessage: errorMessage == _missingVoiceValue
+          ? this.errorMessage
+          : errorMessage as String?,
+      lastResolution: lastResolution == _missingVoiceValue
+          ? this.lastResolution
+          : lastResolution as VoiceCommandResolution?,
+    );
+  }
+}
+
 class PadTaskBoardPage extends StatefulWidget {
   const PadTaskBoardPage(
       {super.key,
@@ -185,12 +237,14 @@ class PadTaskBoardPage extends StatefulWidget {
       this.initialFamilyId,
       this.initialUserId,
       this.repository = const RemoteTaskBoardRepository(),
-      this.wordPlaybackController});
+      this.wordPlaybackController,
+      this.speechRecognizer});
   final bool autoLoad;
   final String? initialDate, initialApiBaseUrl;
   final int? initialFamilyId, initialUserId;
   final TaskBoardRepository repository;
   final WordPlaybackController? wordPlaybackController;
+  final SpeechRecognizer? speechRecognizer;
   @override
   State<PadTaskBoardPage> createState() => _PadTaskBoardPageState();
 }
@@ -207,7 +261,10 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
   late final TaskBoardController _controller;
   late final WordPlaybackController _wordController;
   late final bool _ownsWordController;
+  late final SpeechRecognizer _speechRecognizer;
+  late final bool _ownsSpeechRecognizer;
   _PadHomeTab _selectedTab = _PadHomeTab.tasks;
+  _VoiceAssistantState _voiceAssistantState = const _VoiceAssistantState();
 
   @override
   void initState() {
@@ -232,6 +289,13 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
           speaker: createWordSpeaker(), repository: widget.repository);
       _ownsWordController = true;
     }
+    if (widget.speechRecognizer != null) {
+      _speechRecognizer = widget.speechRecognizer!;
+      _ownsSpeechRecognizer = false;
+    } else {
+      _speechRecognizer = createSpeechRecognizer();
+      _ownsSpeechRecognizer = true;
+    }
     if (widget.autoLoad) {
       scheduleMicrotask(() => _loadBoard(showLoadingState: true));
     }
@@ -248,6 +312,9 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     _controller.dispose();
     if (_ownsWordController) {
       _wordController.dispose();
+    }
+    if (_ownsSpeechRecognizer) {
+      unawaited(_speechRecognizer.stop());
     }
     super.dispose();
   }
@@ -298,6 +365,25 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     if (completed) {
       _celebrationController.forward(from: 0);
     }
+  }
+
+  Future<void> _updateSubjectGroup(TaskGroup group, bool completed) async {
+    final r = _buildRequest();
+    if (r == null) {
+      return;
+    }
+    await _controller.updateSubjectGroup(r, group, completed);
+  }
+
+  Future<void> _updateHomeworkGroup(
+    HomeworkGroup group,
+    bool completed,
+  ) async {
+    final r = _buildRequest();
+    if (r == null) {
+      return;
+    }
+    await _controller.updateHomeworkGroup(r, group, completed);
   }
 
   Future<void> _takeAndSubmitPhoto() async {
@@ -357,12 +443,321 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
             ])));
   }
 
+  VoiceCommandSurface get _currentVoiceSurface {
+    return _selectedTab == _PadHomeTab.words
+        ? VoiceCommandSurface.dictation
+        : VoiceCommandSurface.taskBoard;
+  }
+
+  String _voiceLocaleForSurface(VoiceCommandSurface surface) {
+    if (surface == VoiceCommandSurface.dictation) {
+      return _wordController.state.language.localeCode;
+    }
+    return 'zh-CN';
+  }
+
+  Future<void> _toggleVoiceAssistant() async {
+    if (_voiceAssistantState.isListening) {
+      await _speechRecognizer.stop();
+      if (!mounted) return;
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: false,
+          noticeMessage: '语音识别已取消。',
+          errorMessage: null,
+        );
+      });
+      return;
+    }
+
+    await _runVoiceAssistant();
+  }
+
+  Future<void> _runVoiceAssistant() async {
+    final request = _buildRequest();
+    if (request == null) {
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          errorMessage: '请先确认 API、家庭 ID、孩子 ID 和日期配置。',
+          noticeMessage: null,
+        );
+      });
+      return;
+    }
+
+    final surface = _currentVoiceSurface;
+    if (surface == VoiceCommandSurface.taskBoard &&
+        _controller.state.board == null) {
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          errorMessage: '请先同步任务板，再使用语音助手。',
+          noticeMessage: null,
+        );
+      });
+      return;
+    }
+    if (surface == VoiceCommandSurface.dictation &&
+        !_wordController.state.hasWords) {
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          errorMessage: '请先同步词单或开启听写，再使用语音助手。',
+          noticeMessage: null,
+        );
+      });
+      return;
+    }
+
+    final locale = _voiceLocaleForSurface(surface);
+    setState(() {
+      _voiceAssistantState = _voiceAssistantState.copyWith(
+        isListening: true,
+        isResolving: false,
+        errorMessage: null,
+        noticeMessage: '正在听你说话...',
+      );
+    });
+
+    try {
+      final transcript = await _speechRecognizer.listenOnce(locale: locale);
+      if (!mounted) return;
+
+      final context = _buildVoiceCommandContext(surface);
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: true,
+          lastTranscript: transcript.transcript,
+          errorMessage: null,
+          noticeMessage: '正在理解：${transcript.transcript}',
+        );
+      });
+
+      final resolution = await widget.repository.resolveVoiceCommand(
+        request,
+        transcript: transcript.transcript,
+        context: context,
+      );
+      await _applyVoiceCommandResolution(
+        request,
+        transcript: transcript.transcript,
+        resolution: resolution,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: false,
+          errorMessage: '语音指令失败：$error',
+          noticeMessage: null,
+        );
+      });
+    }
+  }
+
+  VoiceCommandContext _buildVoiceCommandContext(VoiceCommandSurface surface) {
+    if (surface == VoiceCommandSurface.dictation) {
+      final state = _wordController.state;
+      return VoiceCommandContext(
+        surface: surface,
+        locale: _voiceLocaleForSurface(surface),
+        examples: surface.sampleUtterances,
+        dictation: VoiceCommandDictationContext(
+          sessionId: state.session?.sessionId,
+          currentWord: state.currentWord.isEmpty ? null : state.currentWord,
+          currentIndex:
+              state.session?.currentIndex ?? state.currentDisplayIndex,
+          totalItems: state.totalWords,
+          canNext: state.canNext,
+          canPrevious: state.canPrevious,
+          isCompleted: state.session?.isCompleted ?? false,
+          language: state.language.name,
+          playbackMode: state.mode.name,
+        ),
+      );
+    }
+
+    final board = _controller.state.board;
+    return VoiceCommandContext(
+      surface: surface,
+      locale: _voiceLocaleForSurface(surface),
+      examples: surface.sampleUtterances,
+      taskBoard: VoiceCommandTaskBoardContext(
+        focusedSubject: board != null &&
+                board.groups.isNotEmpty &&
+                _selectedSubjectIndex < board.groups.length
+            ? board.groups[_selectedSubjectIndex].subject
+            : null,
+        summary: VoiceCommandTaskBoardSummary(
+          total: board?.summary.total ?? 0,
+          completed: board?.summary.completed ?? 0,
+          pending: board?.summary.pending ?? 0,
+        ),
+        subjects: board?.groups
+                .map((group) => VoiceCommandTaskSubject(
+                      subject: group.subject,
+                      status: group.status,
+                      completed: group.completed,
+                      pending: group.pending,
+                      total: group.total,
+                    ))
+                .toList() ??
+            const <VoiceCommandTaskSubject>[],
+        groups: board?.homeworkGroups
+                .map((group) => VoiceCommandTaskGroup(
+                      subject: group.subject,
+                      groupTitle: group.groupTitle,
+                      status: group.status,
+                      completed: group.completed,
+                      pending: group.pending,
+                      total: group.total,
+                    ))
+                .toList() ??
+            const <VoiceCommandTaskGroup>[],
+        tasks: board?.tasks
+                .map((task) => VoiceCommandTaskItem(
+                      taskId: task.taskId,
+                      subject: task.subject,
+                      groupTitle: task.groupTitle,
+                      content: task.content,
+                      completed: task.completed,
+                      status: task.status,
+                    ))
+                .toList() ??
+            const <VoiceCommandTaskItem>[],
+      ),
+    );
+  }
+
+  Future<void> _applyVoiceCommandResolution(
+    TaskBoardRequest request, {
+    required String transcript,
+    required VoiceCommandResolution resolution,
+  }) async {
+    final board = _controller.state.board;
+    var notice = '';
+
+    switch (resolution.action) {
+      case 'dictation_next':
+        await _wordController.nextWord(request.apiBaseUrl);
+        notice = '已根据“$transcript”切到下一词。';
+        break;
+      case 'dictation_previous':
+        await _wordController.previousWord(request.apiBaseUrl);
+        notice = '已根据“$transcript”返回上一词。';
+        break;
+      case 'dictation_replay':
+        await _wordController.replayCurrent(request.apiBaseUrl);
+        notice = '已根据“$transcript”重播当前词。';
+        break;
+      case 'task_complete_item':
+        if (board == null) {
+          throw StateError('任务板还没有加载好。');
+        }
+        final task = _findTask(board, resolution.target);
+        if (task == null) {
+          throw StateError('没有找到要完成的任务。');
+        }
+        await _updateSingleTask(task, true);
+        notice = '已把“${task.content}”标记为完成。';
+        break;
+      case 'task_complete_group':
+        if (board == null) {
+          throw StateError('任务板还没有加载好。');
+        }
+        final group = _findHomeworkGroup(board, resolution.target);
+        if (group == null) {
+          throw StateError('没有找到对应的任务分组。');
+        }
+        await _updateHomeworkGroup(group, true);
+        notice = '已把“${group.groupTitle}”分组标记为完成。';
+        break;
+      case 'task_complete_subject':
+        if (board == null) {
+          throw StateError('任务板还没有加载好。');
+        }
+        final subjectGroup = _findSubjectGroup(board, resolution.target);
+        if (subjectGroup == null) {
+          throw StateError('没有找到对应的学科任务。');
+        }
+        await _updateSubjectGroup(subjectGroup, true);
+        notice = '已把“${subjectGroup.subject}”学科任务标记为完成。';
+        break;
+      case 'task_complete_all':
+        await _updateAllTasks(true);
+        notice = '已把全部任务标记为完成。';
+        break;
+      case 'none':
+      default:
+        notice = resolution.reason.isNotEmpty
+            ? '这句先不执行：${resolution.reason}'
+            : '这句语音暂时没有可执行动作。';
+        break;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _voiceAssistantState = _voiceAssistantState.copyWith(
+        isListening: false,
+        isResolving: false,
+        errorMessage: null,
+        noticeMessage: notice,
+        lastTranscript: transcript,
+        lastResolution: resolution,
+      );
+    });
+  }
+
+  TaskItem? _findTask(TaskBoard board, VoiceCommandTarget target) {
+    for (final task in board.tasks) {
+      if (target.taskId != null && task.taskId == target.taskId) {
+        return task;
+      }
+    }
+    for (final task in board.tasks) {
+      final sameContent = (target.taskContent?.trim().isNotEmpty ?? false) &&
+          task.content.trim() == target.taskContent!.trim();
+      final sameSubject = (target.subject?.trim().isEmpty ?? true) ||
+          task.subject.trim() == target.subject!.trim();
+      if (sameContent && sameSubject) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  HomeworkGroup? _findHomeworkGroup(
+      TaskBoard board, VoiceCommandTarget target) {
+    for (final group in board.homeworkGroups) {
+      final sameSubject = (target.subject?.trim().isEmpty ?? true) ||
+          group.subject.trim() == target.subject!.trim();
+      final sameGroupTitle = (target.groupTitle?.trim().isNotEmpty ?? false) &&
+          group.groupTitle.trim() == target.groupTitle!.trim();
+      if (sameSubject && sameGroupTitle) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  TaskGroup? _findSubjectGroup(TaskBoard board, VoiceCommandTarget target) {
+    for (final group in board.groups) {
+      if ((target.subject?.trim().isNotEmpty ?? false) &&
+          group.subject.trim() == target.subject!.trim()) {
+        return group;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
         listenable: _controller,
         builder: (context, _) {
           final state = _controller.state;
+          final voiceSurface = _currentVoiceSurface;
           return Scaffold(
             appBar: AppBar(title: const Text('StudyClaw Pad'), actions: [
               IconButton(
@@ -392,9 +787,29 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
                     _HomeModeSwitcher(
                         selectedTab: _selectedTab, onChanged: _setSelectedTab),
                     const SizedBox(height: 24),
-                    if (_selectedTab == _PadHomeTab.tasks)
+                    _VoiceAssistantCard(
+                      key: const Key('voice-assistant-card'),
+                      surface: voiceSurface,
+                      state: _voiceAssistantState,
+                      supportsRecognition:
+                          _speechRecognizer.supportsRecognition,
+                      onTrigger: _voiceAssistantState.isResolving
+                          ? null
+                          : _toggleVoiceAssistant,
+                    ),
+                    const SizedBox(height: 24),
+                    if (_selectedTab == _PadHomeTab.tasks) ...[
+                      if (_taskEncouragementMessage(state) != null) ...[
+                        _TaskEncouragementCard(
+                          key: const Key('task-encouragement-card'),
+                          message: _taskEncouragementMessage(state)!,
+                          totals: state.dailyStats?.totals,
+                          tone: state.noticeTone,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
                       ..._buildBoardSections(state)
-                    else
+                    ] else
                       ListenableBuilder(
                         listenable: _wordController,
                         builder: (context, _) {
@@ -459,6 +874,19 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     _loadBoard(showLoadingState: true);
   }
 
+  String? _taskEncouragementMessage(TaskBoardViewState state) {
+    final notice = state.noticeMessage?.trim() ?? '';
+    if (notice.isNotEmpty) {
+      return notice;
+    }
+
+    final encouragement = state.dailyStats?.encouragement.trim() ?? '';
+    if (encouragement.isNotEmpty) {
+      return encouragement;
+    }
+    return null;
+  }
+
   List<Widget> _buildBoardSections(TaskBoardViewState state) {
     final board = state.board;
     if (board == null) {
@@ -488,6 +916,87 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
           busy: state.isBusy,
           onToggleTask: _updateSingleTask),
     ];
+  }
+}
+
+class _TaskEncouragementCard extends StatelessWidget {
+  const _TaskEncouragementCard({
+    super.key,
+    required this.message,
+    required this.totals,
+    required this.tone,
+  });
+
+  final String message;
+  final StatsTotals? totals;
+  final TaskBoardNoticeTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor =
+        tone == TaskBoardNoticeTone.info ? KidColors.color2 : KidColors.color3;
+    final summaryChips = <Widget>[
+      if (totals != null && totals!.totalTasks > 0)
+        _MiniTraceChip(
+            label: '已完成 ${totals!.completedTasks}/${totals!.totalTasks}'),
+      if (totals != null && totals!.pendingTasks > 0)
+        _MiniTraceChip(label: '剩余 ${totals!.pendingTasks} 项'),
+      if (totals != null && totals!.totalPointsDelta != 0)
+        _MiniTraceChip(label: '积分 ${totals!.pointsDeltaLabel}'),
+    ];
+
+    return KidCard(
+      borderColor: KidColors.black,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accentColor.withAlpha(40),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.favorite_rounded,
+                  color: accentColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '成长小鼓励',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              height: 1.5,
+            ),
+          ),
+          if (summaryChips.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: summaryChips,
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -652,6 +1161,148 @@ class _FocusedSubjectStage extends StatelessWidget {
                                           : null))))),
                 ])),
       ]));
+}
+
+class _VoiceAssistantCard extends StatelessWidget {
+  const _VoiceAssistantCard({
+    super.key,
+    required this.surface,
+    required this.state,
+    required this.supportsRecognition,
+    required this.onTrigger,
+  });
+
+  final VoiceCommandSurface surface;
+  final _VoiceAssistantState state;
+  final bool supportsRecognition;
+  final VoidCallback? onTrigger;
+
+  @override
+  Widget build(BuildContext context) {
+    final buttonLabel = state.isListening
+        ? '停止收听'
+        : state.isResolving
+            ? '理解中'
+            : '开始说话';
+    final hintText =
+        supportsRecognition ? '说一句话，就能直接触发当前场景里的按钮动作。' : '当前设备暂不支持语音识别。';
+
+    return KidCard(
+      borderColor: KidColors.black,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.mic_rounded, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '语音助手',
+                      style:
+                          TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                    ),
+                    Text(
+                      '当前场景：${surface.label}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: KidColors.black.withAlpha(170),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 140,
+                child: KidSmallBtn(
+                  key: const Key('voice-assistant-trigger'),
+                  label: buttonLabel,
+                  color:
+                      state.isListening ? KidColors.color5 : KidColors.color2,
+                  onTap: onTrigger,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            hintText,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: KidColors.black.withAlpha(170),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: surface.sampleUtterances
+                .map((item) => _MiniTraceChip(label: item))
+                .toList(),
+          ),
+          if (state.lastTranscript != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              '刚刚听到：${state.lastTranscript}',
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ],
+          if (state.lastResolution != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              '理解结果：${state.lastResolution!.actionLabel}',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: KidColors.color1.withAlpha(210),
+              ),
+            ),
+            if (state.lastResolution!.reason.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  state.lastResolution!.reason,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: KidColors.black.withAlpha(170),
+                  ),
+                ),
+              ),
+          ],
+          if (state.noticeMessage != null || state.errorMessage != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: state.errorMessage != null
+                    ? KidColors.color5.withAlpha(34)
+                    : KidColors.color3.withAlpha(30),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: state.errorMessage != null
+                      ? KidColors.color5
+                      : KidColors.color3,
+                  width: 2,
+                ),
+              ),
+              child: Text(
+                state.errorMessage ?? state.noticeMessage!,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: state.errorMessage != null
+                      ? KidColors.color5
+                      : KidColors.color3.withAlpha(220),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _WordPlaybackPanel extends StatelessWidget {

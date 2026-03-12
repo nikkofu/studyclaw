@@ -8,9 +8,9 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 
 ## 当前阶段
 
-- 当前交付版本：`v0.2.0`
-- 当前状态：第一阶段已完成正式交付同步，可作为下一阶段基线
-- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.2.0` 基线
+- 当前交付版本：`v0.3.0`
+- 当前状态：已收口到“语音助手 + 正向鼓励”增强版，本地达到可发布标准，可作为下一阶段前的稳定基线
+- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.0` 基线
 
 ## 当前已闭环能力
 
@@ -24,8 +24,10 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 ### 孩子端
 
 - 加载当天任务板
-- 单任务 / 分组 / 全量完成同步
+- 单任务 / 分组 / 全量完成同步，并在完成时给出成长型正向鼓励
 - 后端驱动的词单与听写会话
+- 听写推进、交卷、批改完成等节点提供孩子视角的积极反馈
+- 基于 STT + LLM 推理的语音助手，可用自然口令触发当前页面按钮行为
 - 积分余额、日报、周报、月报入口
 
 ### API 端
@@ -97,7 +99,7 @@ bash scripts/demo_local_stack.sh
 ## 交付文档
 
 - 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
-- 用户操作手册：[docs/USER_MANUAL_V0.2.0.md](docs/USER_MANUAL_V0.2.0.md)
+- 用户操作手册：[docs/USER_MANUAL_V0.3.0.md](docs/USER_MANUAL_V0.3.0.md)
 - 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
 - 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
 - Release 同步手册：[docs/20_RELEASE_SYNC_PLAYBOOK.md](docs/20_RELEASE_SYNC_PLAYBOOK.md)
@@ -106,10 +108,9 @@ bash scripts/demo_local_stack.sh
 
 ## 当前仓库同步提示
 
-- `git fetch origin` 已执行并完成同步复核
-- 当前分支 `main` 已同步到 `origin/main`
-- 版本标签 `v0.2.0` 已创建并推送
-- 当前仓库可直接作为第一阶段签收基线；进入下一阶段时应从 clean worktree 开始
+- `v0.2.0` 历史正式版本已完成 GitHub sync，可作为上一阶段签收基线
+- 当前工作树已整理完 `v0.3.0` 的版本文件、文档和功能收口
+- `v0.3.0` 发布时应使用 scoped staging，并同步 release commit、tag 和 GitHub push
 
 ## 许可
 

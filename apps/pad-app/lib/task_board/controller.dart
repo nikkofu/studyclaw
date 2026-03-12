@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:pad_app/task_board/completion_encouragement.dart';
 import 'package:pad_app/task_board/feedback.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
@@ -183,7 +184,7 @@ class TaskBoardController extends ChangeNotifier {
     return loadBoard(
       request,
       showLoadingState: _state.board == null,
-      successMessage: '任务板已手动刷新',
+      successMessage: '任务板已刷新好，继续今天的挑战吧。',
     );
   }
 
@@ -199,7 +200,11 @@ class TaskBoardController extends ChangeNotifier {
         taskId: task.taskId,
         completed: completed,
       ),
-      completed ? '已同步单个任务完成状态' : '已恢复单个任务为待完成',
+      completed ? '这一步完成啦，继续向前。' : '这一步先放回待完成，我们重新来一次。',
+      completionKind: completed ? TaskCompletionKind.singleTask : null,
+      subject: task.subject,
+      groupTitle: task.groupTitle,
+      taskContent: task.content,
     );
   }
 
@@ -216,8 +221,10 @@ class TaskBoardController extends ChangeNotifier {
         completed: completed,
       ),
       completed
-          ? '已将 ${group.subject} 学科任务标记为完成'
-          : '已将 ${group.subject} 学科任务恢复为待完成',
+          ? '${group.subject} 这一科完成啦，继续保持。'
+          : '${group.subject} 这一科已放回待完成，我们再慢慢来。',
+      completionKind: completed ? TaskCompletionKind.subjectGroup : null,
+      subject: group.subject,
     );
   }
 
@@ -235,8 +242,11 @@ class TaskBoardController extends ChangeNotifier {
         completed: completed,
       ),
       completed
-          ? '已将 ${group.groupTitle} 分组标记为完成'
-          : '已将 ${group.groupTitle} 分组恢复为待完成',
+          ? '“${group.groupTitle}”这一组完成啦。'
+          : '“${group.groupTitle}”这一组已放回待完成，我们再来一次。',
+      completionKind: completed ? TaskCompletionKind.homeworkGroup : null,
+      subject: group.subject,
+      groupTitle: group.groupTitle,
     );
   }
 
@@ -247,15 +257,21 @@ class TaskBoardController extends ChangeNotifier {
     await _runMutation(
       request,
       () => _repository.updateAllTasks(request, completed: completed),
-      completed ? '已将全部任务同步为完成' : '已将全部任务恢复为待完成',
+      completed ? '今天的挑战全部完成啦！' : '今天的任务已重置好，我们重新出发。',
+      completionKind: completed ? TaskCompletionKind.allTasks : null,
     );
   }
 
   Future<void> _runMutation(
     TaskBoardRequest request,
     Future<TaskBoard> Function() action,
-    String successMessage,
-  ) async {
+    String successMessage, {
+    TaskCompletionKind? completionKind,
+    String? subject,
+    String? groupTitle,
+    String? taskContent,
+  }) async {
+    final previousBoard = _state.board;
     _state = _state.copyWith(
       errorMessage: null,
       noticeMessage: null,
@@ -269,7 +285,22 @@ class TaskBoardController extends ChangeNotifier {
       final board = await action();
       // After mutation, refresh daily stats too
       final dailyStats = await _repository.fetchDailyStats(request);
-      _applyBoard(board, dailyStats: dailyStats, noticeMessage: successMessage);
+      final resolvedMessage = completionKind == null
+          ? successMessage
+          : buildTaskCompletionEncouragement(
+                  kind: completionKind,
+                  previousBoard: previousBoard,
+                  board: board,
+                  dailyStats: dailyStats,
+                  subject: subject,
+                  groupTitle: groupTitle,
+                  taskContent: taskContent) ??
+              successMessage;
+      _applyBoard(
+        board,
+        dailyStats: dailyStats,
+        noticeMessage: resolvedMessage,
+      );
     } catch (error) {
       _handleError(error);
     }
@@ -291,7 +322,7 @@ class TaskBoardController extends ChangeNotifier {
       board: board,
       dailyStats: dailyStats,
       errorMessage: null,
-      noticeMessage: _resolveNoticeMessage(board, noticeMessage),
+      noticeMessage: _resolveNoticeMessage(board, dailyStats, noticeMessage),
       noticeTone: TaskBoardNoticeTone.success,
       isRefreshing: false,
       isUpdating: false,
@@ -325,12 +356,23 @@ class TaskBoardController extends ChangeNotifier {
         : TaskBoardScreenStatus.success;
   }
 
-  String? _resolveNoticeMessage(TaskBoard board, String? noticeMessage) {
+  String? _resolveNoticeMessage(
+    TaskBoard board,
+    DailyStats? dailyStats,
+    String? noticeMessage,
+  ) {
     if (noticeMessage != null && noticeMessage.trim().isNotEmpty) {
       return noticeMessage;
     }
+    final encouragement = dailyStats?.encouragement.trim() ?? '';
+    if (encouragement.isNotEmpty) {
+      return encouragement;
+    }
     final boardMessage = board.message?.trim();
     if (boardMessage == null || boardMessage.isEmpty) {
+      return null;
+    }
+    if (boardMessage.toUpperCase() == 'OK') {
       return null;
     }
     return boardMessage;

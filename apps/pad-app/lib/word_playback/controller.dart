@@ -165,13 +165,16 @@ class WordPlaybackController extends ChangeNotifier {
     _state = _state.copyWith(
         language: language,
         errorMessage: null,
-        noticeMessage: '已切换到${language.label}播放模式');
+        noticeMessage: '已切换到${language.label}模式，准备继续今天的练习。');
     notifyListeners();
   }
 
   void setMode(WordPlaybackMode mode) {
     if (_state.mode == mode) return;
-    _state = _state.copyWith(mode: mode, noticeMessage: '已切换到${mode.label}模式');
+    _state = _state.copyWith(
+      mode: mode,
+      noticeMessage: '已切换到${mode.label}模式，先静下心听清楚再下笔。',
+    );
     notifyListeners();
   }
 
@@ -197,7 +200,7 @@ class WordPlaybackController extends ChangeNotifier {
         session: null,
         lastSubmission: null,
         language: wordList.language,
-        noticeMessage: '已同步：${wordList.title} (${wordList.totalItems}个词)',
+        noticeMessage: _buildWordListSyncedNotice(wordList),
       );
       notifyListeners();
     } catch (error) {
@@ -217,7 +220,7 @@ class WordPlaybackController extends ChangeNotifier {
           isBusy: false,
           session: session,
           lastSubmission: null,
-          noticeMessage: '听写会话已开启，准备开始播放。');
+          noticeMessage: _buildDictationStartedNotice(session));
       if (session.currentItem != null) await playCurrent();
     } catch (error) {
       _state = _state.copyWith(isBusy: false, errorMessage: '开启听写失败：$error');
@@ -236,8 +239,12 @@ class WordPlaybackController extends ChangeNotifier {
     _state = _state.copyWith(
         isSpeaking: true,
         errorMessage: null,
-        noticeMessage:
-            '正在播报：${_state.mode.label} (${_state.currentDisplayIndex}/${_state.totalWords})');
+        noticeMessage: _buildPlaybackNotice(
+          existingNotice: _state.noticeMessage,
+          modeLabel: _state.mode.label,
+          currentIndex: _state.currentDisplayIndex,
+          totalWords: _state.totalWords,
+        ));
     notifyListeners();
 
     try {
@@ -279,7 +286,7 @@ class WordPlaybackController extends ChangeNotifier {
             isBusy: false,
             session: session,
             isSpeaking: false,
-            noticeMessage: session.isCompleted ? '这组单词已经播报完啦！' : '已切换到下一词');
+            noticeMessage: _buildNextWordNotice(session));
         notifyListeners();
         if (!session.isCompleted) await playCurrent();
         return;
@@ -348,7 +355,7 @@ class WordPlaybackController extends ChangeNotifier {
     _state = _state.copyWith(
       isBusy: true,
       errorMessage: null,
-      noticeMessage: '正在上传照片，准备交给后台批改...',
+      noticeMessage: '照片正在上传，认真完成这一步很棒。',
       lastSubmission: submissionSnapshot,
     );
     notifyListeners();
@@ -425,8 +432,7 @@ class WordPlaybackController extends ChangeNotifier {
           _state = _state.copyWith(
             session: session,
             errorMessage: null,
-            noticeMessage:
-                'AI 批改完成！得分 ${result.score}，${result.incorrectCount} 处需要订正。',
+            noticeMessage: _buildGradingCompletedNotice(result),
           );
           notifyListeners();
           return;
@@ -480,6 +486,55 @@ int _estimateBase64Bytes(String value) {
 String _buildPendingNotice(DictationSession session) {
   final stage = describeDictationStage(session);
   return '交卷进度：${stage.label}。${stage.hint}';
+}
+
+String _buildPlaybackNotice({
+  required String? existingNotice,
+  required String modeLabel,
+  required int currentIndex,
+  required int totalWords,
+}) {
+  final playbackNotice = '正在播报：$modeLabel ($currentIndex/$totalWords)';
+  final encouragement = existingNotice?.trim() ?? '';
+  if (encouragement.isEmpty || encouragement == playbackNotice) {
+    return playbackNotice;
+  }
+  return '$encouragement\n$playbackNotice';
+}
+
+String _buildWordListSyncedNotice(WordList wordList) {
+  if (wordList.totalItems <= 0) {
+    return '词单已经同步好啦，准备开始今天的练习。';
+  }
+  return '词单同步好了：${wordList.title}（${wordList.totalItems}个词），今天继续稳稳进步。';
+}
+
+String _buildDictationStartedNotice(DictationSession session) {
+  if (session.totalItems <= 0) {
+    return '听写会话已经开启，等词单准备好就能开始。';
+  }
+  final current = (session.currentIndex + 1).clamp(1, session.totalItems);
+  return '听写开始啦，先把第 $current 个词稳稳写下来。';
+}
+
+String _buildNextWordNotice(DictationSession session) {
+  if (session.totalItems <= 0) {
+    return '这一步完成啦，继续下一词。';
+  }
+  if (session.isCompleted) {
+    return '这一组单词都完成啦，你坚持到了最后！';
+  }
+
+  final completedItems = session.completedItems.clamp(0, session.totalItems);
+  return '这一词完成啦，已经拿下 $completedItems/${session.totalItems}，继续下一词。';
+}
+
+String _buildGradingCompletedNotice(DictationGradingResult result) {
+  if (result.incorrectCount <= 0) {
+    return 'AI 批改完成！这次全对啦，认真书写的成果出来了。';
+  }
+
+  return 'AI 批改完成！得分 ${result.score}，已经很不错了，把 ${result.incorrectCount} 处订正完会更棒。';
 }
 
 String _buildFailureMessage(DictationSession session) {

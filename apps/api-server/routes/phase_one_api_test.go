@@ -139,6 +139,23 @@ type statsResponse struct {
 	} `json:"word_series"`
 }
 
+type voiceCommandResolutionResponse struct {
+	Resolution struct {
+		Action               string `json:"action"`
+		Reason               string `json:"reason"`
+		ParserMode           string `json:"parser_mode"`
+		NormalizedTranscript string `json:"normalized_transcript"`
+		Surface              string `json:"surface"`
+		Target               struct {
+			SessionID   string `json:"session_id"`
+			TaskID      int    `json:"task_id"`
+			Subject     string `json:"subject"`
+			GroupTitle  string `json:"group_title"`
+			TaskContent string `json:"task_content"`
+		} `json:"target"`
+	} `json:"resolution"`
+}
+
 func TestPhaseOneDailyAssignmentPublishAndPadFetch(t *testing.T) {
 	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
 	t.Setenv("LLM_API_KEY", "")
@@ -253,6 +270,112 @@ func TestPhaseOnePointsLedgerAndBalanceFlow(t *testing.T) {
 	}
 	if ledgerPayload.PointsBalance.Balance != 3 || ledgerPayload.PointsBalance.AutoPoints != 1 || ledgerPayload.PointsBalance.ManualPoints != 2 {
 		t.Fatalf("unexpected points balance: %+v", ledgerPayload.PointsBalance)
+	}
+}
+
+func TestPhaseOneVoiceCommandResolveDictationFallback(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	recorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/voice-commands/resolve", map[string]any{
+		"transcript": "好了，下一个",
+		"context": map[string]any{
+			"surface": "dictation",
+			"dictation": map[string]any{
+				"session_id":   "session_000123",
+				"can_next":     true,
+				"can_previous": false,
+				"total_items":  3,
+			},
+		},
+	})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected resolve to return 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload voiceCommandResolutionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal voice command response: %v", err)
+	}
+	if payload.Resolution.Action != "dictation_next" {
+		t.Fatalf("expected dictation_next action, got %+v", payload.Resolution)
+	}
+	if payload.Resolution.Target.SessionID != "session_000123" {
+		t.Fatalf("expected session target, got %+v", payload.Resolution.Target)
+	}
+	if payload.Resolution.ParserMode != "rule_fallback" {
+		t.Fatalf("expected rule_fallback parser mode, got %+v", payload.Resolution)
+	}
+}
+
+func TestPhaseOneVoiceCommandResolveTaskBoardFallback(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	recorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/voice-commands/resolve", map[string]any{
+		"transcript": "数学订正好了",
+		"context": map[string]any{
+			"surface": "task_board",
+			"task_board": map[string]any{
+				"focused_subject": "数学",
+				"summary": map[string]any{
+					"total":     4,
+					"completed": 1,
+					"pending":   3,
+				},
+				"subjects": []map[string]any{
+					{
+						"subject":   "数学",
+						"status":    "pending",
+						"completed": 1,
+						"pending":   2,
+						"total":     3,
+					},
+				},
+				"groups": []map[string]any{
+					{
+						"subject":     "数学",
+						"group_title": "订正",
+						"status":      "pending",
+						"completed":   0,
+						"pending":     1,
+						"total":       1,
+					},
+				},
+				"tasks": []map[string]any{
+					{
+						"task_id":     11,
+						"subject":     "数学",
+						"group_title": "订正",
+						"content":     "订正第 3 课错题",
+						"completed":   false,
+						"status":      "pending",
+					},
+				},
+			},
+		},
+	})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected resolve to return 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload voiceCommandResolutionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal voice command response: %v", err)
+	}
+	if payload.Resolution.Action != "task_complete_group" {
+		t.Fatalf("expected task_complete_group action, got %+v", payload.Resolution)
+	}
+	if payload.Resolution.Target.Subject != "数学" || payload.Resolution.Target.GroupTitle != "订正" {
+		t.Fatalf("unexpected target: %+v", payload.Resolution.Target)
 	}
 }
 

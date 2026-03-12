@@ -2,33 +2,33 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-12
+
+### Added
+
+- **Pad 语音助手闭环**
+  - 新增 `/api/v1/voice-commands/resolve` 的 Pad 端联动能力，可在任务板和听写场景中通过 STT + 规则/LLM 推理执行“好了”“下一个”“数学订正好了”等自然语音指令。
+  - Pad 端增加语音助手 UI、听写场景与任务板场景的动作映射与执行反馈。
+- **孩子端正向鼓励**
+  - 新增任务完成即时鼓励逻辑，按单任务、作业分组、学科分组、全部完成四种场景给出成长型反馈。
+  - Pad 任务页新增“成长小鼓励”卡片，真正展示后端 `dailyStats.encouragement`。
+  - 听写流程在开始、下一词、交卷、AI 批改完成等节点改为孩子视角的积极反馈。
+- 新增后端统计鼓励文案回归测试，覆盖“无数据 / 部分完成 / 高完成率 / 全部完成”等场景。
+
 ### Changed
 
-- 对齐交付版本声明：`README.md`、`apps/parent-web/package*.json`、`apps/pad-app/pubspec.yaml` 统一到 `v0.2.0` 基线。
-- 刷新运行手册、用户手册、发布清单、演示清单和交付就绪审计，补齐 `2026-03-12` 的三端联调结果。
-- 新增 `docs/19_DELIVERY_UAT_CASES.md`，沉淀 API / Parent Web / Pad 的交付验收用例和 GitHub 同步门槛。
-- 更新 `apps/pad-app/README.md`，移除“本地词单为正式事实源”的过时描述，改为后端词单 / 听写会话基线。
+- 对齐交付版本声明：`README.md`、`apps/parent-web/package*.json`、`apps/pad-app/pubspec.yaml` 统一到 `v0.3.0` 基线。
+- 刷新运行手册、用户手册、发布清单、演示清单、UAT 用例和交付就绪审计，补充语音助手与正向鼓励的验收路径。
+- 后端 `daily / weekly / monthly` 统计接口的鼓励文案改成更强调坚持、进步和收尾的表达。
 
 ### Verified
 
-- `git fetch origin`
-- `curl http://127.0.0.1:5173/`
-- `curl http://127.0.0.1:55771/`
-- `POST /api/v1/tasks/parse`
-- `POST /api/v1/tasks/confirm`
-- `GET /api/v1/tasks`
-- `PATCH /api/v1/tasks/status/item`
-- `GET /api/v1/stats/daily`
-- `POST /api/v1/points/ledger`
-- `GET /api/v1/points/ledger`
-- `GET /api/v1/points/balance`
-- `POST /api/v1/word-lists/parse`
-- `POST /api/v1/word-lists`
-- `POST /api/v1/dictation-sessions/start`
-- `POST /api/v1/dictation-sessions/:session_id/next`
-- `POST /api/v1/dictation-sessions/:session_id/replay`
-- `GET /api/v1/dictation-sessions`
-- `GET /api/v1/stats/monthly`
+- `go test ./... -count=1`
+- `flutter analyze`
+- `flutter test --no-pub`
+- `POST /api/v1/voice-commands/resolve`
+- Pad 任务完成即时鼓励 widget tests
+- Pad 听写结束鼓励 controller test
 
 ## [0.2.0] - 2026-03-10
 

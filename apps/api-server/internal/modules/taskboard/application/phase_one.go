@@ -1158,13 +1158,15 @@ func countCompletedTasks(tasks []taskboarddomain.Task) int {
 func buildEncouragement(period string, totals taskboarddomain.StatsTotals) string {
 	switch {
 	case totals.TotalTasks == 0 && totals.WordItems == 0:
-		return "当前时间段还没有学习数据，先从一次小任务开始。"
+		return "当前时间段还没有学习记录，先从一个小任务开始，慢慢进入状态。"
 	case totals.CompletionRate >= 1:
-		return fmt.Sprintf("%s任务已经全部完成，保持现在的节奏很不错。", periodLabel(period))
+		return fmt.Sprintf("%s的任务已经全部完成啦，你把坚持这件事做得很棒。", periodLabel(period))
 	case totals.CompletionRate >= 0.7:
-		return fmt.Sprintf("%s完成率已经达到 %.0f%%，继续把剩余任务收好尾。", periodLabel(period), totals.CompletionRate*100)
+		return fmt.Sprintf("%s已经完成 %.0f%%，离收尾不远了，稳稳把最后几步走完。", periodLabel(period), totals.CompletionRate*100)
+	case totals.CompletedTasks > 0:
+		return fmt.Sprintf("%s已经完成 %d 项任务，每前进一步都算数，继续加油。", periodLabel(period), totals.CompletedTasks)
 	default:
-		return fmt.Sprintf("%s已经完成 %d 项任务，继续一点点往前推进。", periodLabel(period), totals.CompletedTasks)
+		return fmt.Sprintf("%s的挑战已经开始啦，先拿下一小步，我们慢慢来。", periodLabel(period))
 	}
 }
 
