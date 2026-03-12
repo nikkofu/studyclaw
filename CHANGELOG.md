@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- 对齐交付版本声明：`README.md`、`apps/parent-web/package*.json`、`apps/pad-app/pubspec.yaml` 统一到 `v0.2.0` 基线。
+- 刷新运行手册、用户手册、发布清单、演示清单和交付就绪审计，补齐 `2026-03-12` 的三端联调结果。
+- 新增 `docs/19_DELIVERY_UAT_CASES.md`，沉淀 API / Parent Web / Pad 的交付验收用例和 GitHub 同步门槛。
+- 更新 `apps/pad-app/README.md`，移除“本地词单为正式事实源”的过时描述，改为后端词单 / 听写会话基线。
+
+### Verified
+
+- `git fetch origin`
+- `curl http://127.0.0.1:5173/`
+- `curl http://127.0.0.1:55771/`
+- `POST /api/v1/tasks/parse`
+- `POST /api/v1/tasks/confirm`
+- `GET /api/v1/tasks`
+- `PATCH /api/v1/tasks/status/item`
+- `GET /api/v1/stats/daily`
+- `POST /api/v1/points/ledger`
+- `GET /api/v1/points/ledger`
+- `GET /api/v1/points/balance`
+- `POST /api/v1/word-lists/parse`
+- `POST /api/v1/word-lists`
+- `POST /api/v1/dictation-sessions/start`
+- `POST /api/v1/dictation-sessions/:session_id/next`
+- `POST /api/v1/dictation-sessions/:session_id/replay`
+- `GET /api/v1/dictation-sessions`
+- `GET /api/v1/stats/monthly`
+
 ## [0.2.0] - 2026-03-10
 
 ### Added
@@ -35,6 +65,10 @@
 - `go test ./...` (Go 后端全量测试通过)
 - `npm run test` & `npm run build` (Parent Web API 集成测试通过)
 - `flutter analyze` & `flutter test` & `flutter build web` (Pad App 全量验证通过)
+
+### Notes
+
+- `flutter build web` 当前会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning，但 Web 构建仍成功，不阻塞现阶段 `v0.2.0` 交付。
 
 ## [0.1.1] - 2026-03-09
 

@@ -14,6 +14,7 @@ var (
 	ErrDailyAssignmentDraftNotFound = errors.New("daily assignment draft not found")
 	ErrWordListNotFound             = errors.New("word list not found")
 	ErrDictationSessionNotFound     = errors.New("dictation session not found")
+	ErrDictationGradingInProgress   = errors.New("dictation grading already in progress")
 	ErrInvalidPointsSource          = errors.New("invalid points source")
 	ErrInvalidWordListLanguage      = errors.New("word list language must be one of zh or en")
 )
@@ -438,14 +439,15 @@ func (s *PhaseOneService) StartDictationSession(familyID, childID uint, assigned
 	}
 
 	session := taskboarddomain.DictationSession{
-		WordListID:   list.WordListID,
-		FamilyID:     familyID,
-		ChildID:      childID,
-		AssignedDate: assignedDate.Format("2006-01-02"),
-		Status:       taskboarddomain.DictationSessionActive,
-		CurrentIndex: 0,
-		TotalItems:   len(list.Items),
-		PlayedCount:  1,
+		WordListID:    list.WordListID,
+		FamilyID:      familyID,
+		ChildID:       childID,
+		AssignedDate:  assignedDate.Format("2006-01-02"),
+		Status:        taskboarddomain.DictationSessionActive,
+		GradingStatus: taskboarddomain.DictationGradingIdle,
+		CurrentIndex:  0,
+		TotalItems:    len(list.Items),
+		PlayedCount:   1,
 	}
 	if len(list.Items) > 0 {
 		session.CurrentItem = cloneWordItem(list.Items[0])
@@ -467,6 +469,32 @@ func (s *PhaseOneService) ReplayDictationSession(sessionID string) (taskboarddom
 	if session.CurrentIndex >= 0 && session.CurrentIndex < len(list.Items) {
 		session.CurrentItem = cloneWordItem(list.Items[session.CurrentIndex])
 	}
+	return s.repo.SaveDictationSession(session)
+}
+
+func (s *PhaseOneService) PreviousDictationSession(sessionID string) (taskboarddomain.DictationSession, error) {
+	session, list, err := s.loadSessionAndWordList(sessionID)
+	if err != nil {
+		return taskboarddomain.DictationSession{}, err
+	}
+
+	if len(list.Items) == 0 {
+		session.CurrentItem = nil
+		session.CurrentIndex = 0
+		return s.repo.SaveDictationSession(session)
+	}
+
+	if session.Status == taskboarddomain.DictationSessionCompleted {
+		session.Status = taskboarddomain.DictationSessionActive
+		if session.CurrentIndex >= len(list.Items) {
+			session.CurrentIndex = len(list.Items) - 1
+		}
+	}
+
+	if session.CurrentIndex > 0 {
+		session.CurrentIndex--
+	}
+	session.CurrentItem = cloneWordItem(list.Items[session.CurrentIndex])
 	return s.repo.SaveDictationSession(session)
 }
 
@@ -503,6 +531,136 @@ func (s *PhaseOneService) GetDictationSession(sessionID string) (taskboarddomain
 		return taskboarddomain.DictationSession{}, ErrDictationSessionNotFound
 	}
 	return session, nil
+}
+
+func (s *PhaseOneService) ListDictationSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.DictationSession, error) {
+	return s.repo.ListDictationSessions(familyID, childID, startDate, endDate)
+}
+
+func (s *PhaseOneService) GetDictationSessionWordList(sessionID string) (taskboarddomain.DictationSession, taskboarddomain.WordList, error) {
+	return s.loadSessionAndWordList(sessionID)
+}
+
+func (s *PhaseOneService) QueueDictationGrading(sessionID string) (taskboarddomain.DictationSession, error) {
+	session, err := s.GetDictationSession(sessionID)
+	if err != nil {
+		return taskboarddomain.DictationSession{}, err
+	}
+	if session.GradingStatus == taskboarddomain.DictationGradingPending || session.GradingStatus == taskboarddomain.DictationGradingProcessing {
+		return taskboarddomain.DictationSession{}, ErrDictationGradingInProgress
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	session.GradingStatus = taskboarddomain.DictationGradingPending
+	session.GradingError = ""
+	session.GradingRequestedAt = now
+	session.GradingCompletedAt = ""
+	session.GradingResult = nil
+	return s.repo.SaveDictationSession(session)
+}
+
+func (s *PhaseOneService) MarkDictationGradingProcessing(sessionID string) (taskboarddomain.DictationSession, error) {
+	session, err := s.GetDictationSession(sessionID)
+	if err != nil {
+		return taskboarddomain.DictationSession{}, err
+	}
+
+	session.GradingStatus = taskboarddomain.DictationGradingProcessing
+	if strings.TrimSpace(session.GradingRequestedAt) == "" {
+		session.GradingRequestedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	session.GradingError = ""
+	return s.repo.SaveDictationSession(session)
+}
+
+func (s *PhaseOneService) CompleteDictationGrading(sessionID string, result taskboarddomain.DictationGradingResult) (taskboarddomain.DictationSession, error) {
+	session, err := s.GetDictationSession(sessionID)
+	if err != nil {
+		return taskboarddomain.DictationSession{}, err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if strings.TrimSpace(result.GradingID) == "" {
+		result.GradingID = fmt.Sprintf("grading_%d", time.Now().UTC().UnixNano())
+	}
+	if strings.TrimSpace(result.CreatedAt) == "" {
+		result.CreatedAt = now
+	}
+
+	session.GradingStatus = taskboarddomain.DictationGradingCompleted
+	session.GradingError = ""
+	session.GradingCompletedAt = now
+	session.GradingResult = &result
+	return s.repo.SaveDictationSession(session)
+}
+
+func (s *PhaseOneService) FailDictationGrading(sessionID string, message string) (taskboarddomain.DictationSession, error) {
+	session, err := s.GetDictationSession(sessionID)
+	if err != nil {
+		return taskboarddomain.DictationSession{}, err
+	}
+
+	session.GradingStatus = taskboarddomain.DictationGradingFailed
+	session.GradingError = strings.TrimSpace(message)
+	session.GradingCompletedAt = time.Now().UTC().Format(time.RFC3339)
+	return s.repo.SaveDictationSession(session)
+}
+
+func (s *PhaseOneService) UpsertDictationDebugContext(sessionID string, patch taskboarddomain.DictationDebugContext) (taskboarddomain.DictationSession, error) {
+	session, err := s.GetDictationSession(sessionID)
+	if err != nil {
+		return taskboarddomain.DictationSession{}, err
+	}
+
+	session.DebugContext = mergeDictationDebugContext(session.DebugContext, patch)
+	return s.repo.SaveDictationSession(session)
+}
+
+func mergeDictationDebugContext(current *taskboarddomain.DictationDebugContext, patch taskboarddomain.DictationDebugContext) *taskboarddomain.DictationDebugContext {
+	next := taskboarddomain.DictationDebugContext{}
+	if current != nil {
+		next = *current
+		if current.LogKeywords != nil {
+			next.LogKeywords = append([]string(nil), current.LogKeywords...)
+		}
+	}
+
+	if value := strings.TrimSpace(patch.PhotoSHA1); value != "" {
+		next.PhotoSHA1 = value
+	}
+	if patch.PhotoBytes > 0 {
+		next.PhotoBytes = patch.PhotoBytes
+	}
+	if value := strings.TrimSpace(patch.Language); value != "" {
+		next.Language = value
+	}
+	if value := strings.TrimSpace(patch.Mode); value != "" {
+		next.Mode = value
+	}
+	if value := strings.TrimSpace(patch.WorkerStage); value != "" {
+		next.WorkerStage = value
+	}
+	if value := strings.TrimSpace(patch.LogFile); value != "" {
+		next.LogFile = value
+	}
+	if len(patch.LogKeywords) > 0 {
+		next.LogKeywords = append([]string(nil), patch.LogKeywords...)
+	}
+
+	if isEmptyDictationDebugContext(next) {
+		return nil
+	}
+	return &next
+}
+
+func isEmptyDictationDebugContext(ctx taskboarddomain.DictationDebugContext) bool {
+	return strings.TrimSpace(ctx.PhotoSHA1) == "" &&
+		ctx.PhotoBytes == 0 &&
+		strings.TrimSpace(ctx.Language) == "" &&
+		strings.TrimSpace(ctx.Mode) == "" &&
+		strings.TrimSpace(ctx.WorkerStage) == "" &&
+		strings.TrimSpace(ctx.LogFile) == "" &&
+		len(ctx.LogKeywords) == 0
 }
 
 func (s *PhaseOneService) GetDailyStats(familyID, userID uint, date time.Time) (taskboarddomain.StatsResponse, error) {

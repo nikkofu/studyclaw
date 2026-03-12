@@ -1,80 +1,116 @@
 # StudyClaw
 
-StudyClaw 是一款面向家庭学习场景的任务协同与 AI 管理工具。它致力于通过 AI 自动化解析、权威后端事实源和正向心理激励，让每日学习管理变得轻松、透明且富有动力。
+StudyClaw 是一套面向家庭学习场景的三端协同系统：
 
-- **当前版本**: `v0.2.0` (第一阶段正式签收版)
-- **核心定位**: 消除本地缓存依赖，实现全链路后端闭环。
+- `API`: Go 后端，作为任务、积分、词单、听写会话和统计的唯一事实源
+- `Parent Web`: React 管理端，负责 `parse -> review -> confirm` 发布和反馈查看
+- `Pad App`: Flutter 孩子端，负责任务执行、积分反馈和听写练词
 
----
+## 当前阶段
 
-## 🚀 核心能力
+- 当前交付版本：`v0.2.0`
+- 当前状态：第一阶段已完成正式交付同步，可作为下一阶段基线
+- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.2.0` 基线
 
-### 1. AI 任务解析 (Parent Web)
-- **原文解析**：支持微信群/钉钉群风格的作业文本一键粘贴。
-- **智能拆解**：自动拆解为原子任务，并识别学科及作业分组。
-- **风险预控**：AI 识别置信度低或性质模糊的任务（如“订正”），强制人工审核。
+## 当前已闭环能力
 
-### 2. 后端事实源闭环 (v0.2.0)
-- **单词清单**：家长录入 -> 后端持久化 -> Pad 同步，支持听写会话控制。
-- **积分系统**：双端同步展示权威积分流水与余额，彻底告别前端估算。
-- **进度同步**：任务状态实时同步，支持多设备刷新查看最新进展。
+### 家长端
 
-### 3. 多端协同体验 (Pad App)
-- **沉浸式任务板**：孩子自主选择执行顺序，系统实时跟踪进度。
-- **单词听写播放**：支持逐词朗读、进度恢复及后端驱动的播放会话。
-- **今日简报**：AI 基于当日完成度及积分变化生成积极、支持型的反馈。
+- 群消息式作业文本解析
+- 审核草稿并确认发布
+- 查看当日 / 周 / 月反馈
+- 创建词单、查看积分流水、执行人工奖惩
 
-### 4. 数据可视化与 AI 观察
-- **多维趋势**：提供日/周/月度任务完成率及积分波动分析图表。
-- **客观解释**：AI 仅负责解释统计数据，不改写业务状态，确保数据真实可信。
+### 孩子端
 
----
+- 加载当天任务板
+- 单任务 / 分组 / 全量完成同步
+- 后端驱动的词单与听写会话
+- 积分余额、日报、周报、月报入口
 
-## 🛠️ 技术栈
+### API 端
 
-- **后端**: Go (Gin, Markdown Workspace)
-- **管理端**: React + Vite + Vanilla CSS
-- **执行端**: Flutter (Dart)
-- **AI 模型**: 基于 Google LLM 设计模式 (Agentic Pattern)
+- 任务解析、确认写入和任务板读取
+- 任务状态同步和自动积分
+- 积分流水 / 余额
+- 词单解析、词单持久化、听写会话、日周月统计
 
----
+## 2026-03-12 交付验证基线
 
-## 📦 快速启动
+以下验证已在本地仓库状态下执行：
+
+- `go test ./... -count=1`
+- `npm test`
+- `npm run build`
+- `flutter analyze`
+- `flutter test`
+- `flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
+- `bash scripts/smoke_local_stack.sh`
+- `bash scripts/demo_local_stack.sh`
+
+三端联调基线端口：
+
+- API: `http://127.0.0.1:38080`
+- Parent Web: `http://127.0.0.1:5173`
+- Pad Web: `http://127.0.0.1:55771`
+
+交付用固定数据：
+
+- `family_id=306`
+- `user_id / child_id=1`
+- `assigned_date=2026-03-12`
+
+## 快速启动
 
 ### 1. 环境预检
+
 ```bash
 bash scripts/preflight_local_env.sh
 ```
 
-### 2. 启动服务
+### 2. 启动 API / Parent / Pad
+
 ```bash
-# 后端
-cd apps/api-server && go run ./cmd/studyclaw-server
+# API
+cd apps/api-server
+API_PORT=38080 go run ./cmd/studyclaw-server
 
-# 家长端
-cd apps/parent-web && npm run dev
+# Parent Web
+cd apps/parent-web
+VITE_API_BASE_URL=http://127.0.0.1:38080 npm run dev -- --host 127.0.0.1 --port 5173
 
-# Pad 端 (Chrome)
-cd apps/pad-app && flutter run -d chrome
+# Pad Web
+cd apps/pad-app
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
+  --dart-define=API_BASE_URL=http://127.0.0.1:38080
 ```
 
-### 3. 冒烟测试与演示
+### 3. 冒烟和演示入口
+
 ```bash
-bash scripts/smoke_local_stack.sh
+STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh
+STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 \
+STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 \
 bash scripts/demo_local_stack.sh
 ```
 
----
+## 交付文档
 
-## 📝 交付与审计
+- 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
+- 用户操作手册：[docs/USER_MANUAL_V0.2.0.md](docs/USER_MANUAL_V0.2.0.md)
+- 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
+- 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
+- Release 同步手册：[docs/20_RELEASE_SYNC_PLAYBOOK.md](docs/20_RELEASE_SYNC_PLAYBOOK.md)
+- 发布前检查：[docs/13_RELEASE_CHECKLIST.md](docs/13_RELEASE_CHECKLIST.md)
+- 第一阶段演示清单：[docs/16_FIRST_PHASE_DEMO_CHECKLIST.md](docs/16_FIRST_PHASE_DEMO_CHECKLIST.md)
 
-- **交付就绪度**: 详见 [docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
-- **演示清单**: 详见 [docs/16_FIRST_PHASE_DEMO_CHECKLIST.md](docs/16_FIRST_PHASE_DEMO_CHECKLIST.md)
-- **发布检查**: 详见 [docs/13_RELEASE_CHECKLIST.md](docs/13_RELEASE_CHECKLIST.md)
-- **详细手册**: 详见 [docs/USER_MANUAL_V0.2.0.md](docs/USER_MANUAL_V0.2.0.md)
+## 当前仓库同步提示
 
----
+- `git fetch origin` 已执行并完成同步复核
+- 当前分支 `main` 已同步到 `origin/main`
+- 版本标签 `v0.2.0` 已创建并推送
+- 当前仓库可直接作为第一阶段签收基线；进入下一阶段时应从 clean worktree 开始
 
-## ⚖️ 许可
+## 许可
 
 本项目采用 [LICENSE](LICENSE) 进行许可。

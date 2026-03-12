@@ -37,6 +37,7 @@ __pycache__/
 # IDE 相关
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 

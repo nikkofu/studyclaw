@@ -11,6 +11,8 @@ abstract interface class TaskBoardRepository {
 
   Future<DailyStats> fetchDailyStats(TaskBoardRequest request);
 
+  Future<Map<String, dynamic>> fetchMonthlyStats(TaskBoardRequest request);
+
   Future<TaskBoard> updateSingleTask(
     TaskBoardRequest request, {
     required int taskId,
@@ -33,11 +35,25 @@ abstract interface class TaskBoardRepository {
 
   Future<DictationSession> startDictationSession(TaskBoardRequest request);
 
-  Future<DictationSession> getDictationSession(String sessionId, String apiBaseUrl);
+  Future<DictationSession> getDictationSession(
+      String sessionId, String apiBaseUrl);
 
-  Future<DictationSession> replayDictationSession(String sessionId, String apiBaseUrl);
+  Future<DictationSession> replayDictationSession(
+      String sessionId, String apiBaseUrl);
 
-  Future<DictationSession> nextDictationSession(String sessionId, String apiBaseUrl);
+  Future<DictationSession> nextDictationSession(
+      String sessionId, String apiBaseUrl);
+
+  Future<DictationSession> previousDictationSession(
+      String sessionId, String apiBaseUrl);
+
+  Future<DictationSession> gradeDictationSession({
+    required String sessionId,
+    required String apiBaseUrl,
+    required String photoBase64,
+    required String language,
+    required String mode,
+  });
 }
 
 class RemoteTaskBoardRepository implements TaskBoardRepository {
@@ -87,6 +103,21 @@ class RemoteTaskBoardRepository implements TaskBoardRepository {
       },
     );
     return DailyStats.fromJson(payload);
+  }
+
+  @override
+  Future<Map<String, dynamic>> fetchMonthlyStats(
+      TaskBoardRequest request) async {
+    final payload = await _clientFor(request).send(
+      'GET',
+      '/api/v1/stats/monthly',
+      query: {
+        'family_id': '${request.familyId}',
+        'user_id': '${request.userId}',
+        'end_date': request.date,
+      },
+    );
+    return payload;
   }
 
   @override
@@ -165,7 +196,8 @@ class RemoteTaskBoardRepository implements TaskBoardRepository {
   }
 
   @override
-  Future<DictationSession> startDictationSession(TaskBoardRequest request) async {
+  Future<DictationSession> startDictationSession(
+      TaskBoardRequest request) async {
     final payload = await _clientFor(request).send(
       'POST',
       '/api/v1/dictation-sessions/start',
@@ -175,34 +207,74 @@ class RemoteTaskBoardRepository implements TaskBoardRepository {
         'assigned_date': request.date,
       },
     );
-    return DictationSession.fromJson(payload['dictation_session'] as Map<String, dynamic>);
+    return DictationSession.fromJson(
+        payload['dictation_session'] as Map<String, dynamic>);
   }
 
   @override
-  Future<DictationSession> getDictationSession(String sessionId, String apiBaseUrl) async {
+  Future<DictationSession> getDictationSession(
+      String sessionId, String apiBaseUrl) async {
     final payload = await clientFactory(apiBaseUrl).send(
       'GET',
       '/api/v1/dictation-sessions/$sessionId',
     );
-    return DictationSession.fromJson(payload['dictation_session'] as Map<String, dynamic>);
+    return DictationSession.fromJson(
+        payload['dictation_session'] as Map<String, dynamic>);
   }
 
   @override
-  Future<DictationSession> replayDictationSession(String sessionId, String apiBaseUrl) async {
+  Future<DictationSession> replayDictationSession(
+      String sessionId, String apiBaseUrl) async {
     final payload = await clientFactory(apiBaseUrl).send(
       'POST',
       '/api/v1/dictation-sessions/$sessionId/replay',
     );
-    return DictationSession.fromJson(payload['dictation_session'] as Map<String, dynamic>);
+    return DictationSession.fromJson(
+        payload['dictation_session'] as Map<String, dynamic>);
   }
 
   @override
-  Future<DictationSession> nextDictationSession(String sessionId, String apiBaseUrl) async {
+  Future<DictationSession> nextDictationSession(
+      String sessionId, String apiBaseUrl) async {
     final payload = await clientFactory(apiBaseUrl).send(
       'POST',
       '/api/v1/dictation-sessions/$sessionId/next',
     );
-    return DictationSession.fromJson(payload['dictation_session'] as Map<String, dynamic>);
+    return DictationSession.fromJson(
+        payload['dictation_session'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<DictationSession> previousDictationSession(
+      String sessionId, String apiBaseUrl) async {
+    final payload = await clientFactory(apiBaseUrl).send(
+      'POST',
+      '/api/v1/dictation-sessions/$sessionId/prev',
+    );
+    return DictationSession.fromJson(
+        payload['dictation_session'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<DictationSession> gradeDictationSession({
+    required String sessionId,
+    required String apiBaseUrl,
+    required String photoBase64,
+    required String language,
+    required String mode,
+  }) async {
+    final client = clientFactory(apiBaseUrl);
+    final payload = await client.send(
+      'POST',
+      '/api/v1/dictation-sessions/$sessionId/grade',
+      body: {
+        'photo': photoBase64,
+        'language': language,
+        'mode': mode,
+      },
+    );
+    return DictationSession.fromJson(
+        payload['dictation_session'] as Map<String, dynamic>);
   }
 
   TaskBoardApiClient _clientFor(TaskBoardRequest request) {

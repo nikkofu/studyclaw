@@ -1,6 +1,6 @@
 # StudyClaw 本地运行手册
 
-本文档描述 `2026-03-09` 之后的当前真实运行方式：后端只启动 Go 服务，不再要求额外的 Python 后端进程。
+本文档描述 `2026-03-12` 交付基线下的真实运行方式。当前正式运行形态是 `Go API + React Parent Web + Flutter Pad` 三端协同，不再需要额外的 Python 后端进程。
 
 ## 1. 前置条件
 
@@ -10,7 +10,7 @@
 - `Flutter 3.24+`
 - `Docker` 可选
 
-## 2. 快速预检
+## 2. 环境预检
 
 推荐先执行：
 
@@ -26,7 +26,7 @@ bash scripts/preflight_local_env.sh
 - 关键目录是否齐全
 - 仓库中是否误跟踪了运行时密钥文件
 
-若失败，先修环境，再继续后续步骤。
+若失败，先修环境，再继续。
 
 ## 3. 运行时配置
 
@@ -47,11 +47,14 @@ bash scripts/init_private_runtime_env.sh
 ```env
 API_PORT=8080
 LLM_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-LLM_API_KEY=your-ark-api-key
-LLM_MODEL_NAME=your-ark-model-name
+LLM_API_KEY=your-llm-api-key
+LLM_MODEL_NAME=your-llm-model
 LLM_PARSER_MODEL_NAME=
+LLM_GRADER_MODEL_NAME=
 LLM_WEEKLY_MODEL_NAME=
+LLM_HTTP_TIMEOUT_SECONDS=90
 STUDYCLAW_DATA_DIR=./data
+STUDYCLAW_LOG_DIR=./data/logs
 ```
 
 加载顺序：
@@ -63,32 +66,21 @@ STUDYCLAW_DATA_DIR=./data
 注意：
 
 - 真实密钥只放仓库外 `runtime.env`
-- 不配置 `LLM_API_KEY` 也能启动，系统会回退到规则解析和 mock 周报
+- 不配置 `LLM_API_KEY` 也能启动；任务解析会自动回退到规则模式
 
-## 4. 启动顺序
+## 4. 标准三端启动顺序
 
-### 4.1 可选：启动 Redis
-
-```bash
-docker compose up -d redis
-```
-
-说明：
-
-- 当前演示链路不依赖 Redis
-- 若后续引入缓存或 Redis 相关能力，再执行这一项
-
-### 4.2 启动 Go 后端
+### 4.1 启动 API
 
 ```bash
 cd apps/api-server
-go run ./cmd/studyclaw-server
+API_PORT=38080 go run ./cmd/studyclaw-server
 ```
 
 健康检查：
 
 ```bash
-curl http://localhost:8080/ping
+curl http://127.0.0.1:38080/ping
 ```
 
 预期：
@@ -97,203 +89,202 @@ curl http://localhost:8080/ping
 {"message":"pong"}
 ```
 
-### 4.3 启动 Parent Web
+### 4.2 启动 Parent Web
 
 ```bash
 cd apps/parent-web
-npm install
-npm run dev -- --host 0.0.0.0
+VITE_API_BASE_URL=http://127.0.0.1:38080 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-默认地址：`http://localhost:5173`
+地址：`http://127.0.0.1:5173`
 
-### 4.4 启动 Pad App
+### 4.3 启动 Pad Web
 
 ```bash
 cd apps/pad-app
-flutter pub get
-flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
+  --dart-define=API_BASE_URL=http://127.0.0.1:38080
 ```
 
-真机请把 `localhost` 替换成宿主机局域网 IP。
+地址：`http://127.0.0.1:55771`
 
-## 5. 最短联调路径
+真机联调请把 `127.0.0.1` 替换成宿主机局域网 IP。
 
-在本地最短建议按这 5 步执行：
+## 5. 交付前标准联调路径
 
-1. `bash scripts/preflight_local_env.sh`
-2. `bash scripts/init_private_runtime_env.sh`
-3. 启动 Go 后端
-4. `bash scripts/smoke_local_stack.sh`
-5. 若后续需要 Redis，再执行 `docker compose up -d redis`
+推荐固定使用以下数据，避免“今天 / 明天”混淆：
 
-说明：
+- `family_id=306`
+- `user_id / child_id=1`
+- `assigned_date=2026-03-12`
 
-- `smoke_local_stack.sh` 默认要求本地 `http://localhost:8080` 已有运行中的 Go 后端
-- 如后端不是这个地址，可用环境变量覆盖：
+### 5.1 最短交付验证
 
 ```bash
-STUDYCLAW_SMOKE_API_BASE_URL=http://your-host:8080 bash scripts/smoke_local_stack.sh
-```
-
-### 5.1 一键演示入口
-
-如果你已经把 Go 后端跑起来，希望快速进入演示流程，执行：
-
-```bash
+bash scripts/preflight_local_env.sh
+STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh
+STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 \
+STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 \
 bash scripts/demo_local_stack.sh
 ```
 
-它会：
-
-- 再跑一轮 `preflight`
-- 再跑一轮 `smoke`
-- 输出 Parent Web 和 Pad 的演示步骤
-- 指向当前最新的 release checklist 和派单文档
-
-当前固定入口：
-
-- 发布前检查：`docs/13_RELEASE_CHECKLIST.md`
-- 第一阶段演示清单：`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`
-- 当前唯一正式派单入口：`docs/14_NEXT_PHASE_DISPATCH.md`
-
-## 6. 常用联调方式
-
-### 6.1 手动给某一天新增一条任务
+### 5.2 页面存活检查
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "family_id": 306,
-    "assignee_id": 1,
-    "subject": "数学",
-    "group_title": "口算本",
-    "content": "完成第12页",
-    "assigned_date": "2026-03-10"
-  }'
+curl http://127.0.0.1:5173/
+curl http://127.0.0.1:55771/
 ```
 
-### 6.2 先解析后确认
+### 5.3 家长发布作业
 
 解析：
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks/parse \
+curl -X POST http://127.0.0.1:38080/api/v1/tasks/parse \
   -H 'Content-Type: application/json' \
   -d '{
     "family_id": 306,
     "assignee_id": 1,
-    "assigned_date": "2026-03-10",
+    "assigned_date": "2026-03-12",
     "auto_create": false,
-    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文"
+    "raw_text": "数学：1、校本P16-17\n2、练习册P14-15\n\n英语：1、背默M1U2单词\n2、预习课文"
   }'
 ```
 
 确认写入：
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks/confirm \
+curl -X POST http://127.0.0.1:38080/api/v1/tasks/confirm \
   -H 'Content-Type: application/json' \
   -d '{
     "family_id": 306,
     "assignee_id": 1,
-    "assigned_date": "2026-03-10",
+    "assigned_date": "2026-03-12",
     "tasks": [
-      {
-        "subject": "数学",
-        "group_title": "校本P16～17",
-        "title": "校本P16～17"
-      },
-      {
-        "subject": "数学",
-        "group_title": "练习册P14～15",
-        "title": "练习册P14～15"
-      }
+      { "subject": "数学", "group_title": "校本P16-17", "title": "校本P16-17" },
+      { "subject": "数学", "group_title": "练习册P14-15", "title": "练习册P14-15" },
+      { "subject": "英语", "group_title": "背默M1U2单词", "title": "背默M1U2单词" },
+      { "subject": "英语", "group_title": "预习课文", "title": "预习课文" }
     ]
   }'
 ```
 
-### 6.3 直接解析并写入某一天
+### 5.4 孩子端读取与完成任务
+
+读取任务板：
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks/parse \
+curl "http://127.0.0.1:38080/api/v1/tasks?family_id=306&user_id=1&date=2026-03-12"
+```
+
+勾选一个任务完成：
+
+```bash
+curl -X PATCH http://127.0.0.1:38080/api/v1/tasks/status/item \
   -H 'Content-Type: application/json' \
   -d '{
     "family_id": 306,
     "assignee_id": 1,
-    "assigned_date": "2026-03-10",
-    "auto_create": true,
-    "raw_text": "数学：1、校本P16～17\n2、练习册P14～15\n\n英语：1、背默M1U2单词\n2、预习课文"
+    "task_id": 1,
+    "completed": true,
+    "assigned_date": "2026-03-12"
   }'
 ```
 
-### 6.4 查询某一天任务板
+### 5.5 家长端查看反馈和积分
 
 ```bash
-curl "http://localhost:8080/api/v1/tasks?family_id=306&user_id=1&date=2026-03-10"
+curl "http://127.0.0.1:38080/api/v1/stats/daily?family_id=306&user_id=1&date=2026-03-12"
+curl "http://127.0.0.1:38080/api/v1/stats/monthly?family_id=306&user_id=1&month=2026-03"
 ```
 
-默认 Markdown 位置：
-
-```text
-data/workspaces/family_306/user_1/2026-03-10.md
-```
-
-## 7. 验证命令
-
-### 7.1 一键 smoke
+创建人工奖励：
 
 ```bash
-bash scripts/smoke_local_stack.sh
+curl -X POST http://127.0.0.1:38080/api/v1/points/ledger \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "user_id": 1,
+    "delta": 2,
+    "source_type": "parent_reward",
+    "occurred_on": "2026-03-12",
+    "note": "主动完成额外练习"
+  }'
 ```
 
-### 7.2 一键演示入口
+### 5.6 词单与听写会话
+
+解析词单：
 
 ```bash
-bash scripts/demo_local_stack.sh
+curl -X POST http://127.0.0.1:38080/api/v1/word-lists/parse \
+  -H 'Content-Type: application/json' \
+  -d '{"raw_text":"apple 苹果\norange 橙子\nbanana 香蕉"}'
 ```
 
-### 7.3 第一阶段演示清单
+保存词单：
 
-如果你不是只想确认环境是否能跑通，而是要按第一阶段产品链路完整演示，请直接使用：
-
-```text
-docs/16_FIRST_PHASE_DEMO_CHECKLIST.md
+```bash
+curl -X POST http://127.0.0.1:38080/api/v1/word-lists \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "child_id": 1,
+    "assigned_date": "2026-03-12",
+    "title": "英语默写 Day 1",
+    "language": "en",
+    "items": [
+      { "text": "apple", "meaning": "苹果" },
+      { "text": "orange", "meaning": "橙子" },
+      { "text": "banana", "meaning": "香蕉" }
+    ]
+  }'
 ```
 
-该清单覆盖：
+启动会话：
 
-- 家长发布当天作业
-- AI 解析与审核
-- Pad 完成任务
-- 家长查看当日统计
-- 单词逐词播放
-- 积分变化
-- 日 / 周 / 月反馈与 AI 鼓励
+```bash
+curl -X POST http://127.0.0.1:38080/api/v1/dictation-sessions/start \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "family_id": 306,
+    "child_id": 1,
+    "assigned_date": "2026-03-12"
+  }'
+```
 
-### 7.4 Go 后端
+## 6. 当前交付文档入口
+
+- 发布前检查：`docs/13_RELEASE_CHECKLIST.md`
+- 第一阶段演示清单：`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`
+- 交付就绪审计：`docs/17_DELIVERY_READINESS.md`
+- 交付验收用例：`docs/19_DELIVERY_UAT_CASES.md`
+
+## 7. 标准验证命令
+
+### 7.1 Go 后端
 
 ```bash
 cd apps/api-server
-GOCACHE="$(pwd)/../../.cache/go-build" go test ./...
+GOCACHE="$(pwd)/../../.cache/go-build" go test ./... -count=1
 ```
 
-### 7.5 Parent Web
+### 7.2 Parent Web
 
 ```bash
 cd apps/parent-web
-npm run test
+npm test
 npm run build
 ```
 
-### 7.6 Pad App
+### 7.3 Pad App
 
 ```bash
 cd apps/pad-app
 flutter analyze
 flutter test
-flutter build web --dart-define=API_BASE_URL=http://localhost:8080
+flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080
 ```
 
 ## 8. 常见问题
@@ -304,20 +295,20 @@ flutter build web --dart-define=API_BASE_URL=http://localhost:8080
 
 - `LLM_API_KEY` 是否配置在私有 `runtime.env`
 - `LLM_MODEL_NAME` 或 `LLM_PARSER_MODEL_NAME` 是否配置
-- `LLM_BASE_URL` 是否是 `https://ark.cn-beijing.volces.com/api/v3`
+- `LLM_BASE_URL` 是否可达
 
 ### 8.2 Pad 端能打开但请求失败
 
 优先检查：
 
-- Go 后端是否监听在 `8080`
+- Go 后端是否监听在 `38080`
 - Flutter 启动参数里的 `API_BASE_URL` 是否正确
 - 真机联调时是否误用了 `localhost`
 
-### 8.3 看不到任务文件
+### 8.3 为什么 release 前还不能 push
 
 优先检查：
 
-- `family_id`、`assignee_id`、`assigned_date` 是否一致
-- `STUDYCLAW_DATA_DIR` 是否被改到别的目录
-- 是否真的调用了 `confirm` 或 `parse + auto_create`
+- `git status --short` 里是否还有未计划提交内容
+- 是否夹带 `.gopath/`、`build/`、`dist/`、`.dart_tool/` 等产物目录
+- 是否已经按 `docs/13_RELEASE_CHECKLIST.md` 和 `docs/19_DELIVERY_UAT_CASES.md` 完成验证

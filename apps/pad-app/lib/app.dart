@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:pad_app/ui_kit/kid_theme.dart';
 import 'package:pad_app/task_board/page.dart';
 import 'package:pad_app/task_board/repository.dart';
 import 'package:pad_app/word_playback/controller.dart';
-import 'package:pad_app/word_playback/speaker.dart';
 
 class StudyClawPadApp extends StatelessWidget {
   const StudyClawPadApp({
@@ -29,11 +29,7 @@ class StudyClawPadApp extends StatelessWidget {
     return MaterialApp(
       title: 'StudyClaw Pad',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0F766E)),
-        scaffoldBackgroundColor: const Color(0xFFF3F7F5),
-      ),
+      theme: KidTheme.light,
       home: PadTaskBoardPage(
         autoLoad: autoLoad,
         initialDate: initialDate,

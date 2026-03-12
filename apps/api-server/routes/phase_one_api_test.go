@@ -79,15 +79,47 @@ type wordListResponse struct {
 type dictationSessionResponse struct {
 	Message string `json:"message"`
 	Session struct {
-		SessionID      string `json:"session_id"`
-		Status         string `json:"status"`
-		CurrentIndex   int    `json:"current_index"`
-		PlayedCount    int    `json:"played_count"`
-		CompletedItems int    `json:"completed_items"`
-		CurrentItem    *struct {
+		SessionID     string `json:"session_id"`
+		Status        string `json:"status"`
+		GradingStatus string `json:"grading_status"`
+		GradingError  string `json:"grading_error"`
+		DebugContext  *struct {
+			PhotoSHA1   string   `json:"photo_sha1"`
+			PhotoBytes  int      `json:"photo_bytes"`
+			Language    string   `json:"language"`
+			Mode        string   `json:"mode"`
+			WorkerStage string   `json:"worker_stage"`
+			LogFile     string   `json:"log_file"`
+			LogKeywords []string `json:"log_keywords"`
+		} `json:"debug_context"`
+		CurrentIndex   int `json:"current_index"`
+		PlayedCount    int `json:"played_count"`
+		CompletedItems int `json:"completed_items"`
+		GradingResult  *struct {
+			Score int `json:"score"`
+		} `json:"grading_result"`
+		CurrentItem *struct {
 			Text string `json:"text"`
 		} `json:"current_item"`
 	} `json:"dictation_session"`
+}
+
+type dictationSessionListResponse struct {
+	Sessions []struct {
+		SessionID     string `json:"session_id"`
+		AssignedDate  string `json:"assigned_date"`
+		GradingStatus string `json:"grading_status"`
+		GradingError  string `json:"grading_error"`
+		DebugContext  *struct {
+			PhotoSHA1   string   `json:"photo_sha1"`
+			WorkerStage string   `json:"worker_stage"`
+			LogFile     string   `json:"log_file"`
+			LogKeywords []string `json:"log_keywords"`
+		} `json:"debug_context"`
+		GradingResult *struct {
+			Score int `json:"score"`
+		} `json:"grading_result"`
+	} `json:"dictation_sessions"`
 }
 
 type statsResponse struct {
@@ -328,6 +360,174 @@ func TestPhaseOneWordListDictationAndStatsFlow(t *testing.T) {
 	}
 	if monthlyStatsPayload.Period != "monthly" || len(monthlyStatsPayload.CompletionSeries) == 0 || len(monthlyStatsPayload.WordSeries) == 0 {
 		t.Fatalf("unexpected monthly stats payload: %+v", monthlyStatsPayload)
+	}
+}
+
+func TestPhaseOneDictationGradeAcceptedAndFailsWithoutLLM(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_GRADER_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	performJSONRequest(t, router, http.MethodPost, "/api/v1/word-lists", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+		"title":         "英语默写 Day 2",
+		"language":      "en",
+		"items": []map[string]any{
+			{"text": "touch", "meaning": "触碰"},
+			{"text": "feel", "meaning": "摸起来"},
+		},
+	})
+
+	startRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/dictation-sessions/start", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+	})
+	if startRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected session start to return 201, got %d: %s", startRecorder.Code, startRecorder.Body.String())
+	}
+
+	var startPayload dictationSessionResponse
+	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startPayload); err != nil {
+		t.Fatalf("unmarshal start session response: %v", err)
+	}
+
+	gradeRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/dictation-sessions/"+startPayload.Session.SessionID+"/grade", map[string]any{
+		"photo":    "ZmFrZS1pbWFnZS1ieXRlcw==",
+		"language": "english",
+		"mode":     "word",
+	})
+	if gradeRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected grade request to return 202, got %d: %s", gradeRecorder.Code, gradeRecorder.Body.String())
+	}
+
+	var acceptedPayload dictationSessionResponse
+	if err := json.Unmarshal(gradeRecorder.Body.Bytes(), &acceptedPayload); err != nil {
+		t.Fatalf("unmarshal accepted grading response: %v", err)
+	}
+	if acceptedPayload.Session.GradingStatus != "pending" {
+		t.Fatalf("expected accepted grading status to be pending, got %+v", acceptedPayload.Session)
+	}
+	if acceptedPayload.Session.DebugContext == nil {
+		t.Fatalf("expected accepted grading response to include debug context, got %+v", acceptedPayload.Session)
+	}
+	if acceptedPayload.Session.DebugContext.WorkerStage != "queued" {
+		t.Fatalf("expected accepted grading response to record queued stage, got %+v", acceptedPayload.Session.DebugContext)
+	}
+	if acceptedPayload.Session.DebugContext.PhotoSHA1 == "" || acceptedPayload.Session.DebugContext.LogFile == "" {
+		t.Fatalf("expected accepted grading response to include traceable debug metadata, got %+v", acceptedPayload.Session.DebugContext)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		sessionRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/dictation-sessions/"+startPayload.Session.SessionID, nil)
+		if sessionRecorder.Code != http.StatusOK {
+			t.Fatalf("expected session get to return 200, got %d: %s", sessionRecorder.Code, sessionRecorder.Body.String())
+		}
+
+		var sessionPayload dictationSessionResponse
+		if err := json.Unmarshal(sessionRecorder.Body.Bytes(), &sessionPayload); err != nil {
+			t.Fatalf("unmarshal session payload: %v", err)
+		}
+
+		if sessionPayload.Session.GradingStatus == "failed" {
+			if sessionPayload.Session.GradingError == "" {
+				t.Fatalf("expected grading failure to include an error message: %+v", sessionPayload.Session)
+			}
+			if sessionPayload.Session.DebugContext == nil {
+				t.Fatalf("expected failed grading session to include debug context: %+v", sessionPayload.Session)
+			}
+			if sessionPayload.Session.DebugContext.PhotoSHA1 == "" || len(sessionPayload.Session.DebugContext.LogKeywords) == 0 {
+				t.Fatalf("expected failed grading session to include log keywords and photo hash: %+v", sessionPayload.Session.DebugContext)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected async grading to fail within timeout, got %+v", sessionPayload.Session)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func TestPhaseOneListDictationSessionsByDate(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_GRADER_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	performJSONRequest(t, router, http.MethodPost, "/api/v1/word-lists", map[string]any{
+		"family_id":     406,
+		"child_id":      506,
+		"assigned_date": "2026-03-17",
+		"title":         "英语默写 Day 3",
+		"language":      "en",
+		"items": []map[string]any{
+			{"text": "noise", "meaning": "响声"},
+		},
+	})
+
+	startRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/dictation-sessions/start", map[string]any{
+		"family_id":     406,
+		"child_id":      506,
+		"assigned_date": "2026-03-17",
+	})
+	if startRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected session start to return 201, got %d: %s", startRecorder.Code, startRecorder.Body.String())
+	}
+
+	var startPayload dictationSessionResponse
+	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startPayload); err != nil {
+		t.Fatalf("unmarshal start session response: %v", err)
+	}
+
+	gradeRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/dictation-sessions/"+startPayload.Session.SessionID+"/grade", map[string]any{
+		"photo":    "ZmFrZS1pbWFnZS1ieXRlcw==",
+		"language": "english",
+		"mode":     "word",
+	})
+	if gradeRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected grade request to return 202, got %d: %s", gradeRecorder.Code, gradeRecorder.Body.String())
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		listRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/dictation-sessions?family_id=406&child_id=506&date=2026-03-17", nil)
+		if listRecorder.Code != http.StatusOK {
+			t.Fatalf("expected list dictation sessions to return 200, got %d: %s", listRecorder.Code, listRecorder.Body.String())
+		}
+
+		var payload dictationSessionListResponse
+		if err := json.Unmarshal(listRecorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal dictation session list response: %v", err)
+		}
+		if len(payload.Sessions) != 1 {
+			t.Fatalf("expected exactly one dictation session, got %+v", payload.Sessions)
+		}
+
+		session := payload.Sessions[0]
+		if session.SessionID != startPayload.Session.SessionID {
+			t.Fatalf("expected listed session id %s, got %+v", startPayload.Session.SessionID, session)
+		}
+		if session.GradingStatus == "failed" {
+			if session.GradingError == "" {
+				t.Fatalf("expected listed failed session to include grading error, got %+v", session)
+			}
+			if session.DebugContext == nil || session.DebugContext.PhotoSHA1 == "" || session.DebugContext.LogFile == "" {
+				t.Fatalf("expected listed failed session to include debug context, got %+v", session)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected listed dictation session to reach terminal state, got %+v", session)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

@@ -5,13 +5,13 @@
 适用目标：
 
 - 版本目标：`v0.2.0`
-- 目标日期：`2026-03-10`
+- 目标日期：`2026-03-12`
 
 推荐先完成基础检查：
 
 1. `bash scripts/check_no_tracked_runtime_env.sh`
 2. `bash scripts/preflight_local_env.sh`
-3. 启动 Go 后端
+3. 启动 API / Parent Web / Pad 三端
 4. `bash scripts/smoke_local_stack.sh`
 5. `bash scripts/demo_local_stack.sh`
 
@@ -23,32 +23,33 @@
 
 ### 1.1 启动服务
 
-后端：
+API：
 
 ```bash
 cd apps/api-server
-go run ./cmd/studyclaw-server
+API_PORT=38080 go run ./cmd/studyclaw-server
 ```
 
 家长端：
 
 ```bash
 cd apps/parent-web
-npm run dev -- --host 0.0.0.0
+VITE_API_BASE_URL=http://127.0.0.1:38080 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
 Pad 端：
 
 ```bash
 cd apps/pad-app
-flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
+  --dart-define=API_BASE_URL=http://127.0.0.1:38080
 ```
 
 ### 1.2 建议演示用固定日期
 
 建议统一使用固定的 `assigned_date`，避免“今天 / 明天”混淆：
 
-- `2026-03-10`
+- `2026-03-12`
 
 ### 1.3 建议演示用固定数据
 
@@ -56,6 +57,7 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
 
 - `family_id=306`
 - `assignee_id=1`
+- Parent Web 侧选择或填写同一组 `family_id / assignee_id / date`
 
 ## 2. 第一阶段演示主线
 
@@ -95,13 +97,14 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8080 -d chrome
 | **双端同步一致性** | 在 Pad 端完成任务，立即在家长端查看月趋势。 | 月趋势中的完成率应同步更新。 |
 | **积分权威源** | 手工修改后端数据库/API 的积分余额。 | 双端显示的积分均应变为修改后的值，而非前端缓存值。 |
 | **会话状态迁移** | 在 Pad 端播放到第 3 个单词时刷新页面。 | 应能通过 session_id 恢复到第 3 个单词，或正确重播。 |
+| **页面可用性** | 访问 `http://127.0.0.1:5173/` 与 `http://127.0.0.1:55771/`。 | Parent Web 与 Pad Web 都能返回有效 HTML。 |
 
 ## 4. 建议演示顺序
 1. 家长发布作业 -> 2. AI 解析与审核 -> 3. Pad 完成任务 -> 4. 家长查看统计 -> 5. 单词播放 -> 6. 积分变化 -> 7. 日 / 周 / 月反馈
 
 ## 5. 验收确认模板
 ```text
-Date: 2026-03-10
+Date: 2026-03-12
 Version: v0.2.0
 Sign-off Status: [PASS / FAIL]
 Verified By:

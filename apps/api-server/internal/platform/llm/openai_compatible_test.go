@@ -35,3 +35,27 @@ func TestGetModelNamePrefersSpecificOverride(t *testing.T) {
 		t.Fatalf("expected specific model override, got %s", got)
 	}
 }
+
+func TestResolveHTTPTimeoutDefaultsToNinetySeconds(t *testing.T) {
+	t.Setenv("LLM_HTTP_TIMEOUT_SECONDS", "")
+
+	if got := resolveHTTPTimeout().Seconds(); got != 90 {
+		t.Fatalf("expected default timeout 90 seconds, got %.0f", got)
+	}
+}
+
+func TestResolveHTTPTimeoutUsesConfiguredSeconds(t *testing.T) {
+	t.Setenv("LLM_HTTP_TIMEOUT_SECONDS", "90")
+
+	if got := resolveHTTPTimeout().Seconds(); got != 90 {
+		t.Fatalf("expected configured timeout 90 seconds, got %.0f", got)
+	}
+}
+
+func TestResolveHTTPTimeoutIgnoresInvalidValue(t *testing.T) {
+	t.Setenv("LLM_HTTP_TIMEOUT_SECONDS", "oops")
+
+	if got := resolveHTTPTimeout().Seconds(); got != 90 {
+		t.Fatalf("expected invalid timeout to fall back to 90 seconds, got %.0f", got)
+	}
+}

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
@@ -9,14 +11,17 @@ const Object _missing = Object();
 class WordPlaybackState {
   const WordPlaybackState({
     required this.language,
+    this.mode = WordPlaybackMode.word,
     this.words = const <String>[],
     this.currentIndex = 0,
     this.isSpeaking = false,
     this.isBusy = false,
+    this.isPeeking = false,
     this.errorMessage,
     this.noticeMessage,
     this.wordList,
     this.session,
+    this.lastSubmission,
   });
 
   factory WordPlaybackState.initial({
@@ -26,76 +31,88 @@ class WordPlaybackState {
   }
 
   final WordPlaybackLanguage language;
+  final WordPlaybackMode mode;
   final List<String> words;
   final int currentIndex;
   final bool isSpeaking;
   final bool isBusy;
+  final bool isPeeking;
   final String? errorMessage;
   final String? noticeMessage;
   final WordList? wordList;
   final DictationSession? session;
+  final DictationSubmissionSnapshot? lastSubmission;
 
-  bool get hasWords => words.isNotEmpty;
+  bool get hasWords => words.isNotEmpty || session?.currentItem != null;
 
   String get currentWord {
     if (session?.currentItem != null) {
       return session!.currentItem!.text;
     }
-    if (!hasWords) {
-      return '';
-    }
+    if (words.isEmpty) return '';
     return words[currentIndex];
+  }
+
+  String get currentSpeakingContent {
+    if (session?.currentItem != null) {
+      final item = session!.currentItem!;
+      return mode == WordPlaybackMode.word
+          ? item.text
+          : (item.meaning ?? item.text);
+    }
+    return currentWord;
   }
 
   int get currentDisplayIndex {
     if (session != null) {
-      return session!.currentIndex;
+      return (session!.currentIndex + 1).clamp(0, totalWords);
     }
-    if (!hasWords) {
-      return 0;
-    }
-    return currentIndex + 1;
+    if (words.isEmpty) return 0;
+    return (currentIndex + 1).clamp(0, totalWords);
   }
 
   int get totalWords {
-    if (session != null) {
-      return session!.totalItems;
-    }
+    if (session != null) return session!.totalItems;
     return words.length;
   }
 
   double get progress {
-    final total = totalWords;
-    if (total == 0) {
-      return 0;
-    }
-    return currentDisplayIndex / total;
+    if (totalWords == 0) return 0;
+    return (currentDisplayIndex / totalWords).clamp(0.0, 1.0);
   }
 
   bool get canNext {
-    if (session != null) {
-      return !session!.isCompleted;
-    }
-    return hasWords && currentIndex < words.length - 1;
+    if (session != null) return !session!.isCompleted;
+    return words.isNotEmpty && currentIndex < words.length - 1;
+  }
+
+  bool get canPrevious {
+    if (session != null) return session!.currentIndex > 1;
+    return currentIndex > 0;
   }
 
   WordPlaybackState copyWith({
     WordPlaybackLanguage? language,
+    WordPlaybackMode? mode,
     Object? words = _missing,
     int? currentIndex,
     bool? isSpeaking,
     bool? isBusy,
+    bool? isPeeking,
     Object? errorMessage = _missing,
     Object? noticeMessage = _missing,
     Object? wordList = _missing,
     Object? session = _missing,
+    Object? lastSubmission = _missing,
   }) {
     return WordPlaybackState(
       language: language ?? this.language,
+      mode: mode ?? this.mode,
       words: words == _missing ? this.words : words as List<String>,
       currentIndex: currentIndex ?? this.currentIndex,
       isSpeaking: isSpeaking ?? this.isSpeaking,
       isBusy: isBusy ?? this.isBusy,
+      isPeeking: isPeeking ?? this.isPeeking,
       errorMessage: errorMessage == _missing
           ? this.errorMessage
           : errorMessage as String?,
@@ -103,9 +120,25 @@ class WordPlaybackState {
           ? this.noticeMessage
           : noticeMessage as String?,
       wordList: wordList == _missing ? this.wordList : wordList as WordList?,
-      session: session == _missing ? this.session : session as DictationSession?,
+      session:
+          session == _missing ? this.session : session as DictationSession?,
+      lastSubmission: lastSubmission == _missing
+          ? this.lastSubmission
+          : lastSubmission as DictationSubmissionSnapshot?,
     );
   }
+}
+
+class DictationSubmissionSnapshot {
+  const DictationSubmissionSnapshot({
+    required this.submittedAt,
+    required this.byteCount,
+    this.previewBytes,
+  });
+
+  final DateTime submittedAt;
+  final int byteCount;
+  final Uint8List? previewBytes;
 }
 
 class WordPlaybackController extends ChangeNotifier {
@@ -121,24 +154,36 @@ class WordPlaybackController extends ChangeNotifier {
   final TaskBoardRepository _repository;
 
   WordPlaybackState _state;
+  bool _disposed = false;
+  int _gradingPollToken = 0;
 
   WordPlaybackState get state => _state;
   bool get supportsPlayback => _speaker.supportsPlayback;
 
   void setLanguage(WordPlaybackLanguage language) {
-    if (_state.language == language) {
-      return;
-    }
+    if (_state.language == language) return;
     _state = _state.copyWith(
-      language: language,
-      errorMessage: null,
-      noticeMessage: '已切换到${language.label}播放模式',
-    );
+        language: language,
+        errorMessage: null,
+        noticeMessage: '已切换到${language.label}播放模式');
+    notifyListeners();
+  }
+
+  void setMode(WordPlaybackMode mode) {
+    if (_state.mode == mode) return;
+    _state = _state.copyWith(mode: mode, noticeMessage: '已切换到${mode.label}模式');
+    notifyListeners();
+  }
+
+  void setPeeking(bool peeking) {
+    if (_state.isPeeking == peeking) return;
+    _state = _state.copyWith(isPeeking: peeking);
     notifyListeners();
   }
 
   Future<void> syncWordList(TaskBoardRequest request) async {
-    _state = _state.copyWith(isBusy: true, errorMessage: null, noticeMessage: '正在同步词单...');
+    _state = _state.copyWith(
+        isBusy: true, errorMessage: null, noticeMessage: '正在同步词单...');
     notifyListeners();
 
     try {
@@ -150,118 +195,60 @@ class WordPlaybackController extends ChangeNotifier {
         words: words,
         currentIndex: 0,
         session: null,
+        lastSubmission: null,
         language: wordList.language,
         noticeMessage: '已同步：${wordList.title} (${wordList.totalItems}个词)',
       );
+      notifyListeners();
     } catch (error) {
-      _state = _state.copyWith(
-        isBusy: false,
-        errorMessage: '同步词单失败：$error',
-      );
+      _state = _state.copyWith(isBusy: false, errorMessage: '同步词单失败：$error');
     }
     notifyListeners();
   }
 
   Future<void> startDictation(TaskBoardRequest request) async {
-    _state = _state.copyWith(isBusy: true, errorMessage: null, noticeMessage: '正在开启听写会话...');
+    _state = _state.copyWith(
+        isBusy: true, errorMessage: null, noticeMessage: '正在开启听写会话...');
     notifyListeners();
 
     try {
       final session = await _repository.startDictationSession(request);
       _state = _state.copyWith(
-        isBusy: false,
-        session: session,
-        noticeMessage: '听写会话已开启，准备开始播放。',
-      );
-      if (session.currentItem != null) {
-        await playCurrent();
-      }
+          isBusy: false,
+          session: session,
+          lastSubmission: null,
+          noticeMessage: '听写会话已开启，准备开始播放。');
+      if (session.currentItem != null) await playCurrent();
     } catch (error) {
-      _state = _state.copyWith(
-        isBusy: false,
-        errorMessage: '开启听写失败：$error',
-      );
+      _state = _state.copyWith(isBusy: false, errorMessage: '开启听写失败：$error');
     }
-    notifyListeners();
-  }
-
-  void loadWordsFromText(String rawText) {
-    final words = parseWordEntries(rawText);
-    if (words.isEmpty) {
-      _state = _state.copyWith(
-        words: const <String>[],
-        currentIndex: 0,
-        isSpeaking: false,
-        errorMessage: '请先输入至少一个单词或词语。',
-        noticeMessage: null,
-        wordList: null,
-        session: null,
-      );
-      notifyListeners();
-      return;
-    }
-
-    _state = _state.copyWith(
-      words: words,
-      currentIndex: 0,
-      isSpeaking: false,
-      errorMessage: null,
-      noticeMessage: '已载入 ${words.length} 个${_state.language.label}词条',
-      wordList: null,
-      session: null,
-    );
     notifyListeners();
   }
 
   Future<void> playCurrent() async {
-    final word = _state.currentWord;
+    final word = _state.currentSpeakingContent;
     if (word.isEmpty) {
-      _state = _state.copyWith(
-        errorMessage: '当前没有待播放的单词。',
-        noticeMessage: null,
-      );
-      notifyListeners();
-      return;
-    }
-
-    if (!_speaker.supportsPlayback) {
-      _state = _state.copyWith(
-        isSpeaking: false,
-        errorMessage: null,
-        noticeMessage: '当前设备暂不支持自动朗读，可继续看词卡跟读。',
-      );
+      _state = _state.copyWith(errorMessage: '当前没有待播放的单词。');
       notifyListeners();
       return;
     }
 
     _state = _state.copyWith(
-      isSpeaking: true,
-      errorMessage: null,
-      noticeMessage:
-          '正在播放第 ${_state.currentDisplayIndex}/${_state.totalWords} 个词',
-    );
+        isSpeaking: true,
+        errorMessage: null,
+        noticeMessage:
+            '正在播报：${_state.mode.label} (${_state.currentDisplayIndex}/${_state.totalWords})');
     notifyListeners();
 
     try {
-      await _speaker.speak(
-        word,
-        language: _state.language,
-      );
+      await _speaker.speak(word, language: _state.language);
     } catch (error) {
-      _state = _state.copyWith(
-        isSpeaking: false,
-        errorMessage: '播放失败：$error',
-        noticeMessage: null,
-      );
+      _state = _state.copyWith(isSpeaking: false, errorMessage: '播放失败：$error');
       notifyListeners();
       return;
     }
 
-    _state = _state.copyWith(
-      isSpeaking: false,
-      errorMessage: null,
-      noticeMessage: '已播放“$word”',
-    );
+    _state = _state.copyWith(isSpeaking: false);
     notifyListeners();
   }
 
@@ -270,7 +257,8 @@ class WordPlaybackController extends ChangeNotifier {
       _state = _state.copyWith(isBusy: true);
       notifyListeners();
       try {
-        final session = await _repository.replayDictationSession(_state.session!.sessionId, apiBaseUrl);
+        final session = await _repository.replayDictationSession(
+            _state.session!.sessionId, apiBaseUrl);
         _state = _state.copyWith(isBusy: false, session: session);
       } catch (error) {
         _state = _state.copyWith(isBusy: false, errorMessage: '重播请求失败：$error');
@@ -285,20 +273,15 @@ class WordPlaybackController extends ChangeNotifier {
       _state = _state.copyWith(isBusy: true);
       notifyListeners();
       try {
-        final session = await _repository.nextDictationSession(_state.session!.sessionId, apiBaseUrl);
+        final session = await _repository.nextDictationSession(
+            _state.session!.sessionId, apiBaseUrl);
         _state = _state.copyWith(
-          isBusy: false,
-          session: session,
-          isSpeaking: false,
-          errorMessage: null,
-          noticeMessage: session.isCompleted 
-            ? '这组单词已经播放完成啦' 
-            : '已切换到第 ${session.currentIndex}/${session.totalItems} 个词',
-        );
+            isBusy: false,
+            session: session,
+            isSpeaking: false,
+            noticeMessage: session.isCompleted ? '这组单词已经播报完啦！' : '已切换到下一词');
         notifyListeners();
-        if (!session.isCompleted) {
-          await playCurrent();
-        }
+        if (!session.isCompleted) await playCurrent();
         return;
       } catch (error) {
         _state = _state.copyWith(isBusy: false, errorMessage: '切换下一词失败：$error');
@@ -307,40 +290,202 @@ class WordPlaybackController extends ChangeNotifier {
       }
     }
 
-    if (!_state.hasWords) {
-      _state = _state.copyWith(
-        errorMessage: '请先载入单词清单。',
-        noticeMessage: null,
-      );
+    if (state.canNext) {
+      _state = _state.copyWith(currentIndex: _state.currentIndex + 1);
       notifyListeners();
-      return;
+      await playCurrent();
+    }
+  }
+
+  Future<void> previousWord(String apiBaseUrl) async {
+    if (_state.session != null) {
+      _state = _state.copyWith(isBusy: true);
+      notifyListeners();
+      try {
+        final session = await _repository.previousDictationSession(
+            _state.session!.sessionId, apiBaseUrl);
+        _state = _state.copyWith(
+            isBusy: false,
+            session: session,
+            isSpeaking: false,
+            noticeMessage: '已返回上一词');
+        notifyListeners();
+        await playCurrent();
+        return;
+      } catch (error) {
+        _state = _state.copyWith(isBusy: false, errorMessage: '切换上一词失败：$error');
+        notifyListeners();
+        return;
+      }
     }
 
-    if (!_state.canNext) {
-      _state = _state.copyWith(
-        isSpeaking: false,
-        errorMessage: null,
-        noticeMessage: '这组单词已经播放完成啦',
-      );
+    if (state.canPrevious) {
+      _state = _state.copyWith(currentIndex: _state.currentIndex - 1);
+      notifyListeners();
+      await playCurrent();
+    }
+  }
+
+  Future<void> submitPhotoForGrading(
+    String apiBaseUrl,
+    String base64Image, {
+    Uint8List? previewBytes,
+    DateTime? submittedAt,
+  }) async {
+    if (_state.session == null) {
+      _state = _state.copyWith(errorMessage: '当前还没有听写会话，不能交卷。');
       notifyListeners();
       return;
     }
+    final sessionId = _state.session!.sessionId;
+    final pollToken = ++_gradingPollToken;
+    final submissionSnapshot = DictationSubmissionSnapshot(
+      submittedAt: submittedAt ?? DateTime.now(),
+      byteCount: previewBytes?.length ?? _estimateBase64Bytes(base64Image),
+      previewBytes: previewBytes,
+    );
 
     _state = _state.copyWith(
-      currentIndex: _state.currentIndex + 1,
-      isSpeaking: false,
+      isBusy: true,
       errorMessage: null,
-      noticeMessage:
-          '已切换到第 ${_state.currentDisplayIndex + 1}/${_state.words.length} 个词',
+      noticeMessage: '正在上传照片，准备交给后台批改...',
+      lastSubmission: submissionSnapshot,
     );
     notifyListeners();
 
-    await playCurrent();
+    try {
+      final queuedSession = await _repository.gradeDictationSession(
+        sessionId: sessionId,
+        apiBaseUrl: apiBaseUrl,
+        photoBase64: base64Image,
+        language: _state.language.name,
+        mode: _state.mode.name,
+      );
+
+      _state = _state.copyWith(
+        isBusy: false,
+        session: queuedSession,
+        lastSubmission: submissionSnapshot,
+        noticeMessage: _buildPendingNotice(queuedSession),
+      );
+      notifyListeners();
+      unawaited(_pollGradingStatus(apiBaseUrl, sessionId, pollToken));
+    } catch (error) {
+      _state = _state.copyWith(isBusy: false, errorMessage: '批改失败：$error');
+      notifyListeners();
+    }
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _gradingPollToken++;
     _speaker.stop();
     super.dispose();
   }
+
+  Future<void> _pollGradingStatus(
+      String apiBaseUrl, String sessionId, int pollToken) async {
+    const maxAttempts = 40;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      await Future<void>.delayed(Duration(seconds: attempt == 0 ? 2 : 3));
+      if (_disposed || pollToken != _gradingPollToken) {
+        return;
+      }
+
+      try {
+        final session =
+            await _repository.getDictationSession(sessionId, apiBaseUrl);
+        if (_disposed || pollToken != _gradingPollToken) {
+          return;
+        }
+
+        if (session.isGradingPending) {
+          _state = _state.copyWith(
+            session: session,
+            errorMessage: null,
+            noticeMessage: _buildPendingNotice(session),
+          );
+          notifyListeners();
+          continue;
+        }
+
+        if (session.gradingStatus == 'failed') {
+          _state = _state.copyWith(
+            session: session,
+            errorMessage: _buildFailureMessage(session),
+            noticeMessage: '这次没有顺利完成，可以重新拍照再试一次。',
+          );
+          notifyListeners();
+          return;
+        }
+
+        if (session.hasGradingResult) {
+          final result = session.gradingResult!;
+          _state = _state.copyWith(
+            session: session,
+            errorMessage: null,
+            noticeMessage:
+                'AI 批改完成！得分 ${result.score}，${result.incorrectCount} 处需要订正。',
+          );
+          notifyListeners();
+          return;
+        }
+
+        _state = _state.copyWith(
+          session: session,
+          errorMessage: null,
+          noticeMessage: '后台批改状态已刷新。',
+        );
+        notifyListeners();
+        return;
+      } catch (error) {
+        if (attempt == maxAttempts - 1) {
+          _state = _state.copyWith(
+            errorMessage: '已提交到后台，但轮询结果失败：$error',
+            noticeMessage: '可稍后重新进入页面查看批改结果。',
+          );
+          notifyListeners();
+        }
+      }
+    }
+
+    if (_disposed || pollToken != _gradingPollToken) {
+      return;
+    }
+
+    _state = _state.copyWith(
+      errorMessage: null,
+      noticeMessage: '后台批改仍在继续，可稍后刷新查看结果。',
+    );
+    notifyListeners();
+  }
+}
+
+int _estimateBase64Bytes(String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) {
+    return 0;
+  }
+
+  var padding = 0;
+  if (normalized.endsWith('==')) {
+    padding = 2;
+  } else if (normalized.endsWith('=')) {
+    padding = 1;
+  }
+  return ((normalized.length * 3) ~/ 4) - padding;
+}
+
+String _buildPendingNotice(DictationSession session) {
+  final stage = describeDictationStage(session);
+  return '交卷进度：${stage.label}。${stage.hint}';
+}
+
+String _buildFailureMessage(DictationSession session) {
+  final explicitError = session.gradingError?.trim() ?? '';
+  if (explicitError.isNotEmpty) {
+    return explicitError;
+  }
+  return describeDictationStage(session).hint;
 }

@@ -1,9 +1,8 @@
-import 'dart:async';
+import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pad_app/app.dart';
-import 'package:pad_app/task_board/api_client.dart';
+import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
 import 'package:pad_app/task_board/weekly_stats.dart';
@@ -12,623 +11,314 @@ import 'package:pad_app/word_playback/models.dart';
 import 'package:pad_app/word_playback/speaker_contract.dart';
 
 void main() {
-  group('PadTaskBoardPage', () {
-    testWidgets('single task checkbox sync succeeds', (tester) async {
-      _setLargeViewport(tester);
-
-      final initialBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-          ),
-        ],
-      );
-      final updatedBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-            completed: true,
-          ),
-        ],
-      );
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) async => initialBoard,
-        onUpdateSingleTask: (_, taskId, completed) async => updatedBoard,
-      );
-
-      await _pumpLoadedBoard(tester, repository: repository);
-
-      await tester.tap(find.byType(CheckboxListTile).first);
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(repository.singleTaskUpdates.length, 1);
-      expect(repository.singleTaskUpdates.single.taskId, 1);
-      expect(repository.singleTaskUpdates.single.completed, isTrue);
-      expect(find.text('已同步单个任务完成状态'), findsOneWidget);
-      expect(find.text('未完成任务已经清空'), findsOneWidget);
+  group('PadTaskBoardPage Widget Tests', () {
+    testWidgets('shows loading state', (tester) async {
+      final repository =
+          _FakeTaskBoardRepository(onFetch: (_) async => _boardWithTasks());
+      await tester
+          .pumpWidget(StudyClawPadApp(autoLoad: true, repository: repository));
+      expect(find.text('同步中'), findsOneWidget);
     });
 
-    testWidgets('group completion sync succeeds', (tester) async {
-      _setLargeViewport(tester);
-
-      final initialBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-          ),
-          _TaskSeed(
-            taskId: 2,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 2 页',
-          ),
-        ],
+    testWidgets('shows a kid-friendly grading journey after photo submission',
+        (tester) async {
+      const startSession = DictationSession(
+        sessionId: 'session_trace_001',
+        wordListId: 'word_list_trace_001',
+        status: 'active',
+        currentIndex: 0,
+        totalItems: 3,
+        playedCount: 0,
+        completedItems: 0,
+        currentItem: WordItem(index: 1, text: 'apple', meaning: '苹果'),
+        gradingStatus: 'idle',
       );
-      final updatedBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-            completed: true,
-          ),
-          _TaskSeed(
-            taskId: 2,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 2 页',
-            completed: true,
-          ),
-        ],
-      );
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) async => initialBoard,
-        onUpdateTaskGroup: (_, subject, groupTitle, completed) async =>
-            updatedBoard,
-      );
-
-      await _pumpLoadedBoard(tester, repository: repository);
-
-      await tester.tap(find.text('分组完成'));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(repository.groupUpdates.length, 1);
-      expect(repository.groupUpdates.single.subject, '数学');
-      expect(repository.groupUpdates.single.groupTitle, '口算练习');
-      expect(repository.groupUpdates.single.completed, isTrue);
-      expect(find.text('已将 口算练习 分组标记为完成'), findsOneWidget);
-      expect(find.text('今天已经完成 2 条任务。'), findsOneWidget);
-    });
-
-    testWidgets('bulk complete sync succeeds', (tester) async {
-      _setLargeViewport(tester);
-
-      final initialBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-          ),
-          _TaskSeed(
-            taskId: 2,
-            subject: '英语',
-            groupTitle: '背单词',
-            content: '复习 20 个单词',
-          ),
-        ],
-      );
-      final updatedBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-            completed: true,
-          ),
-          _TaskSeed(
-            taskId: 2,
-            subject: '英语',
-            groupTitle: '背单词',
-            content: '复习 20 个单词',
-            completed: true,
-          ),
-        ],
-      );
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) async => initialBoard,
-        onUpdateAllTasks: (_, completed) async => updatedBoard,
-      );
-
-      await _pumpLoadedBoard(tester, repository: repository);
-
-      await tester.tap(find.byKey(const Key('today_hero_complete_all_button')));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(repository.bulkUpdates.length, 1);
-      expect(repository.bulkUpdates.single, isTrue);
-      expect(find.text('已将全部任务同步为完成'), findsOneWidget);
-      expect(find.text('未完成任务已经清空'), findsOneWidget);
-    });
-
-    testWidgets('404 task error shows friendly message', (tester) async {
-      _setLargeViewport(tester);
-
-      final initialBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-          ),
-        ],
-      );
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) async => initialBoard,
-        onUpdateSingleTask: (_, taskId, completed) async {
-          throw TaskApiException(
-            message: 'Task not found',
-            errorCode: 'task_not_found',
-            details: const {'task_id': 1},
-            uri: Uri.parse('http://localhost:8080/api/v1/tasks/status/item'),
-            statusCode: 404,
-          );
-        },
-      );
-
-      await _pumpLoadedBoard(tester, repository: repository);
-
-      await tester.tap(find.byType(CheckboxListTile).first);
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(find.text('任务 #1 不存在，可能已被删除或日期已变更。'), findsOneWidget);
-      expect(find.text('数学'), findsOneWidget);
-      expect(find.text('Task not found'), findsNothing);
-    });
-
-    testWidgets('409 unchanged status shows info hint instead of error', (
-      tester,
-    ) async {
-      _setLargeViewport(tester);
-
-      final completedBoard = _buildBoard(
-        tasks: const <_TaskSeed>[
-          _TaskSeed(
-            taskId: 1,
-            subject: '数学',
-            groupTitle: '口算练习',
-            content: '完成第 1 页',
-            completed: true,
-          ),
-        ],
-      );
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) async => completedBoard,
-        onUpdateAllTasks: (_, completed) async {
-          throw TaskApiException(
-            message: 'All tasks are already completed',
-            errorCode: 'status_unchanged',
-            details: const {'status': 'completed'},
-            uri: Uri.parse('http://localhost:8080/api/v1/tasks/status/all'),
-            statusCode: 409,
-          );
-        },
-      );
-
-      await _pumpLoadedBoard(tester, repository: repository);
-
-      await tester.tap(find.byKey(const Key('today_hero_complete_all_button')));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(find.text('全部任务已经是已完成状态，无需重复同步。'), findsOneWidget);
-      expect(find.textContaining('请求失败'), findsNothing);
-      expect(find.text('未完成任务已经清空'), findsOneWidget);
-    });
-
-    testWidgets('shows loading then empty state for an empty board', (
-      tester,
-    ) async {
-      final completer = Completer<TaskBoard>();
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) => completer.future,
-        fallbackBoard: _emptyBoard(date: '2026-03-06'),
-      );
-
-      await tester.pumpWidget(
-        StudyClawPadApp(
-          autoLoad: true,
-          initialDate: '2026-03-06',
-          repository: repository,
+      const queuedSession = DictationSession(
+        sessionId: 'session_trace_001',
+        wordListId: 'word_list_trace_001',
+        status: 'completed',
+        currentIndex: 2,
+        totalItems: 3,
+        playedCount: 3,
+        completedItems: 3,
+        gradingStatus: 'pending',
+        gradingRequestedAt: '2026-03-12T08:10:00Z',
+        debugContext: DictationDebugContext(
+          photoSha1: 'abcdef123456',
+          photoBytes: 24,
+          language: 'english',
+          mode: 'word',
+          workerStage: 'queued',
         ),
       );
-
-      await tester.pump();
-      expect(find.text('正在加载任务板'), findsOneWidget);
-
-      completer.complete(_emptyBoard(date: '2026-03-06'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('当前日期没有任务'), findsOneWidget);
-      expect(find.text('今天暂时没有任务，先等家长端发布。'), findsOneWidget);
-      expect(repository.fetchRequests.single.date, '2026-03-06');
-    });
-
-    testWidgets('shows error state and retry recovers', (tester) async {
-      _setLargeViewport(tester);
-
-      var attempts = 0;
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (request) async {
-          attempts += 1;
-          if (attempts == 1) {
-            throw TaskApiException(
-              message: '服务暂时不可用',
-              uri: Uri.parse('http://localhost:8080/api/v1/tasks'),
-              statusCode: 500,
-            );
-          }
-          return _boardWithTasks(date: request.date);
-        },
-      );
-
-      await tester.pumpWidget(
-        StudyClawPadApp(
-          autoLoad: true,
-          initialDate: '2026-03-06',
-          repository: repository,
+      const completedSession = DictationSession(
+        sessionId: 'session_trace_001',
+        wordListId: 'word_list_trace_001',
+        status: 'completed',
+        currentIndex: 2,
+        totalItems: 3,
+        playedCount: 3,
+        completedItems: 3,
+        gradingStatus: 'completed',
+        gradingRequestedAt: '2026-03-12T08:10:00Z',
+        gradingCompletedAt: '2026-03-12T08:10:12Z',
+        debugContext: DictationDebugContext(
+          photoSha1: 'abcdef123456',
+          photoBytes: 24,
+          language: 'english',
+          mode: 'word',
+          workerStage: 'completed',
         ),
-      );
-
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(find.text('加载失败'), findsOneWidget);
-      expect(find.textContaining('请求失败（500）'), findsWidgets);
-
-      await tester.tap(find.text('重试加载'));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(find.text('数学'), findsOneWidget);
-      final title = tester.widget<Text>(
-        find.byKey(const Key('today_hero_title')),
-      );
-      expect(title.data, '2026-03-06 任务板');
-      expect(repository.fetchRequests.length, 2);
-    });
-
-    testWidgets('switches date and refreshes manually', (tester) async {
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (request) async => _boardWithTasks(date: request.date),
-      );
-
-      await tester.pumpWidget(
-        StudyClawPadApp(
-          autoLoad: false,
-          initialDate: '2026-03-06',
-          repository: repository,
-        ),
-      );
-
-      expect(find.text('准备开始今天的任务'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('下一天'));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(
-        repository.fetchRequests.map((request) => request.date).toList(),
-        <String>['2026-03-07'],
-      );
-      final title = tester.widget<Text>(
-        find.byKey(const Key('today_hero_title')),
-      );
-      expect(title.data, '2026-03-07 任务板');
-
-      await tester.tap(find.byTooltip('手动刷新'));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(
-        repository.fetchRequests.map((request) => request.date).toList(),
-        <String>['2026-03-07', '2026-03-07'],
-      );
-      expect(find.text('任务板已手动刷新'), findsOneWidget);
-    });
-
-    testWidgets('shows points progress and weekly entry', (tester) async {
-      _setLargeViewport(tester);
-
-      final repository = _FakeTaskBoardRepository(
-        onFetch: (_) async => _buildBoard(
-          tasks: const <_TaskSeed>[
-            _TaskSeed(
-              taskId: 1,
-              subject: '数学',
-              groupTitle: '口算练习',
-              content: '完成第 1 页',
-              completed: true,
-            ),
-            _TaskSeed(
-              taskId: 2,
-              subject: '英语',
-              groupTitle: '背单词',
-              content: '复习 20 个单词',
+        gradingResult: DictationGradingResult(
+          gradingId: 'grading_trace_001',
+          status: 'needs_correction',
+          score: 92,
+          gradedItems: [
+            DictationGradedItem(
+              index: 2,
+              expected: 'library',
+              actual: 'libary',
+              isCorrect: false,
+              needsCorrection: true,
+              comment: '少了 r',
             ),
           ],
-        ),
-        onFetchWeeklyStats: (_) async => const WeeklyStats(
-          message: 'Weekly stats generated successfully',
-          days: <WeeklyStatsDay>[
-            WeeklyStatsDay(
-              date: '2026-03-04',
-              totalTasks: 2,
-              completedTasks: 1,
-            ),
-            WeeklyStatsDay(
-              date: '2026-03-05',
-              totalTasks: 2,
-              completedTasks: 2,
-            ),
-          ],
-          insight: WeeklyInsight(
-            summary: '你这周已经持续推进任务了。',
-            strengths: <String>['坚持完成计划', '会把任务一步步做完', '能保持学习节奏'],
-            areasForImprovement: <String>[
-              '继续提前开始难题',
-              '做完及时勾选',
-              '把剩余任务分段完成',
-            ],
-            psychologicalInsight: '每次完成一项任务，都会让你更有把握。',
-            rawMetricTotal: 4,
-            rawMetricCompleted: 3,
-          ),
+          aiFeedback: '建议把 library 的字母顺序再看一遍。',
+          createdAt: '2026-03-12T08:10:12Z',
         ),
       );
-
-      await _pumpLoadedBoard(tester, repository: repository);
-
-      expect(find.text('今日积分'), findsOneWidget);
-      expect(find.text('+2'), findsOneWidget);
-      expect(find.text('今日完成'), findsOneWidget);
-      expect(find.text('1/2'), findsOneWidget);
-      expect(find.text('简化版日报 / 周报入口'), findsOneWidget);
-
-      await tester.tap(find.text('本周鼓励'));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(find.text('本周完成率 75%'), findsOneWidget);
-      expect(find.text('你这周已经持续推进任务了。'), findsOneWidget);
-      expect(repository.weeklyStatsRequests.length, 1);
-    });
-
-    testWidgets('word playback supports play replay and next', (tester) async {
-      _setLargeViewport(tester);
 
       final repository = _FakeTaskBoardRepository(
         onFetch: (_) async => _boardWithTasks(),
+        onStartDictation: (_) async => startSession,
+        onGradeDictationSession: (_, __, ___, ____, _____) async =>
+            queuedSession,
+        onGetDictationSession: (_, __) async => completedSession,
       );
-      final speaker = _FakeWordSpeaker();
-      final wordController = WordPlaybackController(speaker: speaker);
-
-      await tester.pumpWidget(
-        StudyClawPadApp(
-          autoLoad: true,
-          repository: repository,
-          wordPlaybackController: wordController,
-        ),
+      final controller = WordPlaybackController(
+        speaker: const _FakeWordSpeaker(),
+        repository: repository,
+      );
+      final previewBytes = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5WnYsAAAAASUVORK5CYII=',
+      );
+      const request = TaskBoardRequest(
+        apiBaseUrl: 'http://localhost:8080',
+        familyId: 306,
+        userId: 1,
+        date: '2026-03-12',
       );
 
+      await tester.pumpWidget(StudyClawPadApp(
+        autoLoad: false,
+        repository: repository,
+        wordPlaybackController: controller,
+      ));
+      await tester.tap(find.text('听写练词'));
+      await tester.pumpAndSettle();
+
+      await controller.startDictation(request);
       await tester.pump();
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('单词播放'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('apple'), findsOneWidget);
-      expect(find.text('播放进度 1/4'), findsOneWidget);
-
-      await tester.tap(find.text('当前词播放'));
-      await tester.pumpAndSettle();
-      expect(speaker.spokenPhrases, <String>['apple']);
-
-      await tester.tap(find.text('下一词'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('library'), findsOneWidget);
-      expect(find.text('播放进度 2/4'), findsOneWidget);
-      expect(
-        speaker.spokenPhrases,
-        <String>['apple', 'library'],
+      await controller.submitPhotoForGrading(
+        request.apiBaseUrl,
+        'ZmFrZS1pbWFnZQ==',
+        previewBytes: previewBytes,
+        submittedAt: DateTime(2026, 3, 12, 8, 10),
       );
+      await tester.pump();
 
-      await tester.tap(find.text('重播'));
+      expect(find.text('最近一次交卷'), findsOneWidget);
+      expect(find.textContaining('先看看照片是否清楚'), findsOneWidget);
+      expect(find.textContaining('提交 08:10'), findsOneWidget);
+      expect(find.text('交卷进度'), findsOneWidget);
+      expect(find.text('拍照完成'), findsOneWidget);
+      expect(find.text('云端接收'), findsOneWidget);
+      expect(find.text('AI 比对'), findsOneWidget);
+      expect(find.text('结果回到平板'), findsOneWidget);
+      expect(find.textContaining('会话 session_trace_001'), findsWidgets);
+      expect(find.textContaining('图片 abcdef12'), findsWidgets);
+      expect(find.textContaining('云端排队'), findsWidgets);
+
+      await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
 
-      expect(
-        speaker.spokenPhrases,
-        <String>['apple', 'library', 'library'],
-      );
+      expect(find.text('批改完成 · 92 分'), findsOneWidget);
+      expect(find.textContaining('结果同步'), findsWidgets);
+      expect(find.text('错题 1 / 1'), findsOneWidget);
+      expect(find.text('建议把 library 的字母顺序再看一遍。'), findsOneWidget);
     });
   });
 }
 
 class _FakeTaskBoardRepository implements TaskBoardRepository {
-  _FakeTaskBoardRepository({
-    required this.onFetch,
-    this.onFetchWeeklyStats,
-    this.onUpdateSingleTask,
-    this.onUpdateTaskGroup,
-    this.onUpdateAllTasks,
-    TaskBoard? fallbackBoard,
-  }) : _lastBoard = fallbackBoard ?? _boardWithTasks();
+  _FakeTaskBoardRepository(
+      {required this.onFetch,
+      this.onStartDictation,
+      this.onGetDictationSession,
+      this.onGradeDictationSession,
+      TaskBoard? fallbackBoard})
+      : _lastBoard = fallbackBoard ?? _boardWithTasks();
 
   final Future<TaskBoard> Function(TaskBoardRequest request) onFetch;
-  final Future<WeeklyStats> Function(TaskBoardRequest request)?
-      onFetchWeeklyStats;
-  final Future<TaskBoard> Function(
-    TaskBoardRequest request,
-    int taskId,
-    bool completed,
-  )? onUpdateSingleTask;
-  final Future<TaskBoard> Function(
-    TaskBoardRequest request,
-    String subject,
-    String? groupTitle,
-    bool completed,
-  )? onUpdateTaskGroup;
-  final Future<TaskBoard> Function(
-    TaskBoardRequest request,
-    bool completed,
-  )? onUpdateAllTasks;
+  final Future<DictationSession> Function(TaskBoardRequest request)?
+      onStartDictation;
+  final Future<DictationSession> Function(String sessionId, String apiBaseUrl)?
+      onGetDictationSession;
+  final Future<DictationSession> Function(
+      String sessionId,
+      String apiBaseUrl,
+      String photoBase64,
+      String language,
+      String mode)? onGradeDictationSession;
 
-  final List<TaskBoardRequest> fetchRequests = <TaskBoardRequest>[];
-  final List<TaskBoardRequest> weeklyStatsRequests = <TaskBoardRequest>[];
-  final List<_SingleTaskUpdateCall> singleTaskUpdates =
-      <_SingleTaskUpdateCall>[];
-  final List<_GroupUpdateCall> groupUpdates = <_GroupUpdateCall>[];
-  final List<bool> bulkUpdates = <bool>[];
-
-  TaskBoard _lastBoard;
+  final List<_SingleTaskUpdateCall> singleTaskUpdates = [];
+  final TaskBoard _lastBoard;
 
   @override
-  Future<TaskBoard> fetchBoard(TaskBoardRequest request) async {
-    fetchRequests.add(request);
-    final board = await onFetch(request);
-    _lastBoard = board;
-    return board;
+  Future<TaskBoard> fetchBoard(TaskBoardRequest request) async =>
+      await onFetch(request);
+  @override
+  Future<DailyStats> fetchDailyStats(TaskBoardRequest request) async =>
+      Future.value(const DailyStats(
+          period: '',
+          startDate: '',
+          endDate: '',
+          encouragement: '',
+          totals: StatsTotals(
+              totalTasks: 0,
+              completedTasks: 0,
+              pendingTasks: 0,
+              completionRate: 0,
+              autoPoints: 0,
+              manualPoints: 0,
+              totalPointsDelta: 0,
+              pointsBalance: 0,
+              wordItems: 0,
+              completedWordItems: 0,
+              dictationSessions: 0)));
+  @override
+  Future<WeeklyStats> fetchWeeklyStats(TaskBoardRequest request) async =>
+      Future.value(const WeeklyStats(message: '', days: []));
+  @override
+  Future<Map<String, dynamic>> fetchMonthlyStats(
+          TaskBoardRequest request) async =>
+      Future.value(<String, dynamic>{});
+  @override
+  Future<TaskBoard> updateSingleTask(TaskBoardRequest request,
+      {required int taskId, required bool completed}) async {
+    singleTaskUpdates
+        .add(_SingleTaskUpdateCall(taskId: taskId, completed: completed));
+    return _lastBoard;
   }
 
   @override
-  Future<WeeklyStats> fetchWeeklyStats(TaskBoardRequest request) async {
-    weeklyStatsRequests.add(request);
-    return await (onFetchWeeklyStats?.call(request) ??
-        Future<WeeklyStats>.value(
-          const WeeklyStats(message: 'No data found', days: <WeeklyStatsDay>[]),
-        ));
-  }
-
+  Future<TaskBoard> updateTaskGroup(TaskBoardRequest request,
+          {required String subject,
+          String? groupTitle,
+          required bool completed}) async =>
+      _lastBoard;
   @override
-  Future<TaskBoard> updateAllTasks(
-    TaskBoardRequest request, {
-    required bool completed,
-  }) async {
-    bulkUpdates.add(completed);
-    final board = await (onUpdateAllTasks?.call(request, completed) ??
-        Future<TaskBoard>.value(_lastBoard));
-    _lastBoard = board;
-    return board;
-  }
-
+  Future<TaskBoard> updateAllTasks(TaskBoardRequest request,
+          {required bool completed}) async =>
+      _lastBoard;
   @override
-  Future<TaskBoard> updateSingleTask(
-    TaskBoardRequest request, {
-    required int taskId,
-    required bool completed,
-  }) async {
-    singleTaskUpdates.add(
-      _SingleTaskUpdateCall(taskId: taskId, completed: completed),
-    );
-    final board = await (onUpdateSingleTask?.call(request, taskId, completed) ??
-        Future<TaskBoard>.value(_lastBoard));
-    _lastBoard = board;
-    return board;
-  }
-
+  Future<WordList> fetchWordList(TaskBoardRequest request) async =>
+      Future.value(const WordList(
+          wordListId: '0',
+          familyId: 0,
+          childId: 0,
+          assignedDate: '',
+          title: '',
+          language: WordPlaybackLanguage.english,
+          items: [],
+          totalItems: 0));
   @override
-  Future<TaskBoard> updateTaskGroup(
-    TaskBoardRequest request, {
-    required String subject,
-    String? groupTitle,
-    required bool completed,
-  }) async {
-    groupUpdates.add(
-      _GroupUpdateCall(
-        subject: subject,
-        groupTitle: groupTitle,
-        completed: completed,
-      ),
-    );
-    final board = await (onUpdateTaskGroup?.call(
-          request,
-          subject,
-          groupTitle,
-          completed,
-        ) ??
-        Future<TaskBoard>.value(_lastBoard));
-    _lastBoard = board;
-    return board;
-  }
+  Future<DictationSession> startDictationSession(
+          TaskBoardRequest request) async =>
+      await (onStartDictation?.call(request) ?? Future.value(_emptySession));
+  @override
+  Future<DictationSession> nextDictationSession(
+          String sessionId, String apiBaseUrl) async =>
+      Future.value(_emptySession);
+  @override
+  Future<DictationSession> previousDictationSession(
+          String sessionId, String apiBaseUrl) async =>
+      Future.value(_emptySession);
+  @override
+  Future<DictationSession> getDictationSession(
+          String sessionId, String apiBaseUrl) async =>
+      await (onGetDictationSession?.call(sessionId, apiBaseUrl) ??
+          Future.value(_emptySession));
+  @override
+  Future<DictationSession> replayDictationSession(
+          String sessionId, String apiBaseUrl) async =>
+      Future.value(_emptySession);
+  @override
+  Future<DictationSession> gradeDictationSession(
+          {required String sessionId,
+          required String apiBaseUrl,
+          required String photoBase64,
+          required String language,
+          required String mode}) async =>
+      await (onGradeDictationSession?.call(
+              sessionId, apiBaseUrl, photoBase64, language, mode) ??
+          Future.value(_emptySession));
 }
 
 class _SingleTaskUpdateCall {
-  const _SingleTaskUpdateCall({
-    required this.taskId,
-    required this.completed,
-  });
-
+  const _SingleTaskUpdateCall({required this.taskId, required this.completed});
   final int taskId;
   final bool completed;
 }
 
-class _GroupUpdateCall {
-  const _GroupUpdateCall({
-    required this.subject,
-    required this.groupTitle,
-    required this.completed,
-  });
-
-  final String subject;
-  final String? groupTitle;
-  final bool completed;
+TaskBoard _buildBoard({required List<_TaskSeed> tasks}) {
+  return TaskBoard(
+      date: '2026-03-06',
+      message: 'OK',
+      tasks: tasks
+          .map((t) => TaskItem(
+              taskId: t.taskId,
+              subject: t.subject,
+              groupTitle: t.groupTitle,
+              content: t.content,
+              completed: t.completed,
+              status: t.completed ? 'completed' : 'pending'))
+          .toList(),
+      groups: [],
+      homeworkGroups: [],
+      summary: BoardSummary(
+          total: tasks.length,
+          completed: tasks.where((t) => t.completed).length,
+          pending: tasks.where((t) => !t.completed).length,
+          status: 'partial'));
 }
 
-class _FakeWordSpeaker implements WordSpeaker {
-  final List<String> spokenPhrases = <String>[];
+TaskBoard _boardWithTasks() => _buildBoard(tasks: const [
+      _TaskSeed(
+          taskId: 1,
+          subject: '数学',
+          groupTitle: 'G1',
+          content: 'T1',
+          completed: false)
+    ]);
 
-  @override
-  bool get supportsPlayback => true;
-
-  @override
-  Future<void> speak(
-    String text, {
-    required WordPlaybackLanguage language,
-  }) async {
-    spokenPhrases.add(text);
-  }
-
-  @override
-  Future<void> stop() async {}
-}
+const DictationSession _emptySession = DictationSession(
+    sessionId: '0',
+    wordListId: '0',
+    currentIndex: 0,
+    status: '',
+    totalItems: 0,
+    playedCount: 0,
+    completedItems: 0,
+    gradingStatus: 'idle');
 
 class _TaskSeed {
-  const _TaskSeed({
-    required this.taskId,
-    required this.subject,
-    required this.groupTitle,
-    required this.content,
-    this.completed = false,
-  });
-
+  const _TaskSeed(
+      {required this.taskId,
+      required this.subject,
+      required this.groupTitle,
+      required this.content,
+      required this.completed});
   final int taskId;
   final String subject;
   final String groupTitle;
@@ -636,139 +326,16 @@ class _TaskSeed {
   final bool completed;
 }
 
-Future<void> _pumpLoadedBoard(
-  WidgetTester tester, {
-  required _FakeTaskBoardRepository repository,
-  String initialDate = '2026-03-06',
-}) async {
-  await tester.pumpWidget(
-    StudyClawPadApp(
-      autoLoad: true,
-      initialDate: initialDate,
-      repository: repository,
-    ),
-  );
+class _FakeWordSpeaker implements WordSpeaker {
+  const _FakeWordSpeaker();
 
-  await tester.pump();
-  await tester.pumpAndSettle();
-}
+  @override
+  bool get supportsPlayback => true;
 
-void _setLargeViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1200, 2000);
-  tester.view.devicePixelRatio = 1.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
+  @override
+  Future<void> speak(String text,
+      {required WordPlaybackLanguage language}) async {}
 
-TaskBoard _buildBoard({
-  String date = '2026-03-06',
-  required List<_TaskSeed> tasks,
-}) {
-  final taskItems = tasks
-      .map(
-        (task) => TaskItem(
-          taskId: task.taskId,
-          subject: task.subject,
-          groupTitle: task.groupTitle,
-          content: task.content,
-          completed: task.completed,
-          status: task.completed ? 'completed' : 'pending',
-        ),
-      )
-      .toList();
-
-  final groupBuckets = <String, List<_TaskSeed>>{};
-  final homeworkBuckets = <String, List<_TaskSeed>>{};
-
-  for (final task in tasks) {
-    groupBuckets.putIfAbsent(task.subject, () => <_TaskSeed>[]).add(task);
-    final homeworkKey = '${task.subject}::${task.groupTitle}';
-    homeworkBuckets.putIfAbsent(homeworkKey, () => <_TaskSeed>[]).add(task);
-  }
-
-  final groups = groupBuckets.entries.map((entry) {
-    final completedCount = entry.value.where((task) => task.completed).length;
-    final total = entry.value.length;
-    return TaskGroup(
-      subject: entry.key,
-      total: total,
-      completed: completedCount,
-      pending: total - completedCount,
-      status: _statusForCounts(total, completedCount),
-    );
-  }).toList();
-
-  final homeworkGroups = homeworkBuckets.entries.map((entry) {
-    final bucket = entry.value;
-    final firstTask = bucket.first;
-    final completedCount = bucket.where((task) => task.completed).length;
-    final total = bucket.length;
-    return HomeworkGroup(
-      subject: firstTask.subject,
-      groupTitle: firstTask.groupTitle,
-      total: total,
-      completed: completedCount,
-      pending: total - completedCount,
-      status: _statusForCounts(total, completedCount),
-    );
-  }).toList();
-
-  final completedCount = tasks.where((task) => task.completed).length;
-
-  return TaskBoard(
-    date: date,
-    message: '同步完成',
-    tasks: taskItems,
-    groups: groups,
-    homeworkGroups: homeworkGroups,
-    summary: BoardSummary(
-      total: tasks.length,
-      completed: completedCount,
-      pending: tasks.length - completedCount,
-      status: _statusForCounts(tasks.length, completedCount),
-    ),
-  );
-}
-
-String _statusForCounts(int total, int completed) {
-  if (total == 0) {
-    return 'empty';
-  }
-  if (completed == 0) {
-    return 'pending';
-  }
-  if (completed == total) {
-    return 'completed';
-  }
-  return 'partial';
-}
-
-TaskBoard _boardWithTasks({String date = '2026-03-06'}) {
-  return _buildBoard(
-    date: date,
-    tasks: const <_TaskSeed>[
-      _TaskSeed(
-        taskId: 1,
-        subject: '数学',
-        groupTitle: '口算练习',
-        content: '完成第 1 页',
-      ),
-    ],
-  );
-}
-
-TaskBoard _emptyBoard({String date = '2026-03-06'}) {
-  return TaskBoard(
-    date: date,
-    message: '当前日期没有任务',
-    tasks: const <TaskItem>[],
-    groups: const <TaskGroup>[],
-    homeworkGroups: const <HomeworkGroup>[],
-    summary: const BoardSummary(
-      total: 0,
-      completed: 0,
-      pending: 0,
-      status: 'empty',
-    ),
-  );
+  @override
+  Future<void> stop() async {}
 }

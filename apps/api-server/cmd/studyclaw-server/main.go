@@ -6,12 +6,16 @@ import (
 	"github.com/nikkofu/studyclaw/api-server/config"
 	"github.com/nikkofu/studyclaw/api-server/internal/app"
 	httpapi "github.com/nikkofu/studyclaw/api-server/internal/interfaces/http"
+	"github.com/nikkofu/studyclaw/api-server/internal/platform/logging"
 )
 
 func main() {
-	log.Println("StudyClaw Go Server starting...")
-
 	config.LoadConfig()
+	if err := logging.Init(); err != nil {
+		log.Fatalf("Failed to initialize logging: %v", err)
+	}
+
+	log.Println("StudyClaw Go Server starting...")
 	container := app.NewContainer()
 	router := httpapi.SetupRouter(container)
 

@@ -15,6 +15,12 @@ const (
 
 	DictationSessionActive    = "active"
 	DictationSessionCompleted = "completed"
+
+	DictationGradingIdle       = "idle"
+	DictationGradingPending    = "pending"
+	DictationGradingProcessing = "processing"
+	DictationGradingCompleted  = "completed"
+	DictationGradingFailed     = "failed"
 )
 
 type TaskItem struct {
@@ -117,19 +123,55 @@ type WordList struct {
 }
 
 type DictationSession struct {
-	SessionID      string    `json:"session_id"`
-	WordListID     string    `json:"word_list_id"`
-	FamilyID       uint      `json:"family_id"`
-	ChildID        uint      `json:"child_id"`
-	AssignedDate   string    `json:"assigned_date"`
-	Status         string    `json:"status"`
-	CurrentIndex   int       `json:"current_index"`
-	TotalItems     int       `json:"total_items"`
-	PlayedCount    int       `json:"played_count"`
-	CompletedItems int       `json:"completed_items"`
-	CurrentItem    *WordItem `json:"current_item,omitempty"`
-	StartedAt      string    `json:"started_at"`
-	UpdatedAt      string    `json:"updated_at"`
+	SessionID          string                  `json:"session_id"`
+	WordListID         string                  `json:"word_list_id"`
+	FamilyID           uint                    `json:"family_id"`
+	ChildID            uint                    `json:"child_id"`
+	AssignedDate       string                  `json:"assigned_date"`
+	Status             string                  `json:"status"`
+	CurrentIndex       int                     `json:"current_index"`
+	TotalItems         int                     `json:"total_items"`
+	PlayedCount        int                     `json:"played_count"`
+	CompletedItems     int                     `json:"completed_items"`
+	CurrentItem        *WordItem               `json:"current_item,omitempty"`
+	GradingStatus      string                  `json:"grading_status"`
+	GradingError       string                  `json:"grading_error,omitempty"`
+	GradingRequestedAt string                  `json:"grading_requested_at,omitempty"`
+	GradingCompletedAt string                  `json:"grading_completed_at,omitempty"`
+	GradingResult      *DictationGradingResult `json:"grading_result,omitempty"`
+	DebugContext       *DictationDebugContext  `json:"debug_context,omitempty"`
+	StartedAt          string                  `json:"started_at"`
+	UpdatedAt          string                  `json:"updated_at"`
+}
+
+type DictationDebugContext struct {
+	PhotoSHA1   string   `json:"photo_sha1,omitempty"`
+	PhotoBytes  int      `json:"photo_bytes,omitempty"`
+	Language    string   `json:"language,omitempty"`
+	Mode        string   `json:"mode,omitempty"`
+	WorkerStage string   `json:"worker_stage,omitempty"`
+	LogFile     string   `json:"log_file,omitempty"`
+	LogKeywords []string `json:"log_keywords,omitempty"`
+}
+
+type DictationGradingResult struct {
+	GradingID   string           `json:"grading_id"`
+	PhotoURL    string           `json:"photo_url,omitempty"`
+	Status      string           `json:"status"` // "passed", "needs_correction"
+	Score       int              `json:"score"`
+	GradedItems []GradedWordItem `json:"graded_items"`
+	AIFeedback  string           `json:"ai_feedback"`
+	CreatedAt   string           `json:"created_at"`
+}
+
+type GradedWordItem struct {
+	Index      int    `json:"index"`
+	Expected   string `json:"expected"`
+	Meaning    string `json:"meaning,omitempty"`
+	Actual     string `json:"actual"`
+	IsCorrect  bool   `json:"is_correct"`
+	Comment    string `json:"comment,omitempty"` // e.g., "Missing letter 'e'"
+	NeedsRetry bool   `json:"needs_correction"`
 }
 
 type SubjectStats struct {
