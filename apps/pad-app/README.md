@@ -1,6 +1,6 @@
 # StudyClaw Pad
 
-StudyClaw 的 Pad 端孩子执行客户端，当前交付基线版本是 `v0.3.0`。当前目标不是离线演示，而是和 Parent Web、Go API 共用同一后端事实源。
+StudyClaw 的 Pad 端孩子执行客户端，当前交付基线版本是 `v0.3.1`。当前目标不是离线演示，而是和 Parent Web、Go API 共用同一后端事实源。
 
 当前覆盖能力：
 

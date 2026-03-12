@@ -1,18 +1,20 @@
 # StudyClaw 发布前检查清单
 
-本文档用于 `v0.3.0` 语音助手与正向鼓励增强版的发布前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
+本文档用于 `v0.3.1` 正式发版前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
 
 ## 1. 版本与文档同步
 
 检查点：
 
-- [x] `README.md` 标注当前版本为 `v0.3.0`
-- [x] `apps/parent-web/package.json` 与 `apps/parent-web/package-lock.json` 版本为 `0.3.0`
-- [x] `apps/pad-app/pubspec.yaml` 版本为 `0.3.0+1`
-- [x] `CHANGELOG.md` 已记录语音助手与正向鼓励的交付整备和验证结果
+- [x] `README.md` 标注当前版本为 `v0.3.1`
+- [x] `apps/parent-web/package.json` 与 `apps/parent-web/package-lock.json` 版本为 `0.3.1`
+- [x] `apps/pad-app/pubspec.yaml` 版本为 `0.3.1+1`
+- [x] `CHANGELOG.md` 已记录 `v0.3.1` 的家长端移动 H5 发版内容与验证结果
 - [x] `docs/17_DELIVERY_READINESS.md` 更新为最新审计结论
 - [x] `docs/19_DELIVERY_UAT_CASES.md` 可直接作为交付验收用例
-- [x] `docs/USER_MANUAL_V0.3.0.md` 可直接交给家长 / 演示同事使用
+- [x] `docs/USER_MANUAL_V0.3.1.md` 可直接交给家长 / 演示同事使用
+- [x] `docs/PARENT_WEB_H5_MANUAL.md` 已同步到正式版使用口径
+- [x] `docs/21_RELEASE_NOTES_V0.3.1.md` 已补齐发布说明
 
 ## 2. 密钥与运行时配置
 
@@ -41,8 +43,8 @@ bash scripts/check_release_scope.sh
 必须通过：
 
 - [x] `go test ./... -count=1`
-- [x] `npm test`
-- [x] `npm run build`
+- [x] `cd apps/parent-web && npm test -- --run`
+- [x] `cd apps/parent-web && npm run build`
 - [x] `flutter analyze`
 - [x] `flutter test --no-pub`
 - [x] `flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
@@ -75,10 +77,10 @@ bash scripts/demo_local_stack.sh
 - [x] `git fetch origin`
 - [x] `git status --short` 中只剩本次计划提交的文件
 - [x] `.gopath/` 历史缓存清理已按 scoped release 处理，未把 `build/`、`dist/`、`.dart_tool/`、运行时密钥文件带进 commit
-- [x] release commit 信息清晰：`release: prepare v0.3.0 delivery sync`
-- [x] 版本标签与交付版本一致：`v0.3.0`
+- [x] release commit 信息清晰：`release: prepare v0.3.1 delivery sync`
+- [x] 版本标签与交付版本一致：`v0.3.1`
 - [x] push 后已再次核对 `origin/main` 与标签状态
 
 ## 7. 发布结论
 
-`v0.3.0` 已完成发布前检查，可作为当前阶段的正式 GitHub 同步版本。
+`v0.3.1` 已完成发布前检查，可作为当前阶段的正式 GitHub 同步版本。

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-12
+
 ### Changed
 
 - **Parent Web 移动 H5 重构**
@@ -16,8 +18,17 @@
 
 ### Verified
 
-- `cd apps/parent-web && npm test`
+- `bash scripts/check_no_tracked_runtime_env.sh`
+- `bash scripts/preflight_local_env.sh`
+- `bash scripts/check_release_scope.sh`
+- `cd apps/api-server && go test ./... -count=1`
+- `cd apps/parent-web && npm test -- --run`
 - `cd apps/parent-web && npm run build`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test --no-pub`
+- `cd apps/pad-app && flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
 
 ## [0.3.0] - 2026-03-12
 

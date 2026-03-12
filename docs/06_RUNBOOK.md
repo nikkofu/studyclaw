@@ -1,6 +1,6 @@
 # StudyClaw 本地运行手册
 
-本文档描述 `2026-03-12` 的 `v0.3.0` 交付基线下的真实运行方式。当前正式运行形态是 `Go API + React Parent Web + Flutter Pad` 三端协同，不再需要额外的 Python 后端进程。
+本文档描述 `2026-03-12` 的 `v0.3.1` 交付基线下的真实运行方式。当前正式运行形态是 `Go API + React Parent Web + Flutter Pad` 三端协同，不再需要额外的 Python 后端进程。
 
 ## 1. 前置条件
 

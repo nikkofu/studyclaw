@@ -1,6 +1,6 @@
 # StudyClaw Release Sync Playbook
 
-本文档定义 `v0.3.0` 进入 GitHub 正式同步前的最小操作顺序。目标不是“把所有改动都推上去”，而是“只把本次交付范围内的源码、文档和版本文件推上去”。
+本文档定义 `v0.3.1` 进入 GitHub 正式同步前的最小操作顺序。目标不是“把所有改动都推上去”，而是“只把本次交付范围内的源码、文档和版本文件推上去”。
 
 ## 1. 先决条件
 
@@ -26,7 +26,7 @@ bash scripts/check_release_scope.sh
 - 后端：`apps/api-server/cmd/`、`config/`、`internal/`、`routes/`
 - 家长端：`apps/parent-web/src/`、`package.json`、`package-lock.json`
 - 孩子端：`apps/pad-app/lib/`、`assets/`、`test/`、`pubspec.yaml`、`pubspec.lock`、`README.md`
-- 交付文档：`docs/06_RUNBOOK.md`、`docs/13_RELEASE_CHECKLIST.md`、`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`、`docs/17_DELIVERY_READINESS.md`、`docs/19_DELIVERY_UAT_CASES.md`、`docs/20_RELEASE_SYNC_PLAYBOOK.md`、`docs/USER_MANUAL_V0.3.0.md`
+- 交付文档：`docs/06_RUNBOOK.md`、`docs/13_RELEASE_CHECKLIST.md`、`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`、`docs/17_DELIVERY_READINESS.md`、`docs/19_DELIVERY_UAT_CASES.md`、`docs/20_RELEASE_SYNC_PLAYBOOK.md`、`docs/USER_MANUAL_V0.3.1.md`、`docs/PARENT_WEB_H5_MANUAL.md`、`docs/21_RELEASE_NOTES_V0.3.1.md`
 - 测试夹具：`test/daily_homework.txt`、`test/listen_image.jpg`
 
 明确禁止进入本次 release 的路径：
@@ -66,7 +66,7 @@ git add README.md CHANGELOG.md .env.example
 git add apps/api-server/cmd apps/api-server/internal apps/api-server/routes apps/api-server/go.mod
 git add apps/parent-web/src apps/parent-web/package.json apps/parent-web/package-lock.json
 git add apps/pad-app/lib apps/pad-app/assets apps/pad-app/test apps/pad-app/pubspec.yaml apps/pad-app/pubspec.lock apps/pad-app/README.md apps/pad-app/SC05_PAD_LIVE_CHECKLIST.md
-git add docs/06_RUNBOOK.md docs/13_RELEASE_CHECKLIST.md docs/16_FIRST_PHASE_DEMO_CHECKLIST.md docs/17_DELIVERY_READINESS.md docs/19_DELIVERY_UAT_CASES.md docs/20_RELEASE_SYNC_PLAYBOOK.md docs/USER_MANUAL_V0.3.0.md
+git add docs/06_RUNBOOK.md docs/13_RELEASE_CHECKLIST.md docs/16_FIRST_PHASE_DEMO_CHECKLIST.md docs/17_DELIVERY_READINESS.md docs/19_DELIVERY_UAT_CASES.md docs/20_RELEASE_SYNC_PLAYBOOK.md docs/USER_MANUAL_V0.3.1.md docs/PARENT_WEB_H5_MANUAL.md docs/21_RELEASE_NOTES_V0.3.1.md
 git add test/daily_homework.txt test/listen_image.jpg
 ```
 
@@ -92,10 +92,10 @@ bash scripts/demo_local_stack.sh
 示例：
 
 ```bash
-git commit -m "release: prepare v0.3.0 delivery sync"
-git tag v0.3.0
+git commit -m "release: prepare v0.3.1 delivery sync"
+git tag v0.3.1
 git push origin main
-git push origin v0.3.0
+git push origin v0.3.1
 ```
 
 ## 4. 本轮实际阻塞项

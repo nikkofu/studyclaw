@@ -8,9 +8,9 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 
 ## 当前阶段
 
-- 当前交付版本：`v0.3.0`
-- 当前状态：已收口到“语音助手 + 正向鼓励”增强版，本地达到可发布标准；当前主干额外完成了家长端移动 H5 重构
-- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.0` 基线
+- 当前交付版本：`v0.3.1`
+- 当前状态：已完成“语音助手 + 正向鼓励 + 家长端移动 H5”正式发版收口，可作为下一阶段前的稳定 GitHub 基线
+- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.1` 基线
 
 ## 当前已闭环能力
 
@@ -104,8 +104,9 @@ bash scripts/demo_local_stack.sh
 ## 交付文档
 
 - 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
-- 用户操作手册：[docs/USER_MANUAL_V0.3.0.md](docs/USER_MANUAL_V0.3.0.md)
+- 用户操作手册：[docs/USER_MANUAL_V0.3.1.md](docs/USER_MANUAL_V0.3.1.md)
 - 家长端移动 H5 操作手册：[docs/PARENT_WEB_H5_MANUAL.md](docs/PARENT_WEB_H5_MANUAL.md)
+- `v0.3.1` 发布说明：[docs/21_RELEASE_NOTES_V0.3.1.md](docs/21_RELEASE_NOTES_V0.3.1.md)
 - 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
 - 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
 - Release 同步手册：[docs/20_RELEASE_SYNC_PLAYBOOK.md](docs/20_RELEASE_SYNC_PLAYBOOK.md)
@@ -114,10 +115,9 @@ bash scripts/demo_local_stack.sh
 
 ## 当前仓库同步提示
 
-- `v0.2.0` 历史正式版本已完成 GitHub sync，可作为上一阶段签收基线
-- 当前工作树已整理完 `v0.3.0` 的版本文件、文档和功能收口
-- 当前主干另含未发版的家长端移动 H5 重构；正式发布前需要补版本号、发布文档和 GitHub tag
-- `v0.3.0` 发布时应使用 scoped staging，并同步 release commit、tag 和 GitHub push
+- `v0.3.0` 已作为历史正式版本保留
+- 当前工作树将按 `v0.3.1` 执行 scoped release commit、tag 和 GitHub push
+- 当前正式发版范围包括语音助手、正向鼓励、家长端移动 H5、发布说明和使用说明同步
 
 ## 许可
 
