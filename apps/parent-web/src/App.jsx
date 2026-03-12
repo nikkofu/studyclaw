@@ -14,7 +14,13 @@ const CONSOLE_SECTIONS = [
   { id: "points-console", label: "积分操作", shortLabel: "积分" },
   { id: "word-console", label: "单词清单", shortLabel: "单词" },
 ]
+const CONSOLE_PANEL_ORDER = ["publish-console", "report-console", "points-console", "word-console"]
 const WORD_LIST_SYNC_DEBOUNCE_MS = 700
+const PAGE_TRANSITION_MS = 280
+const FEEDBACK_PANEL_ORDER = ["daily", "dictation", "trend"]
+const POINTS_PANEL_ORDER = ["compose", "ledger"]
+const WORD_PANEL_ORDER = ["create", "lists"]
+const PUBLISH_PANEL_ORDER = ["scope", "compose", "review", "release", "split", "preview", "analysis", "board"]
 const POINT_REASON_PRESETS = {
   reward: ["按时完成全部任务", "主动完成额外练习", "主动整理错题", "晚饭前独立完成作业"],
   penalty: ["回家后拖延未开工", "未整理错题", "多次提醒后才完成", "作业完成后未复盘"],
@@ -76,6 +82,68 @@ function shiftDate(value, days) {
   const date = parseDateInputValue(value)
   date.setDate(date.getDate() + days)
   return formatDateInputValue(date)
+}
+
+function usePageTransition(activeId, orderedIds) {
+  const orderKey = orderedIds.join("|")
+  const [motionState, setMotionState] = useState(() => ({
+    currentId: activeId,
+    previousId: "",
+    direction: "forward",
+  }))
+
+  useEffect(() => {
+    if (activeId === motionState.currentId) {
+      return undefined
+    }
+
+    const currentIndex = orderedIds.indexOf(motionState.currentId)
+    const nextIndex = orderedIds.indexOf(activeId)
+    const direction = currentIndex === -1 || nextIndex === -1 || nextIndex >= currentIndex ? "forward" : "backward"
+
+    setMotionState({
+      currentId: activeId,
+      previousId: motionState.currentId,
+      direction,
+    })
+
+    const timerId = window.setTimeout(() => {
+      setMotionState((current) =>
+        current.currentId === activeId
+          ? {
+            ...current,
+            previousId: "",
+          }
+          : current,
+      )
+    }, PAGE_TRANSITION_MS)
+
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [activeId, motionState.currentId, orderKey, orderedIds])
+
+  function getPageClass(pageId) {
+    if (pageId === motionState.currentId && motionState.previousId) {
+      return `screen-subpanel is-active is-enter dir-${motionState.direction}`.trim()
+    }
+
+    if (pageId === motionState.currentId) {
+      return "screen-subpanel is-active"
+    }
+
+    if (pageId === motionState.previousId) {
+      return `screen-subpanel is-previous is-exit dir-${motionState.direction}`.trim()
+    }
+
+    return "screen-subpanel"
+  }
+
+  return {
+    direction: motionState.direction,
+    isTransitioning: Boolean(motionState.previousId),
+    getPageClass,
+  }
 }
 
 function createLocalId(prefix) {
@@ -572,6 +640,27 @@ function StatCard({ label, value, hint }) {
   )
 }
 
+function ConsoleScreenLead({ label, title, caption, badge, isActive = false, onActivate }) {
+  return (
+    <button
+      aria-current={isActive ? "page" : undefined}
+      className={`console-screen-lead ${isActive ? "is-active" : ""}`.trim()}
+      type="button"
+      onClick={onActivate}
+    >
+      <div>
+        <span className="console-screen-kicker">{label}</span>
+        <strong>{title}</strong>
+        <p>{caption}</p>
+      </div>
+      <div className="console-screen-side">
+        <span className="console-screen-badge">{badge}</span>
+        <span className="console-screen-cta">{isActive ? "当前主屏" : "点开进入"}</span>
+      </div>
+    </button>
+  )
+}
+
 function ConsoleNav({ items, activeSection, onJump, childLabel, assignedDate, pointDelta, wordListCount }) {
   return (
     <nav className="console-nav" aria-label="家长主控制台导航">
@@ -679,6 +768,27 @@ function PublishStageStrip({ items, activeStage, onChange }) {
   )
 }
 
+function SubMenuStrip({ items, activeItem, onChange, ariaLabel }) {
+  return (
+    <div className="sub-menu-strip" role="tablist" aria-label={ariaLabel}>
+      {items.map((item) => (
+        <button
+          aria-selected={activeItem === item.id}
+          className={`sub-menu-button ${activeItem === item.id ? "is-active" : ""}`}
+          key={item.id}
+          role="tab"
+          type="button"
+          onClick={() => onChange(item.id)}
+        >
+          <span className="sub-menu-label">{item.label}</span>
+          <strong>{item.metric}</strong>
+          {item.caption ? <p>{item.caption}</p> : null}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function FeedbackLensStrip({ items, activeSection, onChange }) {
   return (
     <div className="feedback-lens-strip" role="tablist" aria-label="反馈查看模式">
@@ -696,6 +806,19 @@ function FeedbackLensStrip({ items, activeSection, onChange }) {
           <p>{item.caption}</p>
         </button>
       ))}
+    </div>
+  )
+}
+
+function ScreenSubpanelDeck({ activeId, orderedIds, className = "", children }) {
+  const { direction, isTransitioning, getPageClass } = usePageTransition(activeId, orderedIds)
+
+  return (
+    <div
+      className={`screen-subpanel-deck ${isTransitioning ? `is-transitioning dir-${direction}` : ""} ${className}`.trim()}
+      data-active-panel={activeId}
+    >
+      {children(getPageClass)}
     </div>
   )
 }
@@ -979,17 +1102,28 @@ function WorkflowSteps({
   ]
 
   return (
-    <div className="workflow-strip" aria-label="家长操作路径">
-      {steps.map((step) => (
-        <article className={`workflow-card workflow-${step.state}`} key={step.id}>
-          <span className="workflow-index">{step.index}</span>
-          <div>
-            <strong>{step.title}</strong>
-            <p>{step.detail}</p>
-          </div>
-        </article>
-      ))}
-    </div>
+    <section className="workflow-shell">
+      <div className="workflow-head">
+        <span className="summary-chip">今日发布路线</span>
+        <p>先把老师原文转成草稿，再处理风险卡片，最后确认发布到孩子当天任务板。</p>
+      </div>
+      <div className="workflow-strip" aria-label="家长操作路径">
+        {steps.map((step) => (
+          <article className={`workflow-card workflow-${step.state}`} key={step.id}>
+            <div className="workflow-card-top">
+              <span className="workflow-index">{step.index}</span>
+              <span className={`workflow-state workflow-state-${step.state}`}>
+                {step.state === "warning" ? "需处理" : step.state === "active" ? "进行中" : "待开始"}
+              </span>
+            </div>
+            <div>
+              <strong>{step.title}</strong>
+              <p>{step.detail}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -1490,18 +1624,18 @@ function DraftTaskList({
     <section className="panel" id="draft-review-panel">
       <div className="panel-heading">
         <div>
-          <h3>2. AI 草稿审核</h3>
-          <p className="panel-caption">高风险任务自动置顶，先修正后再发布。</p>
+          <h3>审核队列</h3>
+          <p className="panel-caption">先处理最需要家长确认的卡片，再决定哪些任务直接下发。</p>
         </div>
-        <span>{tasks.length} 条</span>
+        <span>{tasks.length} 张卡</span>
       </div>
 
       <DraftReviewLensStrip items={reviewFilterItems} activeFilter={activeReviewFilter} onChange={onActiveReviewFilterChange} />
 
       <div className="review-summary">
         <div>
-          <strong>风险任务已自动置顶</strong>
-          <p>`needs_review` 和低置信任务优先展示。手机上先用筛选缩小范围，再按当前卡片逐条修正。</p>
+          <strong>先把难卡片处理掉</strong>
+          <p>系统会先把 `needs_review`、低置信和阻断项排到前面。手机上用筛选缩小范围，再围绕当前卡片连续处理。</p>
         </div>
         <div className="summary-pill-row">
           <span className="summary-pill summary-risk">风险 {riskyTaskCount}</span>
@@ -1517,7 +1651,7 @@ function DraftTaskList({
               <strong>
                 当前处理 {activeVisibleIndex + 1} / {visibleEntries.length}
               </strong>
-              <p>手机端默认聚焦当前筛选结果中的一张卡，上一张 / 下一张即可连续处理。</p>
+              <p>把审核区收成一张当前卡片，上一张 / 下一张就能像刷消息一样连续处理。</p>
             </div>
             <span>{activeFilterMeta.label}</span>
           </div>
@@ -1591,86 +1725,93 @@ function DraftTaskList({
       {tasks.length === 0 ? (
         <p className="empty-state">先点击“AI 解析任务”，再确认哪些任务写入孩子当天任务板。</p>
       ) : (
-        <div className="draft-list focused-list">
-          {taskEntries.map(({ task, diagnostics, riskMeta }, index) => {
-            const isSelected = selectedTaskIds.includes(task.id)
-            const confidence = Number(task.confidence || 0)
-            const notes = Array.isArray(task.notes) ? task.notes : []
-            const confidenceMeta = getConfidenceMeta(confidence)
-            const isVisible = visibleEntries.some((entry) => entry.task.id === task.id)
-            const isFocused = activeEntry?.task.id === task.id
+        <HelpAccordion
+          className="draft-list-sheet"
+          title="展开全部草稿卡片"
+          caption="当前主屏先聚焦一张卡片；需要批量查看或修改时，再展开完整草稿列表。"
+          badge={`${taskEntries.length} 张`}
+        >
+          <div className="draft-list focused-list">
+            {taskEntries.map(({ task, diagnostics, riskMeta }, index) => {
+              const isSelected = selectedTaskIds.includes(task.id)
+              const confidence = Number(task.confidence || 0)
+              const notes = Array.isArray(task.notes) ? task.notes : []
+              const confidenceMeta = getConfidenceMeta(confidence)
+              const isVisible = visibleEntries.some((entry) => entry.task.id === task.id)
+              const isFocused = activeEntry?.task.id === task.id
 
-            return (
-              <article
-                className={`draft-card risk-${riskMeta.tone} ${task.needs_review ? "needs-review" : ""} ${diagnostics.hasBlocking ? "has-blocking" : ""
-                  } ${isSelected ? "is-selected" : ""} ${isFocused ? "is-focused" : ""} ${isVisible ? "" : "is-filter-hidden"}`}
-                data-testid="draft-card"
-                data-task-title={task.title}
-                key={`${task.id}-${index}`}
-                onClick={() => onActiveDraftTaskIdChange(task.id)}
-              >
-                <div className="draft-header">
-                  <input
-                    aria-label={`选择任务 ${task.title || task.group_title || task.subject}`}
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => onToggle(task.id)}
-                  />
-                  <span className="task-subject">{task.subject}</span>
-                  <span className={`confidence-pill confidence-${confidenceMeta.tone}`}>{confidenceMeta.label}</span>
-                  <span className={`risk-badge badge-${riskMeta.tone}`}>{riskMeta.label}</span>
-                  {task.source === "manual" ? <span className="review-pill manual-pill">手动补充</span> : null}
-                  <button className="inline-link danger" type="button" onClick={() => onRemove(task.id)}>
-                    删除
-                  </button>
-                </div>
+              return (
+                <article
+                  className={`draft-card risk-${riskMeta.tone} ${task.needs_review ? "needs-review" : ""} ${diagnostics.hasBlocking ? "has-blocking" : ""
+                    } ${isSelected ? "is-selected" : ""} ${isFocused ? "is-focused" : ""} ${isVisible ? "" : "is-filter-hidden"}`}
+                  data-testid="draft-card"
+                  data-task-title={task.title}
+                  key={`${task.id}-${index}`}
+                  onClick={() => onActiveDraftTaskIdChange(task.id)}
+                >
+                  <div className="draft-header">
+                    <input
+                      aria-label={`选择任务 ${task.title || task.group_title || task.subject}`}
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => onToggle(task.id)}
+                    />
+                    <span className="task-subject">{task.subject}</span>
+                    <span className={`confidence-pill confidence-${confidenceMeta.tone}`}>{confidenceMeta.label}</span>
+                    <span className={`risk-badge badge-${riskMeta.tone}`}>{riskMeta.label}</span>
+                    {task.source === "manual" ? <span className="review-pill manual-pill">手动补充</span> : null}
+                    <button className="inline-link danger" type="button" onClick={() => onRemove(task.id)}>
+                      删除
+                    </button>
+                  </div>
 
-                <div className="risk-reason-row">
-                  {riskMeta.reasons.map((reason, reasonIndex) => (
-                    <span className={`risk-reason reason-${riskMeta.tone}`} key={`${task.id}-reason-${reasonIndex}`}>
-                      {reason}
-                    </span>
-                  ))}
-                </div>
-
-                <p className={`risk-caption caption-${riskMeta.tone}`}>{riskMeta.caption}</p>
-
-                <div className="draft-edit-grid">
-                  <label>
-                    <span>学科</span>
-                    <input value={task.subject} onChange={(event) => onFieldChange(task.id, "subject", event.target.value)} />
-                  </label>
-                  <label>
-                    <span>分组</span>
-                    <input value={task.group_title} onChange={(event) => onFieldChange(task.id, "group_title", event.target.value)} />
-                  </label>
-                  <label className="draft-title-field">
-                    <span>任务标题</span>
-                    <input value={task.title} onChange={(event) => onFieldChange(task.id, "title", event.target.value)} />
-                  </label>
-                </div>
-
-                <p>置信度 {Math.round(confidence * 100)}%</p>
-                {diagnostics.issues.length > 0 ? (
-                  <ul className="quality-list">
-                    {diagnostics.issues.map((issue, issueIndex) => (
-                      <li key={`${task.id}-issue-${issueIndex}`} className={issue.severity === "block" ? "issue-block" : "issue-warn"}>
-                        {issue.message}
-                      </li>
+                  <div className="risk-reason-row">
+                    {riskMeta.reasons.map((reason, reasonIndex) => (
+                      <span className={`risk-reason reason-${riskMeta.tone}`} key={`${task.id}-reason-${reasonIndex}`}>
+                        {reason}
+                      </span>
                     ))}
-                  </ul>
-                ) : null}
-                {notes.length > 0 ? (
-                  <ul className="rule-list compact">
-                    {notes.map((note, noteIndex) => (
-                      <li key={`${task.id}-note-${noteIndex}`}>{note}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </article>
-            )
-          })}
-        </div>
+                  </div>
+
+                  <p className={`risk-caption caption-${riskMeta.tone}`}>{riskMeta.caption}</p>
+
+                  <div className="draft-edit-grid">
+                    <label>
+                      <span>学科</span>
+                      <input value={task.subject} onChange={(event) => onFieldChange(task.id, "subject", event.target.value)} />
+                    </label>
+                    <label>
+                      <span>分组</span>
+                      <input value={task.group_title} onChange={(event) => onFieldChange(task.id, "group_title", event.target.value)} />
+                    </label>
+                    <label className="draft-title-field">
+                      <span>任务标题</span>
+                      <input value={task.title} onChange={(event) => onFieldChange(task.id, "title", event.target.value)} />
+                    </label>
+                  </div>
+
+                  <p>置信度 {Math.round(confidence * 100)}%</p>
+                  {diagnostics.issues.length > 0 ? (
+                    <ul className="quality-list">
+                      {diagnostics.issues.map((issue, issueIndex) => (
+                        <li key={`${task.id}-issue-${issueIndex}`} className={issue.severity === "block" ? "issue-block" : "issue-warn"}>
+                          {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {notes.length > 0 ? (
+                    <ul className="rule-list compact">
+                      {notes.map((note, noteIndex) => (
+                        <li key={`${task.id}-note-${noteIndex}`}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </article>
+              )
+            })}
+          </div>
+        </HelpAccordion>
       )}
     </section>
   )
@@ -1735,10 +1876,18 @@ function CreatePanel({
     <section className="panel">
       <div className="panel-heading">
         <div>
-          <h3>3. 编辑确认并发布</h3>
-          <p className="panel-caption">发布后会刷新指定日期的孩子任务板。</p>
+          <h3>发布确认台</h3>
+          <p className="panel-caption">把今天真正要下发的任务收口到这里，再一键发到孩子任务板。</p>
         </div>
         <span>{selectedTasks.length} 条已选</span>
+      </div>
+
+      <div className="confirm-summary-card">
+        <span className="summary-chip">准备发布</span>
+        <strong>{assignedDate || "未选择日期"}</strong>
+        <p>
+          当前已选 {selectedTasks.length} 条，其中阻断 {selectedBlockingCount} 条，高风险 {selectedRiskCount} 条，可直接发布 {selectedReadyCount} 条。
+        </p>
       </div>
 
       <div className="analysis-grid confirm-grid">
@@ -1790,9 +1939,9 @@ function CreatePanel({
 function AnalysisPanel({ parserMode, analysis }) {
   if (!parserMode && !analysis) {
     return (
-      <section className="panel">
+      <section className="panel analysis-panel">
         <div className="panel-heading">
-          <h3>AI 解析摘要</h3>
+          <h3>AI 读题摘要</h3>
           <span>等待提交</span>
         </div>
         <p className="empty-state">提交到 API 后，这里会展示 LLM 混合解析模式、识别学科和自动补全说明。</p>
@@ -1805,10 +1954,20 @@ function AnalysisPanel({ parserMode, analysis }) {
   const notes = Array.isArray(analysis?.notes) ? analysis.notes : []
 
   return (
-    <section className="panel">
+    <section className="panel analysis-panel">
       <div className="panel-heading">
-        <h3>AI 解析摘要</h3>
+        <h3>AI 读题摘要</h3>
         <span>{parserMode || "unknown"}</span>
+      </div>
+
+      <div className="analysis-summary-card">
+        <span className="summary-chip">解析结论</span>
+        <strong>{parserMode === "llm_hybrid" ? "这次用了 LLM 混合解析" : "这次走规则兜底解析"}</strong>
+        <p>
+          {detectedSubjects.length > 0
+            ? `识别到 ${detectedSubjects.join(" / ")}，可以继续进入草稿审核。`
+            : "当前还没识别出明确学科，建议先回看老师原文。"}
+        </p>
       </div>
 
       <div className="analysis-grid">
@@ -1881,6 +2040,7 @@ function FeedbackPanel({
   isLoadingMonthly,
 }) {
   const [activeFeedbackSection, setActiveFeedbackSection] = useState("daily")
+  const feedbackTransition = usePageTransition(activeFeedbackSection, FEEDBACK_PANEL_ORDER)
   const dailyReport = buildDailyReport(todayTasks, currentDatePointEntries, assignedDate)
   const weeklyRows = buildWeeklyRows(weeklyStats?.raw_stats)
   const dictationSummary = buildDictationSummary(dictationSessions)
@@ -2102,8 +2262,10 @@ function FeedbackPanel({
       </div>
 
       <section className="panel feedback-detail-panel">
-        {activeFeedbackSection === "daily" ? (
-          <>
+        <div
+          className={`screen-subpanel-deck feedback-subpanel-deck ${feedbackTransition.isTransitioning ? `is-transitioning dir-${feedbackTransition.direction}` : ""}`.trim()}
+        >
+          <div className={feedbackTransition.getPageClass("daily")}>
             <div className="panel-heading">
               <div>
                 <h3>日报与任务完成</h3>
@@ -2152,11 +2314,9 @@ function FeedbackPanel({
                 <li>{dailyReport.pending > 0 ? "如果还有未完成任务，优先回到发布区或孩子任务板补齐。" : "当天任务完成后，可以继续查看听写拍照结果和周月趋势。"}</li>
               </ul>
             </FeedbackExpandableCard>
-          </>
-        ) : null}
+          </div>
 
-        {activeFeedbackSection === "dictation" ? (
-          <>
+          <div className={feedbackTransition.getPageClass("dictation")}>
             <div className="panel-heading">
               <div>
                 <h3>异步听写批改</h3>
@@ -2276,11 +2436,9 @@ function FeedbackPanel({
             ) : (
               <p className="empty-state">当前日期还没有听写拍照上传记录。孩子在 Pad 端提交后，这里会自动汇总最新状态。</p>
             )}
-          </>
-        ) : null}
+          </div>
 
-        {activeFeedbackSection === "trend" ? (
-          <>
+          <div className={feedbackTransition.getPageClass("trend")}>
             <div className="panel-heading">
               <div>
                 <h3>周 / 月趋势</h3>
@@ -2393,8 +2551,8 @@ function FeedbackPanel({
                 ) : null}
               </div>
             )}
-          </>
-        ) : null}
+          </div>
+        </div>
       </section>
     </section>
   )
@@ -2415,6 +2573,7 @@ function PointsPanel({
   todayPointEntries,
   recentPointEntries,
 }) {
+  const [activePointsPanel, setActivePointsPanel] = useState("compose")
   const todayDelta = todayPointEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
   const signedPreview =
     pointForm.mode === "penalty" ? -Math.abs(Number(pointForm.amount || 0)) : Math.abs(Number(pointForm.amount || 0))
@@ -2427,6 +2586,26 @@ function PointsPanel({
     .filter(Boolean)
   const suggestedReasons = [...new Set([...(POINT_REASON_PRESETS[pointForm.mode] || []), ...recentReasons])].slice(0, 5)
   const modeLabel = pointForm.mode === "reward" ? "家长加分" : "家长扣分"
+  const pointsPanelItems = [
+    {
+      id: "compose",
+      label: "记一笔",
+      metric: formatSignedAmount(signedPreview),
+      caption: `${pointForm.assignedDate || assignedDate} / ${modeLabel}`,
+    },
+    {
+      id: "ledger",
+      label: "看流水",
+      metric: `${recentPointEntries.length} 条`,
+      caption: recentPointEntries.length > 0 ? "当天和最近记录集中查看" : "提交后这里会积累历史记录",
+    },
+  ]
+
+  useEffect(() => {
+    if (pointsStatus?.tone === "success" && recentPointEntries.length > 0) {
+      setActivePointsPanel("ledger")
+    }
+  }, [pointsStatus?.tone, recentPointEntries.length])
 
   return (
     <section className="panel" id="points-console">
@@ -2440,157 +2619,169 @@ function PointsPanel({
         </span>
       </div>
 
-      <div className="points-focus-strip">
-        <article className={`points-focus-card ${pointForm.mode === "reward" ? "tone-reward" : "tone-penalty"}`}>
-          <span>当前模式</span>
-          <strong>{modeLabel}</strong>
-          <p>本次提交预览 {formatSignedAmount(signedPreview)}，日期 {pointForm.assignedDate || assignedDate}。</p>
-        </article>
-        <article className="points-focus-card tone-calm">
-          <span>当天积分走势</span>
-          <strong>{formatSignedAmount(todayDelta)}</strong>
-          <p>
-            奖励 {todayRewardCount} 次，扣分 {todayPenaltyCount} 次。
-          </p>
-        </article>
-        <article className="points-focus-card tone-accent">
-          <span>当前余额</span>
-          <strong>{estimatedBalance ?? "--"}</strong>
-          <p>{recentPointEntries.length > 0 ? `最近 ${recentPointEntries.length} 条手工流水已同步。` : "还没有手工积分记录。"}</p>
-        </article>
-        <article className="points-focus-card tone-neutral">
-          <span>最近一条</span>
-          <strong>{latestEntry ? formatSignedAmount(latestEntry.amount) : "--"}</strong>
-          <p>{latestEntry ? `${latestEntry.reason || "未填写备注"} · ${latestEntry.assigned_date}` : "提交后会在这里看到最近记录。"}</p>
-        </article>
-      </div>
+      <SubMenuStrip items={pointsPanelItems} activeItem={activePointsPanel} onChange={setActivePointsPanel} ariaLabel="积分子菜单" />
 
-      <div className="points-compose-shell">
-        <div className="points-compose-heading">
-          <div>
-            <strong>快速记一笔</strong>
-            <p className="panel-caption">先选加分还是扣分，再点快捷分值，最后补一句原因即可提交。</p>
-          </div>
-          <span>{pointForm.assignedDate || assignedDate}</span>
-        </div>
+      <ScreenSubpanelDeck activeId={activePointsPanel} orderedIds={POINTS_PANEL_ORDER}>
+        {(getPanelClass) => (
+          <>
+            <div className={getPanelClass("compose")}>
+              <div className="points-focus-strip">
+                <article className={`points-focus-card ${pointForm.mode === "reward" ? "tone-reward" : "tone-penalty"}`}>
+                  <span>当前模式</span>
+                  <strong>{modeLabel}</strong>
+                  <p>本次提交预览 {formatSignedAmount(signedPreview)}，日期 {pointForm.assignedDate || assignedDate}。</p>
+                </article>
+                <article className="points-focus-card tone-calm">
+                  <span>当天积分走势</span>
+                  <strong>{formatSignedAmount(todayDelta)}</strong>
+                  <p>
+                    奖励 {todayRewardCount} 次，扣分 {todayPenaltyCount} 次。
+                  </p>
+                </article>
+                <article className="points-focus-card tone-accent">
+                  <span>当前余额</span>
+                  <strong>{estimatedBalance ?? "--"}</strong>
+                  <p>{recentPointEntries.length > 0 ? `最近 ${recentPointEntries.length} 条手工流水已同步。` : "还没有手工积分记录。"}</p>
+                </article>
+                <article className="points-focus-card tone-neutral">
+                  <span>最近一条</span>
+                  <strong>{latestEntry ? formatSignedAmount(latestEntry.amount) : "--"}</strong>
+                  <p>{latestEntry ? `${latestEntry.reason || "未填写备注"} · ${latestEntry.assigned_date}` : "提交后会在这里看到最近记录。"}</p>
+                </article>
+              </div>
 
-        <div className="segmented-row" role="group" aria-label="积分模式">
-          <button
-            className={`segment-button ${pointForm.mode === "reward" ? "is-active" : ""}`}
-            type="button"
-            onClick={() => onPointFormChange("mode", "reward")}
-          >
-            家长加分
-          </button>
-          <button
-            className={`segment-button ${pointForm.mode === "penalty" ? "is-active" : ""}`}
-            type="button"
-            onClick={() => onPointFormChange("mode", "penalty")}
-          >
-            家长扣分
-          </button>
-        </div>
-
-        <div className="field-grid">
-          <label>
-            <span>分值</span>
-            <input
-              aria-label="积分分值"
-              type="number"
-              min="1"
-              value={pointForm.amount}
-              onChange={(event) => onPointFormChange("amount", event.target.value)}
-            />
-          </label>
-          <label>
-            <span>记分日期</span>
-            <input
-              aria-label="积分日期"
-              type="date"
-              value={pointForm.assignedDate}
-              onChange={(event) => onPointFormChange("assignedDate", event.target.value)}
-            />
-          </label>
-        </div>
-
-        <div className="quick-actions points-amount-row">
-          {[2, 5, 10].map((amount) => (
-            <button className="ghost-button compact" type="button" key={amount} onClick={() => onQuickAmount(amount)}>
-              {pointForm.mode === "reward" ? "+" : "-"}
-              {amount}
-            </button>
-          ))}
-        </div>
-
-        {suggestedReasons.length > 0 ? (
-          <div className="points-reason-strip" aria-label="积分原因建议">
-            {suggestedReasons.map((reason) => (
-              <button className="ghost-button compact" type="button" key={reason} onClick={() => onPointFormChange("reason", reason)}>
-                {reason}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        <label className="text-field">
-          <span>表扬 / 批评原因</span>
-          <textarea
-            aria-label="积分原因"
-            value={pointForm.reason}
-            onChange={(event) => onPointFormChange("reason", event.target.value)}
-            rows={4}
-            placeholder="例如：按时完成语文背诵 / 回家后拖延且未整理错题"
-          />
-        </label>
-
-        <div className="action-row">
-          <button className="primary-button secondary" type="button" onClick={onSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "提交中..." : "提交积分调整"}
-          </button>
-          <button className="ghost-button" type="button" onClick={() => onPointFormChange("assignedDate", assignedDate)}>
-            使用当前任务日期
-          </button>
-        </div>
-      </div>
-
-      <StatusBanner
-        status={pointsStatus}
-        actionLabel={pointsStatus?.retryable ? (isSubmitting ? "重试中..." : "重试积分提交") : undefined}
-        onAction={pointsStatus?.retryable ? onRetry : undefined}
-        actionDisabled={!pointsStatus?.retryable || isSubmitting}
-      />
-
-      <div className="mini-list">
-        <div className="mini-list-heading">
-          <div>
-            <strong>最近积分流水</strong>
-            <p className="panel-caption">按卡片展示日期、备注和正负分值，手机上直接扫一眼就能回看今天与历史记录。</p>
-          </div>
-          <span>{recentPointEntries.length} 条</span>
-        </div>
-        {recentPointEntries.length === 0 ? (
-          <p className="empty-state">还没有积分操作记录。提交一次加分或扣分后，这里会保留最近明细。</p>
-        ) : (
-          <div className="ledger-stack">
-            {recentPointEntries.map((entry) => (
-              <article
-                className={`ledger-card ${Number(entry.amount || 0) >= 0 ? "tone-reward" : "tone-penalty"}`}
-                key={entry.id}
-              >
-                <div className="ledger-card-head">
-                  <strong>{formatSignedAmount(entry.amount)}</strong>
-                  <span>{entry.assigned_date}</span>
+              <div className="points-compose-shell">
+                <div className="points-compose-heading">
+                  <div>
+                    <strong>快速记一笔</strong>
+                    <p className="panel-caption">先选加分还是扣分，再点快捷分值，最后补一句原因即可提交。</p>
+                  </div>
+                  <span>{pointForm.assignedDate || assignedDate}</span>
                 </div>
-                <p>{entry.reason || "未填写备注"}</p>
-                <div className="ledger-card-meta">
-                  <span>{formatTimeOnlyLabel(entry.created_at)}</span>
-                  <span>{entry.assigned_date === assignedDate ? "当前日期" : "历史记录"}</span>
+
+                <div className="segmented-row" role="group" aria-label="积分模式">
+                  <button
+                    className={`segment-button ${pointForm.mode === "reward" ? "is-active" : ""}`}
+                    type="button"
+                    onClick={() => onPointFormChange("mode", "reward")}
+                  >
+                    家长加分
+                  </button>
+                  <button
+                    className={`segment-button ${pointForm.mode === "penalty" ? "is-active" : ""}`}
+                    type="button"
+                    onClick={() => onPointFormChange("mode", "penalty")}
+                  >
+                    家长扣分
+                  </button>
                 </div>
-              </article>
-            ))}
-          </div>
+
+                <div className="field-grid">
+                  <label>
+                    <span>分值</span>
+                    <input
+                      aria-label="积分分值"
+                      type="number"
+                      min="1"
+                      value={pointForm.amount}
+                      onChange={(event) => onPointFormChange("amount", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>记分日期</span>
+                    <input
+                      aria-label="积分日期"
+                      type="date"
+                      value={pointForm.assignedDate}
+                      onChange={(event) => onPointFormChange("assignedDate", event.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className="quick-actions points-amount-row">
+                  {[2, 5, 10].map((amount) => (
+                    <button className="ghost-button compact" type="button" key={amount} onClick={() => onQuickAmount(amount)}>
+                      {pointForm.mode === "reward" ? "+" : "-"}
+                      {amount}
+                    </button>
+                  ))}
+                </div>
+
+                {suggestedReasons.length > 0 ? (
+                  <div className="points-reason-strip" aria-label="积分原因建议">
+                    {suggestedReasons.map((reason) => (
+                      <button className="ghost-button compact" type="button" key={reason} onClick={() => onPointFormChange("reason", reason)}>
+                        {reason}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <label className="text-field">
+                  <span>表扬 / 批评原因</span>
+                  <textarea
+                    aria-label="积分原因"
+                    value={pointForm.reason}
+                    onChange={(event) => onPointFormChange("reason", event.target.value)}
+                    rows={4}
+                    placeholder="例如：按时完成语文背诵 / 回家后拖延且未整理错题"
+                  />
+                </label>
+
+                <div className="action-row">
+                  <button className="primary-button secondary" type="button" onClick={onSubmit} disabled={isSubmitting}>
+                    {isSubmitting ? "提交中..." : "提交积分调整"}
+                  </button>
+                  <button className="ghost-button" type="button" onClick={() => onPointFormChange("assignedDate", assignedDate)}>
+                    使用当前任务日期
+                  </button>
+                </div>
+              </div>
+
+              <StatusBanner
+                status={pointsStatus}
+                actionLabel={pointsStatus?.retryable ? (isSubmitting ? "重试中..." : "重试积分提交") : undefined}
+                onAction={pointsStatus?.retryable ? onRetry : undefined}
+                actionDisabled={!pointsStatus?.retryable || isSubmitting}
+              />
+            </div>
+
+            <div className={getPanelClass("ledger")}>
+              <div className="mini-list">
+                <div className="mini-list-heading">
+                  <div>
+                    <strong>最近积分流水</strong>
+                    <p className="panel-caption">按卡片展示日期、备注和正负分值，手机上直接扫一眼就能回看今天与历史记录。</p>
+                  </div>
+                  <span>{recentPointEntries.length} 条</span>
+                </div>
+                {recentPointEntries.length === 0 ? (
+                  <p className="empty-state">还没有积分操作记录。提交一次加分或扣分后，这里会保留最近明细。</p>
+                ) : (
+                  <div className="ledger-stack">
+                    {recentPointEntries.map((entry) => (
+                      <article
+                        className={`ledger-card ${Number(entry.amount || 0) >= 0 ? "tone-reward" : "tone-penalty"}`}
+                        key={entry.id}
+                      >
+                        <div className="ledger-card-head">
+                          <strong>{formatSignedAmount(entry.amount)}</strong>
+                          <span>{entry.assigned_date}</span>
+                        </div>
+                        <p>{entry.reason || "未填写备注"}</p>
+                        <div className="ledger-card-meta">
+                          <span>{formatTimeOnlyLabel(entry.created_at)}</span>
+                          <span>{entry.assigned_date === assignedDate ? "当前日期" : "历史记录"}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
-      </div>
+      </ScreenSubpanelDeck>
     </section>
   )
 }
@@ -2751,6 +2942,7 @@ function WordListPanel({
   onRemoveWordList,
   onSyncWordListNow,
 }) {
+  const [activeWordPanel, setActiveWordPanel] = useState("create")
   const totalWordItems = wordLists.reduce((sum, list) => sum + (Array.isArray(list.items) ? list.items.length : 0), 0)
   const currentDateListCount = wordLists.filter((list) => list.assigned_date === assignedDate).length
   const draftItemCount = String(wordListDraft.itemsText || "")
@@ -2761,6 +2953,26 @@ function WordListPanel({
     const syncState = wordListSyncState[list.id]?.state
     return ["dirty", "saving", "error"].includes(syncState)
   }).length
+  const wordPanelItems = [
+    {
+      id: "create",
+      label: "新建清单",
+      metric: draftItemCount > 0 ? `${draftItemCount} 词` : "待录入",
+      caption: `${wordListDraft.assignedDate || assignedDate} / ${wordListDraft.language}`,
+    },
+    {
+      id: "lists",
+      label: "已有清单",
+      metric: `${wordLists.length} 份`,
+      caption: wordLists.length > 0 ? "按日期管理和同步词项" : "创建后会在这里集中维护",
+    },
+  ]
+
+  useEffect(() => {
+    if (wordListStatus?.tone === "success" && wordLists.length > 0) {
+      setActiveWordPanel("lists")
+    }
+  }, [wordListStatus?.tone, wordLists.length])
 
   return (
     <section className="panel" id="word-console">
@@ -2772,136 +2984,148 @@ function WordListPanel({
         <span>{childLabel}</span>
       </div>
 
-      <div className="word-focus-strip">
-        <article className="word-focus-card tone-accent">
-          <span>当前孩子清单</span>
-          <strong>{wordLists.length}</strong>
-          <p>{currentDateListCount > 0 ? `当前日期已有 ${currentDateListCount} 份清单。` : "当前日期还没有绑定清单。"}</p>
-        </article>
-        <article className="word-focus-card tone-calm">
-          <span>累计词项</span>
-          <strong>{totalWordItems}</strong>
-          <p>已保存的词项会直接供 Pad 端默写与拍照批改使用。</p>
-        </article>
-        <article className="word-focus-card tone-neutral">
-          <span>同步状态</span>
-          <strong>{activeSyncCount}</strong>
-          <p>{activeSyncCount > 0 ? "有清单待同步或需要重试。" : draftItemCount > 0 ? "新建草稿已准备好，可直接创建。" : "当前没有待同步的词单改动。"}</p>
-        </article>
-      </div>
+      <SubMenuStrip items={wordPanelItems} activeItem={activeWordPanel} onChange={setActiveWordPanel} ariaLabel="单词清单子菜单" />
 
-      <div className="word-create-shell">
-        <div className="local-scope-card">
-          <strong>当前绑定范围</strong>
-          <p>
-            家庭 {familyId} / 孩子 {assigneeId} / 默认日期 {assignedDate}
-          </p>
-        </div>
+      <ScreenSubpanelDeck activeId={activeWordPanel} orderedIds={WORD_PANEL_ORDER}>
+        {(getPanelClass) => (
+          <>
+            <div className={getPanelClass("create")}>
+              <div className="word-focus-strip">
+                <article className="word-focus-card tone-accent">
+                  <span>当前孩子清单</span>
+                  <strong>{wordLists.length}</strong>
+                  <p>{currentDateListCount > 0 ? `当前日期已有 ${currentDateListCount} 份清单。` : "当前日期还没有绑定清单。"}</p>
+                </article>
+                <article className="word-focus-card tone-calm">
+                  <span>累计词项</span>
+                  <strong>{totalWordItems}</strong>
+                  <p>已保存的词项会直接供 Pad 端默写与拍照批改使用。</p>
+                </article>
+                <article className="word-focus-card tone-neutral">
+                  <span>同步状态</span>
+                  <strong>{activeSyncCount}</strong>
+                  <p>{activeSyncCount > 0 ? "有清单待同步或需要重试。" : draftItemCount > 0 ? "新建草稿已准备好，可直接创建。" : "当前没有待同步的词单改动。"}</p>
+                </article>
+              </div>
 
-        <div className="field-grid">
-          <label>
-            <span>清单名</span>
-            <input
-              aria-label="清单名"
-              value={wordListDraft.title}
-              onChange={(event) => onDraftChange("title", event.target.value)}
-              placeholder="例如：3 月 10 日英语默写"
-            />
-          </label>
-          <label>
-            <span>清单语言</span>
-            <select
-              aria-label="清单语言"
-              value={wordListDraft.language}
-              onChange={(event) => onDraftChange("language", event.target.value)}
-            >
-              <option value="英语">英语</option>
-              <option value="语文">语文</option>
-              <option value="拼音">拼音</option>
-              <option value="其他">其他</option>
-            </select>
-          </label>
-          <label>
-            <span>绑定日期</span>
-            <input
-              aria-label="清单日期"
-              type="date"
-              value={wordListDraft.assignedDate}
-              onChange={(event) => onDraftChange("assignedDate", event.target.value)}
-            />
-          </label>
-        </div>
+              <div className="word-create-shell">
+                <div className="local-scope-card">
+                  <strong>当前绑定范围</strong>
+                  <p>
+                    家庭 {familyId} / 孩子 {assigneeId} / 默认日期 {assignedDate}
+                  </p>
+                </div>
 
-        <label className="text-field">
-          <span>词项</span>
-          <textarea
-            aria-label="词项"
-            value={wordListDraft.itemsText}
-            onChange={(event) => onDraftChange("itemsText", event.target.value)}
-            rows={5}
-            placeholder="一行一个词，例如：apple"
-          />
-        </label>
+                <div className="field-grid">
+                  <label>
+                    <span>清单名</span>
+                    <input
+                      aria-label="清单名"
+                      value={wordListDraft.title}
+                      onChange={(event) => onDraftChange("title", event.target.value)}
+                      placeholder="例如：3 月 10 日英语默写"
+                    />
+                  </label>
+                  <label>
+                    <span>清单语言</span>
+                    <select
+                      aria-label="清单语言"
+                      value={wordListDraft.language}
+                      onChange={(event) => onDraftChange("language", event.target.value)}
+                    >
+                      <option value="英语">英语</option>
+                      <option value="语文">语文</option>
+                      <option value="拼音">拼音</option>
+                      <option value="其他">其他</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>绑定日期</span>
+                    <input
+                      aria-label="清单日期"
+                      type="date"
+                      value={wordListDraft.assignedDate}
+                      onChange={(event) => onDraftChange("assignedDate", event.target.value)}
+                    />
+                  </label>
+                </div>
 
-        <div className="word-format-hint">
-          <span className="summary-chip">批量录入提示</span>
-          <p>支持一行一个词，也支持 `apple - 苹果`、`blind（失明的）` 这种带释义写法，后端解析后会自动拆分。</p>
-        </div>
+                <label className="text-field">
+                  <span>词项</span>
+                  <textarea
+                    aria-label="词项"
+                    value={wordListDraft.itemsText}
+                    onChange={(event) => onDraftChange("itemsText", event.target.value)}
+                    rows={5}
+                    placeholder="一行一个词，例如：apple"
+                  />
+                </label>
 
-        <div className="action-row">
-          <button className="primary-button secondary" type="button" onClick={onCreate}>
-            创建单词清单
-          </button>
-          <button className="ghost-button" type="button" onClick={onUseAssignedDate}>
-            使用当前任务日期
-          </button>
-        </div>
-      </div>
+                <div className="word-format-hint">
+                  <span className="summary-chip">批量录入提示</span>
+                  <p>支持一行一个词，也支持 `apple - 苹果`、`blind（失明的）` 这种带释义写法，后端解析后会自动拆分。</p>
+                </div>
 
-      <StatusBanner
-        status={wordListStatus}
-        actionLabel={wordListStatus?.retryable ? "重试创建清单" : undefined}
-        onAction={wordListStatus?.retryable ? onRetry : undefined}
-        actionDisabled={!wordListStatus?.retryable}
-      />
+                <div className="action-row">
+                  <button className="primary-button secondary" type="button" onClick={onCreate}>
+                    创建单词清单
+                  </button>
+                  <button className="ghost-button" type="button" onClick={onUseAssignedDate}>
+                    使用当前任务日期
+                  </button>
+                </div>
+              </div>
 
-      <div className="mini-list">
-        <div className="mini-list-heading">
-          <div>
-            <strong>当前孩子的单词清单</strong>
-            <p className="panel-caption">按日期折叠成卡片，手机端优先展开当前日期，编辑词项时不再挤成表格。</p>
-          </div>
-          <span>{wordLists.length} 份</span>
-        </div>
-
-        {wordLists.length === 0 ? (
-          <p className="empty-state">还没有为当前孩子创建单词清单。</p>
-        ) : (
-          <div className="word-list-stack">
-            {wordLists.map((list) => (
-              <WordListEditorCard
-                key={list.id}
-                list={list}
-                isCurrentDate={list.assigned_date === assignedDate}
-                syncStatus={
-                  wordListSyncState[list.id] || {
-                    state: "idle",
-                    tone: "success",
-                    label: "已同步",
-                    message: "当前清单内容已经和服务器保持一致。",
-                  }
-                }
-                onUpdateWordListMeta={onUpdateWordListMeta}
-                onAddWordItem={onAddWordItem}
-                onUpdateWordItem={onUpdateWordItem}
-                onRemoveWordItem={onRemoveWordItem}
-                onRemoveWordList={onRemoveWordList}
-                onSyncNow={onSyncWordListNow}
+              <StatusBanner
+                status={wordListStatus}
+                actionLabel={wordListStatus?.retryable ? "重试创建清单" : undefined}
+                onAction={wordListStatus?.retryable ? onRetry : undefined}
+                actionDisabled={!wordListStatus?.retryable}
               />
-            ))}
-          </div>
+            </div>
+
+            <div className={getPanelClass("lists")}>
+              <div className="mini-list">
+                <div className="mini-list-heading">
+                  <div>
+                    <strong>当前孩子的单词清单</strong>
+                    <p className="panel-caption">按日期折叠成卡片，手机端优先展开当前日期，编辑词项时不再挤成表格。</p>
+                  </div>
+                  <span>{wordLists.length} 份</span>
+                </div>
+
+                {wordLists.length === 0 ? (
+                  <p className="empty-state">还没有为当前孩子创建单词清单。</p>
+                ) : (
+                  <div className="word-list-stack">
+                    {wordLists.map((list) => (
+                      <WordListEditorCard
+                        key={list.id}
+                        list={list}
+                        isCurrentDate={list.assigned_date === assignedDate}
+                        syncStatus={
+                          wordListSyncState[list.id] || {
+                            state: "idle",
+                            tone: "success",
+                            label: "已同步",
+                            message: "当前清单内容已经和服务器保持一致。",
+                          }
+                        }
+                        onUpdateWordListMeta={onUpdateWordListMeta}
+                        onAddWordItem={onAddWordItem}
+                        onUpdateWordItem={onUpdateWordItem}
+                        onRemoveWordItem={onRemoveWordItem}
+                        onRemoveWordList={onRemoveWordList}
+                        onSyncNow={onSyncWordListNow}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
-      </div>
+      </ScreenSubpanelDeck>
     </section>
   )
 }
@@ -2958,6 +3182,7 @@ export default function App() {
   const [isLoadingDictation, setIsLoadingDictation] = useState(false)
   const [activeConsoleSection, setActiveConsoleSection] = useState("publish-console")
   const [publishStage, setPublishStage] = useState("compose")
+  const [activePublishPanel, setActivePublishPanel] = useState("scope")
   const [draftReviewFilter, setDraftReviewFilter] = useState("risk")
   const [draftFocusTaskId, setDraftFocusTaskId] = useState("")
   const wordListSyncTimersRef = useRef(new Map())
@@ -3316,79 +3541,83 @@ export default function App() {
   }, [createdTasks.length, draftTasks.length])
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.IntersectionObserver !== "function") {
-      return undefined
+    if (createdTasks.length === 0 && draftTasks.length === 0 && activePublishPanel !== "scope") {
+      setActivePublishPanel("scope")
     }
+  }, [activePublishPanel, createdTasks.length, draftTasks.length])
 
-    const sectionNodes = CONSOLE_SECTIONS.map((item) => document.getElementById(item.id)).filter(Boolean)
-    if (sectionNodes.length === 0) {
-      return undefined
-    }
+  function handlePublishPanelChange(nextPanel) {
+    setActivePublishPanel(nextPanel)
 
-    const observer = new window.IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio)
-
-        if (visibleEntries[0]?.target?.id) {
-          setActiveConsoleSection((current) => (current === visibleEntries[0].target.id ? current : visibleEntries[0].target.id))
-        }
-      },
-      {
-        rootMargin: "-22% 0px -48% 0px",
-        threshold: [0.2, 0.45, 0.7],
-      },
-    )
-
-    sectionNodes.forEach((node) => observer.observe(node))
-
-    return () => {
-      observer.disconnect()
-    }
-  }, [])
-
-  function jumpToConsoleSection(sectionId) {
-    setActiveConsoleSection(sectionId)
-
-    if (typeof document === "undefined") {
+    if (nextPanel === "review") {
+      setPublishStage("review")
       return
     }
 
-    const target = document.getElementById(sectionId)
-    if (!target) {
+    if (nextPanel === "release" || nextPanel === "board") {
+      setPublishStage("release")
       return
     }
 
-    if (typeof target.scrollIntoView === "function") {
+    setPublishStage("compose")
+  }
+
+  function handlePublishStageChange(nextStage) {
+    setPublishStage(nextStage)
+
+    if (nextStage === "review") {
+      setActivePublishPanel("review")
+      return
+    }
+
+    if (nextStage === "release") {
+      setActivePublishPanel(createdTasks.length > 0 ? "board" : "release")
+      return
+    }
+
+    setActivePublishPanel("scope")
+  }
+
+  function scheduleConsoleScroll(sectionIds) {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return
+    }
+
+    const targetIds = Array.isArray(sectionIds) ? sectionIds : [sectionIds]
+    const runScroll = () => {
+      const target = targetIds.map((id) => document.getElementById(id)).find(Boolean)
+      if (!target || typeof target.scrollIntoView !== "function") {
+        return
+      }
+
       target.scrollIntoView({
         behavior: "smooth",
         block: "start",
       })
     }
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(runScroll)
+      })
+      return
+    }
+
+    window.setTimeout(runScroll, 16)
+  }
+
+  function jumpToConsoleSection(sectionId) {
+    setActiveConsoleSection(sectionId)
+    scheduleConsoleScroll(sectionId)
   }
 
   function jumpToDraftReview(filter = "risk", taskId = "") {
     setPublishStage("review")
+    setActivePublishPanel("review")
     setDraftReviewFilter(filter)
     setDraftFocusTaskId(taskId || "")
     setActiveConsoleSection("publish-console")
-
-    if (typeof document === "undefined") {
-      return
-    }
-
-    const target = document.getElementById("draft-review-panel") || document.getElementById("publish-console")
-    if (!target) {
-      return
-    }
-
-    if (typeof target.scrollIntoView === "function") {
-      target.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      })
-    }
+    scheduleConsoleScroll(["draft-review-panel", "publish-console"])
   }
 
   function handleChildPresetChange(nextId) {
@@ -3512,6 +3741,7 @@ export default function App() {
       setAnalysis(data.analysis || null)
 
       if (parsedTasks.length === 0) {
+        handlePublishPanelChange("preview")
         setParseStatus({
           tone: "warning",
           title: "解析完成，但未生成草稿",
@@ -3519,6 +3749,7 @@ export default function App() {
           retryable: true,
         })
       } else {
+        handlePublishPanelChange("review")
         setParseStatus({
           tone: "success",
           title: "AI 草稿已生成",
@@ -3616,6 +3847,7 @@ export default function App() {
       setCreatedTasks(Array.isArray(data.tasks) ? data.tasks : [])
       setDraftTasks((current) => current.filter((task) => !selectedIds.has(task.id)))
       setSelectedTaskIds((current) => current.filter((taskId) => !selectedIds.has(taskId)))
+      handlePublishPanelChange("board")
       setCreateStatus({
         tone: "success",
         title: "任务已发布",
@@ -4053,9 +4285,14 @@ export default function App() {
           metric: "--",
           caption: "",
           tone: "calm",
-      }
+        }
     }
   })
+  const activeConsoleMeta = consoleSectionItems.find((item) => item.id === activeConsoleSection) || consoleSectionItems[0]
+  const consoleSectionOrder = consoleSectionItems.reduce((result, item, index) => {
+    result[item.id] = item.id === activeConsoleSection ? 1 : index + 2
+    return result
+  }, {})
   const publishStageItems = [
     {
       id: "compose",
@@ -4082,10 +4319,59 @@ export default function App() {
       caption:
         createdTasks.length > 0
           ? `本次已发布 ${createdTasks.length} 条，可以继续去反馈或积分区。`
-          : "发布成功后，这里会回到结果和下一步动作。",
+      : "发布成功后，这里会回到结果和下一步动作。",
     },
   ]
-  const shouldCollapseComposer = publishStage !== "compose" && (draftTasks.length > 0 || createdTasks.length > 0)
+  const publishPanelItems = [
+    {
+      id: "scope",
+      label: "范围",
+      metric: assignedDate,
+      caption: "先定孩子和日期",
+    },
+    {
+      id: "compose",
+      label: "原文",
+      metric: `${rawText.trim().length} 字`,
+      caption: "录入老师原文",
+    },
+    {
+      id: "review",
+      label: "审核",
+      metric: `${draftTasks.length} 张`,
+      caption: riskyDraftTaskCount > 0 ? `${riskyDraftTaskCount} 张优先处理` : "草稿检查",
+    },
+    {
+      id: "release",
+      label: "发布",
+      metric: `${selectedDraftTasks.length} 条`,
+      caption: selectedBlockingDraftCount > 0 ? `${selectedBlockingDraftCount} 条阻断` : "确认下发",
+    },
+    {
+      id: "split",
+      label: "拆分",
+      metric: `${previewSections.length} 组`,
+      caption: "老师原文拆分",
+    },
+    {
+      id: "preview",
+      label: "任务",
+      metric: `${previewTasks.length} 条`,
+      caption: "准备生成的任务",
+    },
+    {
+      id: "analysis",
+      label: "摘要",
+      metric: parserMode ? "已生成" : "待解析",
+      caption: "AI 读题摘要",
+    },
+    {
+      id: "board",
+      label: "任务板",
+      metric: `${todayTasks.length} 条`,
+      caption: createdTasks.length > 0 ? `${createdTasks.length} 条刚发布` : "当天已发布任务",
+    },
+  ]
   let publishDockConfig
 
   if (publishStage === "review") {
@@ -4122,7 +4408,9 @@ export default function App() {
       },
       tertiaryAction: {
         label: "回到原文",
-        onClick: () => setPublishStage("compose"),
+        onClick: () => {
+          handlePublishPanelChange("compose")
+        },
         disabled: false,
       },
     }
@@ -4145,7 +4433,9 @@ export default function App() {
       },
       tertiaryAction: {
         label: "继续下一批",
-        onClick: () => setPublishStage("compose"),
+        onClick: () => {
+          handlePublishPanelChange("scope")
+        },
         disabled: false,
       },
     }
@@ -4177,13 +4467,34 @@ export default function App() {
   return (
     <main className="app-shell">
       <section className="hero">
-        <div>
-          <p className="eyebrow">StudyClaw Parent Console</p>
-          <h1>家长主控制台：发布任务、看反馈、调积分、配单词清单</h1>
-          <p className="hero-copy">
-            这版家长端把“按某一天发布作业”作为主路径，同时把每日反馈、手工积分和单词清单集中到同一页。任务草稿会继续先做本地结构预览，再调
-            Go 后端的解析链路；`needs_review` 和低置信只高亮，不改字段语义。
-          </p>
+        <div className="hero-topline">
+          <p className="eyebrow">StudyClaw Parent H5</p>
+          <span className="hero-date-pill">{assignedDate}</span>
+        </div>
+        <div className="hero-main">
+          <div>
+            <h1>{childLabel} 的家长移动工位</h1>
+            <p className="hero-copy">
+              现在默认按手机 H5 的节奏组织操作路径: 先把 {assignedDate} 的任务发出去，再顺手切到反馈、积分或单词维护；当前主屏是
+              {activeConsoleMeta?.label || "发布作业"}。
+            </p>
+          </div>
+          <div className="hero-focus-strip">
+            <article className="hero-focus-card tone-focus">
+              <span>当前主屏</span>
+              <strong>{activeConsoleMeta?.label || "发布作业"}</strong>
+              <p>{activeConsoleMeta?.caption}</p>
+            </article>
+            <article className="hero-focus-card tone-calm">
+              <span>今日摘要</span>
+              <strong>{dailyReport.summary}</strong>
+              <p>
+                {currentDatePointEntries.length > 0
+                  ? `今天已有 ${currentDatePointEntries.length} 条积分流水，单词清单 ${scopedWordLists.length} 份。`
+                  : `今天还没有积分流水，当前已绑定 ${scopedWordLists.length} 份单词清单。`}
+              </p>
+            </article>
+          </div>
         </div>
         <div className="hero-stats">
           <StatCard label="当前孩子" value={childLabel} hint={`家庭 ${familyId} / 孩子 ${assigneeId}`} />
@@ -4203,318 +4514,369 @@ export default function App() {
         wordListCount={scopedWordLists.length}
       />
 
-      <PocketOverview
-        childLabel={childLabel}
-        assignedDate={assignedDate}
-        items={consoleSectionItems}
-        onJump={jumpToConsoleSection}
-      />
-
-      <section className="workspace workspace-publish" id="publish-console">
-        <form className="panel composer" onSubmit={handleSubmit}>
-          <div className="panel-heading">
-            <div>
-              <h2>作业发布主路径</h2>
-              <p className="panel-caption">选择孩子和日期，粘贴群消息，解析审核后再发布到当天任务板。</p>
-            </div>
-            <span>主控制区</span>
-          </div>
-
-          <WorkflowSteps
-            previewTaskCount={previewTasks.length}
-            draftTaskCount={draftTasks.length}
-            riskyTaskCount={riskyDraftTaskCount}
-            selectedTaskCount={selectedDraftTasks.length}
-            createdTaskCount={createdTasks.length}
-            parseStatus={parseStatus}
-            createStatus={createStatus}
-          />
-
-          <AssignmentScopePanel
-            childProfiles={CHILD_PROFILES}
-            selectedChildPreset={selectedChildPreset}
-            onChildPresetChange={handleChildPresetChange}
-            assignedDate={assignedDate}
-            onAssignedDateChange={setAssignedDate}
-            onShiftDate={(days) => setAssignedDate((current) => shiftDate(current, days))}
-            onUseToday={() => setAssignedDate(formatDateInputValue())}
-            childLabel={childLabel}
-            familyId={familyId}
-            assigneeId={assigneeId}
-            apiBaseUrl={apiBaseUrl}
-            onApiBaseUrlChange={setApiBaseUrl}
-            onFamilyIdChange={setFamilyId}
-            onAssigneeIdChange={setAssigneeId}
-            todayTaskCount={todayTasks.length}
-            selectedDraftCount={selectedDraftTasks.length}
-            pointDelta={dailyReport.pointDelta}
-            dictationSummary={dictationSummary}
-          />
-
-          <PublishStageStrip items={publishStageItems} activeStage={publishStage} onChange={setPublishStage} />
-
-          <p className="field-note">
-            当前解析、发布和任务板刷新都会使用 {assignedDate || "未选择日期"}。切换日期后，右侧反馈区也会按该日期查看结果。
-          </p>
-
-          {shouldCollapseComposer ? (
-            <HelpAccordion
-              title="原文与解析入口"
-              caption="当前页面已经切到审核或发布阶段。需要改老师原文时，再展开这里重新解析。"
-              badge={`${rawText.trim().length} 字原文`}
-            >
-              <label className="text-field">
-                <span>学校群原文</span>
-                <textarea
-                  value={rawText}
-                  onChange={(event) => setRawText(event.target.value)}
-                  placeholder="直接粘贴老师发到学校群的作业安排"
-                  rows={16}
-                />
-              </label>
-
-              <div className="action-row composer-actions">
-                <button className="ghost-button" type="button" onClick={() => setRawText(REFERENCE_GROUP_MESSAGE)}>
-                  填入参考任务
-                </button>
-                <button className="ghost-button" type="button" onClick={refreshTasks} disabled={isRefreshing}>
-                  {isRefreshing ? "刷新中..." : "刷新当日任务"}
-                </button>
-                <button className="primary-button" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "AI 解析中..." : "AI 解析任务"}
-                </button>
-              </div>
-
-              <StatusBanner
-                status={parseStatus}
-                actionLabel={parseStatus?.retryable ? (isSubmitting ? "重试中..." : "重新解析") : undefined}
-                onAction={parseStatus?.retryable ? () => void runParse() : undefined}
-                actionDisabled={!parseStatus?.retryable || isSubmitting}
-              />
-            </HelpAccordion>
-          ) : (
+      <section className="console-flow" aria-label="家长移动工位主流程">
+        <ScreenSubpanelDeck activeId={activeConsoleSection} orderedIds={CONSOLE_PANEL_ORDER} className="console-root-deck">
+          {(getConsolePanelClass) => (
             <>
-              <label className="text-field">
-                <span>学校群原文</span>
-                <textarea
-                  value={rawText}
-                  onChange={(event) => setRawText(event.target.value)}
-                  placeholder="直接粘贴老师发到学校群的作业安排"
-                  rows={16}
+              <section className={`${getConsolePanelClass("publish-console")} console-root-screen`}>
+                <section className="workspace workspace-publish" id="publish-console">
+                  <section className="panel current-screen-intro">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>今天先把作业发出去</h2>
+                        <p className="panel-caption">发布区已经拆成多个子页面，按顺序切换，不再把所有模块堆在同一长页里。</p>
+                      </div>
+                      <span>{selectedDraftTasks.length > 0 ? `${selectedDraftTasks.length} 条待发` : `${todayTasks.length} 条任务`}</span>
+                    </div>
+                    <div className="compact-stage-strip" role="tablist" aria-label="发布主路径步骤">
+                      <button
+                        className={`compact-stage-pill ${publishStage === "compose" ? "is-active" : ""}`}
+                        role="tab"
+                        type="button"
+                        onClick={() => handlePublishStageChange("compose")}
+                      >
+                        01 录入
+                      </button>
+                      <button
+                        className={`compact-stage-pill ${publishStage === "review" ? "is-active" : ""}`}
+                        role="tab"
+                        type="button"
+                        onClick={() => handlePublishStageChange("review")}
+                      >
+                        02 审核
+                      </button>
+                      <button
+                        className={`compact-stage-pill ${publishStage === "release" ? "is-active" : ""}`}
+                        role="tab"
+                        type="button"
+                        onClick={() => handlePublishStageChange("release")}
+                      >
+                        03 发布
+                      </button>
+                    </div>
+                  </section>
+
+                  <SubMenuStrip items={publishPanelItems} activeItem={activePublishPanel} onChange={handlePublishPanelChange} ariaLabel="发布主屏子菜单" />
+
+                  <ScreenSubpanelDeck activeId={activePublishPanel} orderedIds={PUBLISH_PANEL_ORDER}>
+                    {(getPanelClass) => (
+                      <>
+                        <div className={getPanelClass("scope")}>
+                          <section className="column-stack">
+                            <section className="panel">
+                              <div className="panel-heading">
+                                <div>
+                                  <h2>先定孩子和日期</h2>
+                                  <p className="panel-caption">先锁定今天操作范围，再去录入原文、审核和发布。</p>
+                                </div>
+                                <span>{childLabel}</span>
+                              </div>
+
+                              <AssignmentScopePanel
+                                childProfiles={CHILD_PROFILES}
+                                selectedChildPreset={selectedChildPreset}
+                                onChildPresetChange={handleChildPresetChange}
+                                assignedDate={assignedDate}
+                                onAssignedDateChange={setAssignedDate}
+                                onShiftDate={(days) => setAssignedDate((current) => shiftDate(current, days))}
+                                onUseToday={() => setAssignedDate(formatDateInputValue())}
+                                childLabel={childLabel}
+                                familyId={familyId}
+                                assigneeId={assigneeId}
+                                apiBaseUrl={apiBaseUrl}
+                                onApiBaseUrlChange={setApiBaseUrl}
+                                onFamilyIdChange={setFamilyId}
+                                onAssigneeIdChange={setAssigneeId}
+                                todayTaskCount={todayTasks.length}
+                                selectedDraftCount={selectedDraftTasks.length}
+                                pointDelta={dailyReport.pointDelta}
+                                dictationSummary={dictationSummary}
+                              />
+
+                              <div className="action-row">
+                                <button className="primary-button secondary" type="button" onClick={() => handlePublishPanelChange("compose")}>
+                                  去录入原文
+                                </button>
+                                <button className="ghost-button" type="button" onClick={() => handlePublishPanelChange("board")}>
+                                  先看任务板
+                                </button>
+                              </div>
+                            </section>
+                          </section>
+                        </div>
+
+                        <div className={getPanelClass("compose")}>
+                          <form className="panel composer" onSubmit={handleSubmit}>
+                            <div className="panel-heading">
+                              <div>
+                                <h2>录入老师原文</h2>
+                                <p className="panel-caption">这页只做原文录入和解析，不再和范围设置、审核、预览堆在一起。</p>
+                              </div>
+                              <span>{assignedDate}</span>
+                            </div>
+
+                            <div className="local-scope-card">
+                              <strong>当前发布范围</strong>
+                              <p>{childLabel} / 家庭 {familyId} / 孩子 {assigneeId} / 日期 {assignedDate}</p>
+                            </div>
+
+                            <label className="text-field">
+                              <span>学校群原文</span>
+                              <textarea
+                                value={rawText}
+                                onChange={(event) => setRawText(event.target.value)}
+                                placeholder="直接粘贴老师发到学校群的作业安排"
+                                rows={16}
+                              />
+                            </label>
+
+                            <div className="action-row composer-actions">
+                              <button className="ghost-button" type="button" onClick={() => setRawText(REFERENCE_GROUP_MESSAGE)}>
+                                填入参考任务
+                              </button>
+                              <button className="ghost-button" type="button" onClick={refreshTasks} disabled={isRefreshing}>
+                                {isRefreshing ? "刷新中..." : "刷新当日任务"}
+                              </button>
+                              <button className="primary-button" type="submit" disabled={isSubmitting}>
+                                {isSubmitting ? "AI 解析中..." : "AI 解析任务"}
+                              </button>
+                            </div>
+
+                            <StatusBanner
+                              status={parseStatus}
+                              actionLabel={parseStatus?.retryable ? (isSubmitting ? "重试中..." : "重新解析") : undefined}
+                              onAction={parseStatus?.retryable ? () => void runParse() : undefined}
+                              actionDisabled={!parseStatus?.retryable || isSubmitting}
+                              secondaryActionLabel={previewTasks.length > 0 ? "去看原文拆分" : undefined}
+                              onSecondaryAction={previewTasks.length > 0 ? () => handlePublishPanelChange("split") : undefined}
+                              secondaryActionDisabled={previewTasks.length === 0}
+                            />
+
+                            {refreshError ? <p className="inline-hint hint-error">刷新当日任务失败: {refreshError}</p> : null}
+                          </form>
+                        </div>
+
+                        <div className={getPanelClass("review")}>
+                          <DraftTaskList
+                            tasks={draftTasks}
+                            selectedTaskIds={selectedTaskIds}
+                            diagnosticsById={diagnostics.byId}
+                            activeReviewFilter={draftReviewFilter}
+                            onActiveReviewFilterChange={setDraftReviewFilter}
+                            activeDraftTaskId={draftFocusTaskId}
+                            onActiveDraftTaskIdChange={setDraftFocusTaskId}
+                            onToggle={toggleSelectedTask}
+                            onFieldChange={updateDraftTask}
+                            onRemove={removeDraftTask}
+                            onSelectRecommended={selectRecommendedTasks}
+                            onSelectCleanTasks={selectCleanTasks}
+                            onSelectAll={selectAllTasks}
+                            onClearSelection={clearTaskSelection}
+                            onAddManualTask={addManualTask}
+                          />
+                        </div>
+
+                        <div className={getPanelClass("release")}>
+                          <section className="column-stack">
+                            <CreatePanel
+                              diagnosticsSummary={diagnostics.summary}
+                              selectedTasks={selectedDraftTasks}
+                              diagnosticsById={diagnostics.byId}
+                              recommendedCount={recommendedTaskCount}
+                              assignedDate={assignedDate}
+                              onSelectRecommended={selectRecommendedTasks}
+                              onJumpToDraftReview={jumpToDraftReview}
+                              onConfirm={() => void runConfirmCreate()}
+                              isConfirming={isConfirming}
+                              createStatus={createStatus}
+                            />
+                            {createdTasks.length > 0 ? (
+                              <section className="panel publish-next-actions">
+                                <div className="panel-heading">
+                                  <div>
+                                    <h3>发布后下一步</h3>
+                                    <p className="panel-caption">发布完成后直接切反馈、积分或回到新一轮录入。</p>
+                                  </div>
+                                  <span>{createdTasks.length} 条已发</span>
+                                </div>
+                                <div className="action-row">
+                                  <button className="ghost-button" type="button" onClick={() => jumpToConsoleSection("report-console")}>
+                                    去看反馈
+                                  </button>
+                                  <button className="ghost-button" type="button" onClick={() => jumpToConsoleSection("points-console")}>
+                                    去调积分
+                                  </button>
+                                  <button className="ghost-button" type="button" onClick={() => jumpToConsoleSection("word-console")}>
+                                    去看单词
+                                  </button>
+                                  <button className="primary-button secondary" type="button" onClick={() => handlePublishPanelChange("scope")}>
+                                    继续下一批
+                                  </button>
+                                </div>
+                              </section>
+                            ) : null}
+                          </section>
+                        </div>
+
+                        <div className={getPanelClass("split")}>
+                          <section className="panel publish-preview-sheet">
+                            <div className="panel-heading">
+                              <div>
+                                <h2>老师原文拆分</h2>
+                                <p className="panel-caption">先看群消息被拆成哪些学科和子步骤，再决定是否回去改原文。</p>
+                              </div>
+                              <span>{previewSections.length} 组</span>
+                            </div>
+                            <SectionPreview sections={previewSections} />
+                          </section>
+                        </div>
+
+                        <div className={getPanelClass("preview")}>
+                          <ServerTaskList
+                            title="准备生成的任务"
+                            tasks={previewTasks}
+                            emptyText="等待识别群消息内容。"
+                            caption="这里是本地结构任务预览，不代表已经写入后端。"
+                          />
+                        </div>
+
+                        <div className={getPanelClass("analysis")}>
+                          <AnalysisPanel parserMode={parserMode} analysis={analysis} />
+                        </div>
+
+                        <div className={getPanelClass("board")}>
+                          <section className="workspace secondary workspace-snapshot">
+                            <ServerTaskList
+                              title="本次 API 已发布任务"
+                              tasks={createdTasks}
+                              emptyText="还没有提交到 API。"
+                              caption="发布成功后会立即展示本次写入的任务。"
+                            />
+                            <ServerTaskList
+                              title="指定日期任务板"
+                              tasks={todayTasks}
+                              emptyText="当前孩子在该日期还没有任务。"
+                              caption="来自 `/api/v1/tasks?family_id=...&user_id=...&date=...`。"
+                            />
+                          </section>
+                        </div>
+                      </>
+                    )}
+                  </ScreenSubpanelDeck>
+
+                  <HelpAccordion
+                    className="console-rulebook"
+                    title="支持的录入规则"
+                    caption="把学校群常见格式压成简明规则，收进发布主屏内，避免单独占用整段页面。"
+                    badge="录入说明"
+                  >
+                    <ul className="rule-list">
+                      <li>支持 `数学3.6：`、`英：`、`语文：` 这种带日期或简称的学科标题。</li>
+                      <li>支持 `1、`、`1.` 作为主任务编号。</li>
+                      <li>支持 `（1）`、`（2）`、`（3）` 作为同一任务下的补充步骤。</li>
+                      <li>提交后调用 `/api/v1/tasks/parse`，审核后调用 `/api/v1/tasks/confirm`，并按当前日期刷新 `/api/v1/tasks`。</li>
+                      <li>“刷新听写批改”调用 `/api/v1/dictation-sessions`；若存在处理中会自动轮询最新结果。</li>
+                      <li>“查看周趋势”调用 `/api/v1/stats/weekly`；“查看月趋势”调用 `/api/v1/stats/monthly`。</li>
+                      <li>积分通过 `/api/v1/points/ledger` 创建和查询；单词清单通过 `/api/v1/word-lists/parse` 与 `/api/v1/word-lists` 管理。</li>
+                    </ul>
+                  </HelpAccordion>
+                </section>
+
+                <PublishActionDock
+                  isVisible={activeConsoleSection === "publish-console" && publishDockConfig.stage !== "compose"}
+                  stage={publishDockConfig.stage}
+                  badge={publishDockConfig.badge}
+                  title={publishDockConfig.title}
+                  caption={publishDockConfig.caption}
+                  primaryAction={publishDockConfig.primaryAction}
+                  secondaryAction={publishDockConfig.secondaryAction}
+                  tertiaryAction={publishDockConfig.tertiaryAction}
                 />
-              </label>
+              </section>
 
-              <div className="action-row composer-actions">
-                <button className="ghost-button" type="button" onClick={() => setRawText(REFERENCE_GROUP_MESSAGE)}>
-                  填入参考任务
-                </button>
-                <button className="ghost-button" type="button" onClick={refreshTasks} disabled={isRefreshing}>
-                  {isRefreshing ? "刷新中..." : "刷新当日任务"}
-                </button>
-                <button className="primary-button" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "AI 解析中..." : "AI 解析任务"}
-                </button>
-              </div>
+              <section className={`${getConsolePanelClass("report-console")} console-root-screen`}>
+                <FeedbackPanel
+                  assignedDate={assignedDate}
+                  childLabel={childLabel}
+                  todayTasks={todayTasks}
+                  currentDatePointEntries={currentDatePointEntries}
+                  dictationSessions={dictationSessions}
+                  dictationStatus={dictationStatus}
+                  weeklyStats={weeklyStats}
+                  weeklyStatus={weeklyStatus}
+                  monthlyRows={monthlyRows}
+                  monthlyStatus={monthlyStatus}
+                  reportView={reportView}
+                  onLoadDictation={() => void refreshDictationSessions()}
+                  onLoadWeekly={() => void loadWeeklyStats()}
+                  onLoadMonthly={() => void loadMonthlyTrend()}
+                  isLoadingDictation={isLoadingDictation}
+                  isLoadingWeekly={isLoadingWeekly}
+                  isLoadingMonthly={isLoadingMonthly}
+                />
+              </section>
 
-              <StatusBanner
-                status={parseStatus}
-                actionLabel={parseStatus?.retryable ? (isSubmitting ? "重试中..." : "重新解析") : undefined}
-                onAction={parseStatus?.retryable ? () => void runParse() : undefined}
-                actionDisabled={!parseStatus?.retryable || isSubmitting}
-              />
+              <section className={`${getConsolePanelClass("points-console")} console-root-screen`}>
+                <PointsPanel
+                  familyId={familyId}
+                  assigneeId={assigneeId}
+                  assignedDate={assignedDate}
+                  pointForm={pointForm}
+                  onPointFormChange={updatePointForm}
+                  onQuickAmount={applyQuickAmount}
+                  onSubmit={() => void runPointUpdate()}
+                  onRetry={() => void runPointUpdate()}
+                  isSubmitting={isUpdatingPoints}
+                  pointsStatus={pointsStatus}
+                  estimatedBalance={estimatedBalance}
+                  todayPointEntries={currentDatePointEntries}
+                  recentPointEntries={scopedPointEntries.slice(0, 6)}
+                />
+              </section>
+
+              <section className={`${getConsolePanelClass("word-console")} console-root-screen`}>
+                <section className="console-panel-stack">
+                  <WordListPanel
+                    childLabel={childLabel}
+                    familyId={familyId}
+                    assigneeId={assigneeId}
+                    assignedDate={assignedDate}
+                    wordListDraft={wordListDraft}
+                    wordLists={scopedWordLists}
+                    wordListStatus={wordListStatus}
+                    wordListSyncState={wordListSyncState}
+                    onDraftChange={updateWordListDraft}
+                    onUseAssignedDate={useAssignedDateForWordList}
+                    onCreate={createWordListDraft}
+                    onRetry={createWordListDraft}
+                    onUpdateWordListMeta={updateWordListMeta}
+                    onAddWordItem={addWordItem}
+                    onUpdateWordItem={updateWordItem}
+                    onRemoveWordItem={removeWordItem}
+                    onRemoveWordList={removeWordList}
+                    onSyncWordListNow={syncWordListNow}
+                  />
+                  <HelpAccordion
+                    title="当前冻结说明"
+                    caption="避免前端重新定义后端语义，同时把联调用法压缩成手机上可随时展开的说明。"
+                    badge="联调说明"
+                  >
+                    <ul className="rule-list">
+                      <li>风险高亮只消费现有 `needs_review`、`confidence` 和任务去重诊断，不改后端字段含义。</li>
+                      <li>{"发布链路固定为 `parse -> 审核编辑 -> confirm -> 按日期刷新 tasks`。"}</li>
+                      <li>日报摘要由前端基于当日任务和积分记录确定性生成；周 / 月趋势走真实统计接口。</li>
+                      <li>听写批改结果来自真实 `/api/v1/dictation-sessions`，与孩子 Pad 端共享同一异步结果源。</li>
+                      <li>积分操作走真实 `/api/v1/points/ledger` 创建与查询接口，当前日期会显式传给后端。</li>
+                      <li>单词清单走真实 `/api/v1/word-lists/parse` 与 `/api/v1/word-lists`，前端只做字段映射和编辑回写。</li>
+                      <li>失败重试保持现有体验：解析失败保留原文和上一轮草稿，发布失败保留草稿与选中项，积分失败保留表单。</li>
+                    </ul>
+                  </HelpAccordion>
+                </section>
+              </section>
             </>
           )}
-          {refreshError ? <p className="inline-hint hint-error">刷新当日任务失败: {refreshError}</p> : null}
-        </form>
-
-        <section className="column-stack">
-          <DraftTaskList
-            tasks={draftTasks}
-            selectedTaskIds={selectedTaskIds}
-            diagnosticsById={diagnostics.byId}
-            activeReviewFilter={draftReviewFilter}
-            onActiveReviewFilterChange={setDraftReviewFilter}
-            activeDraftTaskId={draftFocusTaskId}
-            onActiveDraftTaskIdChange={setDraftFocusTaskId}
-            onToggle={toggleSelectedTask}
-            onFieldChange={updateDraftTask}
-            onRemove={removeDraftTask}
-            onSelectRecommended={selectRecommendedTasks}
-            onSelectCleanTasks={selectCleanTasks}
-            onSelectAll={selectAllTasks}
-            onClearSelection={clearTaskSelection}
-            onAddManualTask={addManualTask}
-          />
-          <CreatePanel
-            diagnosticsSummary={diagnostics.summary}
-            selectedTasks={selectedDraftTasks}
-            diagnosticsById={diagnostics.byId}
-            recommendedCount={recommendedTaskCount}
-            assignedDate={assignedDate}
-            onSelectRecommended={selectRecommendedTasks}
-            onJumpToDraftReview={jumpToDraftReview}
-            onConfirm={() => void runConfirmCreate()}
-            isConfirming={isConfirming}
-            createStatus={createStatus}
-          />
-          <HelpAccordion
-            title="1. 群消息结构预览"
-            caption="本地即时拆分学科与子步骤。手机上默认收起，避免在审核草稿前占满屏幕。"
-            badge={`${previewSections.length} 个学科 / ${previewTasks.length} 条`}
-          >
-            <SectionPreview sections={previewSections} />
-          </HelpAccordion>
-          <HelpAccordion
-            title="1. 本地结构任务预览"
-            caption="只展示原文结构，不代表已经写入后端。需要时再展开核对。"
-            badge={`${previewTasks.length} 条预览`}
-          >
-            <div className="task-panel-embedded">
-              <ServerTaskList
-                title="本地结构任务预览"
-                tasks={previewTasks}
-                emptyText="等待识别群消息内容。"
-                caption="仅展示原文结构，不代表已经写入后端。"
-              />
-            </div>
-          </HelpAccordion>
-          <AnalysisPanel parserMode={parserMode} analysis={analysis} />
-          {createdTasks.length > 0 ? (
-            <section className="panel publish-next-actions">
-              <div className="panel-heading">
-                <div>
-                  <h3>发布后下一步</h3>
-                  <p className="panel-caption">手机上常见动作直接留在这里，不必再向下翻整页寻找。</p>
-                </div>
-                <span>{createdTasks.length} 条已发</span>
-              </div>
-              <div className="action-row">
-                <button className="ghost-button" type="button" onClick={() => jumpToConsoleSection("report-console")}>
-                  去看反馈
-                </button>
-                <button className="ghost-button" type="button" onClick={() => jumpToConsoleSection("points-console")}>
-                  去调积分
-                </button>
-                <button className="ghost-button" type="button" onClick={() => jumpToConsoleSection("word-console")}>
-                  去看单词
-                </button>
-                <button className="primary-button secondary" type="button" onClick={() => setPublishStage("compose")}>
-                  继续布置下一批
-                </button>
-              </div>
-            </section>
-          ) : null}
-        </section>
+        </ScreenSubpanelDeck>
       </section>
-
-      <PublishActionDock
-        isVisible={activeConsoleSection === "publish-console"}
-        stage={publishDockConfig.stage}
-        badge={publishDockConfig.badge}
-        title={publishDockConfig.title}
-        caption={publishDockConfig.caption}
-        primaryAction={publishDockConfig.primaryAction}
-        secondaryAction={publishDockConfig.secondaryAction}
-        tertiaryAction={publishDockConfig.tertiaryAction}
-      />
-
-      <section className="workspace secondary workspace-snapshot">
-        <ServerTaskList
-          title="本次 API 已发布任务"
-          tasks={createdTasks}
-          emptyText="还没有提交到 API。"
-          caption="发布成功后会立即展示本次写入的任务。"
-        />
-        <ServerTaskList
-          title="指定日期任务板"
-          tasks={todayTasks}
-          emptyText="当前孩子在该日期还没有任务。"
-          caption="来自 `/api/v1/tasks?family_id=...&user_id=...&date=...`。"
-        />
-      </section>
-
-      <section className="workspace tertiary workspace-feedback">
-        <FeedbackPanel
-          assignedDate={assignedDate}
-          childLabel={childLabel}
-          todayTasks={todayTasks}
-          currentDatePointEntries={currentDatePointEntries}
-          dictationSessions={dictationSessions}
-          dictationStatus={dictationStatus}
-          weeklyStats={weeklyStats}
-          weeklyStatus={weeklyStatus}
-          monthlyRows={monthlyRows}
-          monthlyStatus={monthlyStatus}
-          reportView={reportView}
-          onLoadDictation={() => void refreshDictationSessions()}
-          onLoadWeekly={() => void loadWeeklyStats()}
-          onLoadMonthly={() => void loadMonthlyTrend()}
-          isLoadingDictation={isLoadingDictation}
-          isLoadingWeekly={isLoadingWeekly}
-          isLoadingMonthly={isLoadingMonthly}
-        />
-        <PointsPanel
-          familyId={familyId}
-          assigneeId={assigneeId}
-          assignedDate={assignedDate}
-          pointForm={pointForm}
-          onPointFormChange={updatePointForm}
-          onQuickAmount={applyQuickAmount}
-          onSubmit={() => void runPointUpdate()}
-          onRetry={() => void runPointUpdate()}
-          isSubmitting={isUpdatingPoints}
-          pointsStatus={pointsStatus}
-          estimatedBalance={estimatedBalance}
-          todayPointEntries={currentDatePointEntries}
-          recentPointEntries={scopedPointEntries.slice(0, 6)}
-        />
-      </section>
-
-      <section className="workspace tertiary workspace-words">
-        <WordListPanel
-          childLabel={childLabel}
-          familyId={familyId}
-          assigneeId={assigneeId}
-          assignedDate={assignedDate}
-          wordListDraft={wordListDraft}
-          wordLists={scopedWordLists}
-          wordListStatus={wordListStatus}
-          wordListSyncState={wordListSyncState}
-          onDraftChange={updateWordListDraft}
-          onUseAssignedDate={useAssignedDateForWordList}
-          onCreate={createWordListDraft}
-          onRetry={createWordListDraft}
-          onUpdateWordListMeta={updateWordListMeta}
-          onAddWordItem={addWordItem}
-          onUpdateWordItem={updateWordItem}
-          onRemoveWordItem={removeWordItem}
-          onRemoveWordList={removeWordList}
-          onSyncWordListNow={syncWordListNow}
-        />
-        <HelpAccordion title="当前冻结说明" caption="避免前端重新定义后端语义，同时把联调用法压缩成手机上可随时展开的说明。" badge="联调说明">
-          <ul className="rule-list">
-            <li>风险高亮只消费现有 `needs_review`、`confidence` 和任务去重诊断，不改后端字段含义。</li>
-            <li>{"发布链路固定为 `parse -> 审核编辑 -> confirm -> 按日期刷新 tasks`。"}</li>
-            <li>日报摘要由前端基于当日任务和积分记录确定性生成；周 / 月趋势走真实统计接口。</li>
-            <li>听写批改结果来自真实 `/api/v1/dictation-sessions`，与孩子 Pad 端共享同一异步结果源。</li>
-            <li>积分操作走真实 `/api/v1/points/ledger` 创建与查询接口，当前日期会显式传给后端。</li>
-            <li>单词清单走真实 `/api/v1/word-lists/parse` 与 `/api/v1/word-lists`，前端只做字段映射和编辑回写。</li>
-            <li>失败重试保持现有体验：解析失败保留原文和上一轮草稿，发布失败保留草稿与选中项，积分失败保留表单。</li>
-          </ul>
-        </HelpAccordion>
-      </section>
-
-      <HelpAccordion title="支持的录入规则" caption="把学校群常见格式压成简明规则，手机上随用随看，不占主操作区。" badge="录入说明">
-        <ul className="rule-list">
-          <li>支持 `数学3.6：`、`英：`、`语文：` 这种带日期或简称的学科标题。</li>
-          <li>支持 `1、`、`1.` 作为主任务编号。</li>
-          <li>支持 `（1）`、`（2）`、`（3）` 作为同一任务下的补充步骤。</li>
-          <li>提交后调用 `/api/v1/tasks/parse`，审核后调用 `/api/v1/tasks/confirm`，并按当前日期刷新 `/api/v1/tasks`。</li>
-          <li>“刷新听写批改”调用 `/api/v1/dictation-sessions`；若存在处理中会自动轮询最新结果。</li>
-          <li>“查看周趋势”调用 `/api/v1/stats/weekly`；“查看月趋势”调用 `/api/v1/stats/monthly`。</li>
-          <li>积分通过 `/api/v1/points/ledger` 创建和查询；单词清单通过 `/api/v1/word-lists/parse` 与 `/api/v1/word-lists` 管理。</li>
-        </ul>
-      </HelpAccordion>
 
       <MobileDock items={consoleSectionItems} activeSection={activeConsoleSection} onJump={jumpToConsoleSection} />
     </main>
