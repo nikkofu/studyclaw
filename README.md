@@ -106,6 +106,7 @@ bash scripts/demo_local_stack.sh
 - 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
 - 用户操作手册：[docs/USER_MANUAL_V0.3.1.md](docs/USER_MANUAL_V0.3.1.md)
 - 家长端移动 H5 操作手册：[docs/PARENT_WEB_H5_MANUAL.md](docs/PARENT_WEB_H5_MANUAL.md)
+- 阶段一页摘要：[docs/22_PHASE_ONE_PAGER_V0.3.1.md](docs/22_PHASE_ONE_PAGER_V0.3.1.md)
 - `v0.3.1` 发布说明：[docs/21_RELEASE_NOTES_V0.3.1.md](docs/21_RELEASE_NOTES_V0.3.1.md)
 - 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
 - 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
