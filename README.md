@@ -8,9 +8,9 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 
 ## 当前阶段
 
-- 当前交付版本：`v0.3.1`
-- 当前状态：已完成“语音助手 + 正向鼓励 + 家长端移动 H5”正式发版收口，可作为下一阶段前的稳定 GitHub 基线
-- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.1` 基线
+- 当前交付版本：`v0.3.2`
+- 当前状态：已完成“语音助手 + 正向鼓励 + 家长端移动 H5”正式发版后的补丁收口，可作为下一阶段前的稳定 GitHub 基线
+- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.2` 基线
 
 ## 当前已闭环能力
 
@@ -21,6 +21,7 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 - 四大主屏收口为 `发布 / 反馈 / 积分 / 单词`，每个主屏继续拆分成可点击切换的 H5 子页面
 - 发布主屏继续拆成 `范围 / 原文 / 审核 / 发布 / 拆分 / 任务 / 摘要 / 任务板`，并用粘性子菜单切换，避免长页面里反复上下找模块
 - 发布、反馈、积分、单词子页面支持 App 风格左右切页动效，避免长页面里反复上下滚动查找
+- 点击“去录入原文”会直接进入 `原文` 子页面，不再被空状态逻辑错误带回 `范围`
 - 群消息式作业文本解析
 - 审核草稿并确认发布
 - 查看当日 / 周 / 月反馈
@@ -33,6 +34,7 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 - 后端驱动的词单与听写会话
 - 听写推进、交卷、批改完成等节点提供孩子视角的积极反馈
 - 基于 STT + LLM 推理的语音助手，可用自然口令触发当前页面按钮行为
+- “开始说话”入口已修复 Web 场景下的启动与收尾问题，不再出现 `type 'Null' is not a bool in boolean expression`
 - 积分余额、日报、周报、月报入口
 
 ### API 端
@@ -42,7 +44,7 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 - 积分流水 / 余额
 - 词单解析、词单持久化、听写会话、日周月统计
 
-## 2026-03-12 交付验证基线
+## 2026-03-13 交付验证基线
 
 以下验证已在本地仓库状态下执行：
 
@@ -104,10 +106,10 @@ bash scripts/demo_local_stack.sh
 ## 交付文档
 
 - 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
-- 用户操作手册：[docs/USER_MANUAL_V0.3.1.md](docs/USER_MANUAL_V0.3.1.md)
+- 用户操作手册：[docs/USER_MANUAL_V0.3.2.md](docs/USER_MANUAL_V0.3.2.md)
 - 家长端移动 H5 操作手册：[docs/PARENT_WEB_H5_MANUAL.md](docs/PARENT_WEB_H5_MANUAL.md)
-- 阶段一页摘要：[docs/22_PHASE_ONE_PAGER_V0.3.1.md](docs/22_PHASE_ONE_PAGER_V0.3.1.md)
-- `v0.3.1` 发布说明：[docs/21_RELEASE_NOTES_V0.3.1.md](docs/21_RELEASE_NOTES_V0.3.1.md)
+- 阶段一页摘要：[docs/24_PHASE_ONE_PAGER_V0.3.2.md](docs/24_PHASE_ONE_PAGER_V0.3.2.md)
+- `v0.3.2` 发布说明：[docs/23_RELEASE_NOTES_V0.3.2.md](docs/23_RELEASE_NOTES_V0.3.2.md)
 - 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
 - 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
 - Release 同步手册：[docs/20_RELEASE_SYNC_PLAYBOOK.md](docs/20_RELEASE_SYNC_PLAYBOOK.md)
@@ -117,8 +119,9 @@ bash scripts/demo_local_stack.sh
 ## 当前仓库同步提示
 
 - `v0.3.0` 已作为历史正式版本保留
-- 当前工作树将按 `v0.3.1` 执行 scoped release commit、tag 和 GitHub push
-- 当前正式发版范围包括语音助手、正向鼓励、家长端移动 H5、发布说明和使用说明同步
+- `v0.3.1` 已作为上一版正式标签保留
+- 当前工作树将按 `v0.3.2` 执行 scoped release commit、tag 和 GitHub push
+- 当前正式发版范围包括家长端原文录入入口修复、Pad 语音启动/收尾修复，以及版本文档同步
 
 ## 许可
 

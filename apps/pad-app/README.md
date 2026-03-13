@@ -1,6 +1,6 @@
 # StudyClaw Pad
 
-StudyClaw 的 Pad 端孩子执行客户端，当前交付基线版本是 `v0.3.1`。当前目标不是离线演示，而是和 Parent Web、Go API 共用同一后端事实源。
+StudyClaw 的 Pad 端孩子执行客户端，当前交付基线版本是 `v0.3.2`。当前目标不是离线演示，而是和 Parent Web、Go API 共用同一后端事实源。
 
 当前覆盖能力：
 
@@ -10,6 +10,7 @@ StudyClaw 的 Pad 端孩子执行客户端，当前交付基线版本是 `v0.3.1
 - 基于 `/api/v1/word-lists` 和 `/api/v1/dictation-sessions` 的单词听写链路
 - 听写开始、推进、交卷、批改完成等节点的正向反馈
 - 基于 STT + `/api/v1/voice-commands/resolve` 的语音助手，可在任务板和听写页签执行语音指令
+- Web/STT 场景下的“开始说话”启动与 `done / notListening` 收尾已按 `v0.3.2` 修复
 - 今日积分、今日完成进度、日报 / 周报 / 月报入口
 
 ## 常用命令

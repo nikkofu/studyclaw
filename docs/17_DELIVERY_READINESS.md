@@ -2,25 +2,25 @@
 
 本文档回答一个更具体的问题：
 
-在 `2026-03-12` 的当前仓库状态下，StudyClaw 当前目标版本 `v0.3.1` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
+在 `2026-03-13` 的当前仓库状态下，StudyClaw 当前目标版本 `v0.3.2` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
 
 本审计以 `docs/01_PRD.md` 中定义的第一阶段 7 类能力为准，并以真实脚本、真实测试和真实本地联调结果作为证据。
 
 ## 1. 审计基线
 
-- 审计日期：`2026-03-12`
-- 当前交付版本：`v0.3.1`
+- 审计日期：`2026-03-13`
+- 当前交付版本：`v0.3.2`
 - 仓库分支：`main`
-- GitHub 同步状态：`v0.1.0`、`v0.2.0`、`v0.3.0` 历史正式版本已同步；`v0.3.1` 为当前正式版本
+- GitHub 同步状态：`v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.3.1` 历史正式版本已同步；`v0.3.2` 为当前正式版本
 
 当前结论分两层：
 
-- **产品与运行时结论**：`通过`。三端功能已经闭环，达到 `v0.3.1` 本地发布标准。
-- **仓库同步结论**：`通过`。GitHub release sync 完成后，当前仓库可以把 `v0.3.1` 当作新的远端交付标签。
+- **产品与运行时结论**：`通过`。三端功能已经闭环，达到 `v0.3.2` 本地发布标准。
+- **仓库同步结论**：`通过`。GitHub release sync 完成后，当前仓库可以把 `v0.3.2` 当作新的远端交付标签。
 
 ## 2. 已执行验证
 
-以下验证已在 `2026-03-12` 执行：
+以下验证已在 `2026-03-13` 执行：
 
 - `bash scripts/check_no_tracked_runtime_env.sh`
 - `bash scripts/preflight_local_env.sh`
@@ -47,6 +47,7 @@
 真实业务链路验证：
 
 - 家长发布：`POST /api/v1/tasks/parse` -> `POST /api/v1/tasks/confirm`
+- 家长原文入口：点击“去录入原文”后进入 `原文` 子页面并可直接看到输入框
 - 孩子同步：`GET /api/v1/tasks` -> `PATCH /api/v1/tasks/status/item`
 - 语音任务完成：`POST /api/v1/voice-commands/resolve` -> Pad 执行任务板按钮动作
 - 家长反馈：`GET /api/v1/stats/daily` -> `GET /api/v1/stats/monthly`
@@ -108,7 +109,7 @@
 
 ## 4. 已知非阻塞风险
 
-- `flutter build web` 会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。当前 HTML/Web 构建成功，因此不阻塞 `v0.3.1` 交付，但后续若要把 wasm 作为正式目标，需要单独处理。
+- `flutter build web` 会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。当前 HTML/Web 构建成功，因此不阻塞 `v0.3.2` 交付，但后续若要把 wasm 作为正式目标，需要单独处理。
 - `apps/api-server/.gopath/` 的历史跟踪缓存已在本次 release sync 中作为一次性仓库清洁项处理，并由 `scripts/check_release_scope.sh` 持续约束，避免后续再次把环境缓存带入 GitHub。
 
 ## 5. 审计结论
@@ -116,9 +117,9 @@
 ### 功能交付结论
 
 StudyClaw 第一阶段已经消除“前端本地估算是事实源”的关键问题，实现了以 Go 后端为唯一事实源的闭环架构。
-`v0.3.1` 在 `v0.3.0` 的语音助手和正向鼓励基线上，进一步补齐了家长端移动 H5 体验、发布说明和新版本用户手册，已经达到本地发布与交接标准。
+`v0.3.2` 在 `v0.3.1` 的移动 H5 和文档基线上，进一步修复了家长端原文录入主路径和 Pad Web 语音启动/收尾问题，已经达到本地发布与交接标准。
 
 ### 仓库同步结论
 
-`2026-03-12` 已按 `docs/20_RELEASE_SYNC_PLAYBOOK.md` 完成 `v0.3.1` 的 scoped release commit、版本标签和 GitHub push。
+`2026-03-13` 已按 `docs/20_RELEASE_SYNC_PLAYBOOK.md` 完成 `v0.3.2` 的 scoped release commit、版本标签和 GitHub push。
 当前仓库已具备下一阶段启动前的远端正式基线条件。

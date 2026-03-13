@@ -21,6 +21,7 @@ const FEEDBACK_PANEL_ORDER = ["daily", "dictation", "trend"]
 const POINTS_PANEL_ORDER = ["compose", "ledger"]
 const WORD_PANEL_ORDER = ["create", "lists"]
 const PUBLISH_PANEL_ORDER = ["scope", "compose", "review", "release", "split", "preview", "analysis", "board"]
+const EMPTY_STATE_PUBLISH_FALLBACK_PANELS = ["review", "release"]
 const POINT_REASON_PRESETS = {
   reward: ["按时完成全部任务", "主动完成额外练习", "主动整理错题", "晚饭前独立完成作业"],
   penalty: ["回家后拖延未开工", "未整理错题", "多次提醒后才完成", "作业完成后未复盘"],
@@ -3541,7 +3542,11 @@ export default function App() {
   }, [createdTasks.length, draftTasks.length])
 
   useEffect(() => {
-    if (createdTasks.length === 0 && draftTasks.length === 0 && activePublishPanel !== "scope") {
+    if (
+      createdTasks.length === 0 &&
+      draftTasks.length === 0 &&
+      EMPTY_STATE_PUBLISH_FALLBACK_PANELS.includes(activePublishPanel)
+    ) {
       setActivePublishPanel("scope")
     }
   }, [activePublishPanel, createdTasks.length, draftTasks.length])
@@ -3575,7 +3580,7 @@ export default function App() {
       return
     }
 
-    setActivePublishPanel("scope")
+    setActivePublishPanel("compose")
   }
 
   function scheduleConsoleScroll(sectionIds) {

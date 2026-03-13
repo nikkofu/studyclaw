@@ -415,6 +415,21 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "快捷看反馈" })).toBeInTheDocument()
   })
 
+  it("shows the raw text composer after tapping 去录入原文 from scope", async () => {
+    const fetchMock = createFetchMock({})
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { container } = render(<App />)
+    const user = userEvent.setup()
+    const publishDeck = () => container.querySelector(".workspace-publish > .screen-subpanel-deck")
+
+    expect(publishDeck()).toHaveAttribute("data-active-panel", "scope")
+
+    await user.click(screen.getByRole("button", { name: "去录入原文" }))
+
+    expect(publishDeck()).toHaveAttribute("data-active-panel", "compose")
+  })
+
   it("sorts risky tasks ahead of ready-to-publish tasks", async () => {
     const fetchMock = createFetchMock({
       parseHandlers: [
