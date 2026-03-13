@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pad 语音指令启动与收尾修复**
+  - 修复孩子端点击“开始说话”后，`speech_to_text` 的 `listen()` 返回值被误当成 `bool` 判断，导致 `type 'Null' is not a bool in boolean expression` 的崩溃。
+  - 修复 Web/STT 场景下只收到中间识别结果、随后收到 `done / notListening` 时被误判失败的问题，保证“好了 / 下一个 / 继续 / 数学订正好了”等口语指令能正常收尾。
+
+### Verified
+
+- `cd apps/pad-app && flutter test --no-pub`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
+
 ## [0.3.1] - 2026-03-12
 
 ### Changed
