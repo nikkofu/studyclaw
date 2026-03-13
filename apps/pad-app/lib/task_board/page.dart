@@ -8,6 +8,7 @@ import 'package:pad_app/ui_kit/kid_components.dart';
 import 'package:pad_app/task_board/controller.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
+import 'package:pad_app/task_board/recitation_analysis.dart';
 import 'package:pad_app/task_board/repository.dart';
 import 'package:pad_app/voice_commands/models.dart';
 import 'package:pad_app/voice_commands/speech_recognizer.dart';
@@ -22,6 +23,18 @@ const String defaultApiBaseUrl = String.fromEnvironment('API_BASE_URL',
 enum _PadHomeTab { tasks, words }
 
 enum _JourneyStepVisualState { complete, active, pending, failed }
+
+enum _SpeechWorkbenchMode { command, transcript, companion }
+
+enum _LearningScene {
+  taskFinish,
+  dictation,
+  recitation,
+  reading,
+  conversation,
+  journal,
+  companion,
+}
 
 const Object _missingVoiceValue = Object();
 
@@ -79,6 +92,414 @@ String _shortTraceToken(String? raw) {
   final value = raw?.trim() ?? '';
   if (value.isEmpty) return '';
   return value.length <= 8 ? value : value.substring(0, 8);
+}
+
+extension on _SpeechWorkbenchMode {
+  String get label {
+    switch (this) {
+      case _SpeechWorkbenchMode.command:
+        return '快捷指令';
+      case _SpeechWorkbenchMode.transcript:
+        return '长段记录';
+      case _SpeechWorkbenchMode.companion:
+        return '陪伴监听';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case _SpeechWorkbenchMode.command:
+        return '适合“好了”“下一个”“数学订正好了”这类短句，结束后直接执行动作。';
+      case _SpeechWorkbenchMode.transcript:
+        return '适合背诵、朗读、对话、口述日记，系统会持续收听并自动断句。';
+      case _SpeechWorkbenchMode.companion:
+        return '适合较长时间陪伴学习，像会议记录一样实时沉淀孩子整段表达。';
+    }
+  }
+
+  Color get accentColor {
+    switch (this) {
+      case _SpeechWorkbenchMode.command:
+        return KidColors.color2;
+      case _SpeechWorkbenchMode.transcript:
+        return KidColors.color4;
+      case _SpeechWorkbenchMode.companion:
+        return KidColors.color3;
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _SpeechWorkbenchMode.command:
+        return Icons.flash_on_rounded;
+      case _SpeechWorkbenchMode.transcript:
+        return Icons.notes_rounded;
+      case _SpeechWorkbenchMode.companion:
+        return Icons.favorite_rounded;
+    }
+  }
+}
+
+extension on _LearningScene {
+  String get label {
+    switch (this) {
+      case _LearningScene.taskFinish:
+        return '任务完成';
+      case _LearningScene.dictation:
+        return '单词默写';
+      case _LearningScene.recitation:
+        return '背诵';
+      case _LearningScene.reading:
+        return '朗读';
+      case _LearningScene.conversation:
+        return '对话';
+      case _LearningScene.journal:
+        return '口述日记';
+      case _LearningScene.companion:
+        return '学习陪伴';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case _LearningScene.taskFinish:
+        return '做完一项任务就说出来，让系统帮你完成确认。';
+      case _LearningScene.dictation:
+        return '默写完成一个词时，直接说“好了”“下一个”“继续”。';
+      case _LearningScene.recitation:
+        return '适合背课文、古诗、定义、公式。';
+      case _LearningScene.reading:
+        return '适合英语朗读、语文朗读和整段跟读。';
+      case _LearningScene.conversation:
+        return '适合口语问答、角色扮演和自由表达。';
+      case _LearningScene.journal:
+        return '适合口述日记、复盘今天学到了什么。';
+      case _LearningScene.companion:
+        return '适合较长陪伴过程，边学边记，不急着结束。';
+    }
+  }
+
+  List<String> get sampleUtterances {
+    switch (this) {
+      case _LearningScene.taskFinish:
+        return const <String>[
+          '数学订正好了',
+          '一课一练做完了',
+          '全部都好了',
+        ];
+      case _LearningScene.dictation:
+        return const <String>[
+          '好了',
+          '下一个',
+          '继续',
+          'Next',
+        ];
+      case _LearningScene.recitation:
+        return const <String>[
+          '我先背第一段',
+          '这一句我再来一次',
+          '请继续记录',
+        ];
+      case _LearningScene.reading:
+        return const <String>[
+          'The weather is sunny today.',
+          '我开始朗读第一段',
+          '这句再读一遍',
+        ];
+      case _LearningScene.conversation:
+        return const <String>[
+          '今天学校里发生了什么？',
+          '我觉得这道题难在这里',
+          '我们继续下一题',
+        ];
+      case _LearningScene.journal:
+        return const <String>[
+          '今天我最开心的是...',
+          '我觉得最难的是...',
+          '我准备明天继续努力',
+        ];
+      case _LearningScene.companion:
+        return const <String>[
+          '我现在开始做默写',
+          '这道题我改好了',
+          '我们继续下一部分',
+        ];
+    }
+  }
+}
+
+class _SpeechSegment {
+  const _SpeechSegment({
+    required this.index,
+    required this.text,
+    required this.capturedAt,
+    this.isLive = false,
+  });
+
+  final int index;
+  final String text;
+  final DateTime capturedAt;
+  final bool isLive;
+}
+
+String _normalizeVoiceTranscript(String raw) {
+  return raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+bool _containsCjk(String value) {
+  return RegExp(r'[\u3400-\u9FFF]').hasMatch(value);
+}
+
+List<String> _splitSpeechChunks(
+  String transcript, {
+  required _SpeechWorkbenchMode mode,
+  required _LearningScene scene,
+}) {
+  final normalized = _normalizeVoiceTranscript(transcript);
+  if (normalized.isEmpty) {
+    return const <String>[];
+  }
+
+  if (mode == _SpeechWorkbenchMode.command) {
+    return <String>[normalized];
+  }
+
+  final punctuationSegments = <String>[];
+  final buffer = StringBuffer();
+  const breakChars = '。！？!?；;，,\n';
+
+  for (var index = 0; index < normalized.length; index += 1) {
+    final char = normalized[index];
+    buffer.write(char);
+    if (breakChars.contains(char)) {
+      final segment = _normalizeVoiceTranscript(buffer.toString());
+      if (segment.isNotEmpty) {
+        punctuationSegments.add(segment);
+      }
+      buffer.clear();
+    }
+  }
+
+  final tail = _normalizeVoiceTranscript(buffer.toString());
+  if (tail.isNotEmpty) {
+    punctuationSegments.add(tail);
+  }
+
+  final sourceSegments = punctuationSegments.isNotEmpty
+      ? punctuationSegments
+      : <String>[normalized];
+  final result = <String>[];
+  for (final segment in sourceSegments) {
+    result.addAll(_chunkLongSpeechSegment(segment, scene: scene));
+  }
+  return result.where((item) => item.trim().isNotEmpty).toList();
+}
+
+List<String> _chunkLongSpeechSegment(
+  String segment, {
+  required _LearningScene scene,
+}) {
+  final normalized = _normalizeVoiceTranscript(segment);
+  if (normalized.isEmpty) {
+    return const <String>[];
+  }
+
+  final words = normalized.split(' ').where((item) => item.trim().isNotEmpty);
+  if (words.length >= 16) {
+    final result = <String>[];
+    final buffer = <String>[];
+    for (final word in words) {
+      buffer.add(word);
+      if (buffer.length >= 12) {
+        result.add(buffer.join(' '));
+        buffer.clear();
+      }
+    }
+    if (buffer.isNotEmpty) {
+      result.add(buffer.join(' '));
+    }
+    return result;
+  }
+
+  if (_containsCjk(normalized)) {
+    switch (scene) {
+      case _LearningScene.dictation:
+      case _LearningScene.taskFinish:
+        return <String>[normalized];
+      case _LearningScene.recitation:
+      case _LearningScene.reading:
+      case _LearningScene.conversation:
+      case _LearningScene.journal:
+      case _LearningScene.companion:
+        // Prefer keeping CJK speech in one piece unless punctuation or
+        // recognizer pause boundaries already split it for us.
+        return <String>[normalized];
+    }
+  }
+
+  return <String>[normalized];
+}
+
+String _extractLiveSegmentText(
+  String previewTranscript,
+  List<_SpeechSegment> committedSegments,
+) {
+  final preview = _normalizeVoiceTranscript(previewTranscript);
+  if (preview.isEmpty) {
+    return '';
+  }
+
+  final committed = committedSegments
+      .map((item) => _normalizeVoiceTranscript(item.text))
+      .where((item) => item.isNotEmpty)
+      .join(' ')
+      .trim();
+  if (committed.isEmpty) {
+    return preview;
+  }
+  if (preview == committed || committed.endsWith(preview)) {
+    return '';
+  }
+  if (preview.startsWith(committed)) {
+    return preview.substring(committed.length).trim();
+  }
+  return preview;
+}
+
+List<_SpeechSegment> _buildSpeechSegmentsFromRecognizer(
+  List<_SpeechSegment> committedSegments, {
+  required String previewTranscript,
+  required bool isListening,
+  required DateTime fallbackTime,
+  required _SpeechWorkbenchMode mode,
+  required _LearningScene scene,
+}) {
+  final result = <_SpeechSegment>[];
+  for (final item in committedSegments) {
+    final chunks = _splitSpeechChunks(
+      item.text,
+      mode: mode,
+      scene: scene,
+    );
+    if (chunks.isEmpty) {
+      continue;
+    }
+    for (final chunk in chunks) {
+      result.add(
+        _SpeechSegment(
+          index: result.length + 1,
+          text: chunk,
+          capturedAt: item.capturedAt,
+          isLive: false,
+        ),
+      );
+    }
+  }
+
+  final liveText =
+      _extractLiveSegmentText(previewTranscript, committedSegments);
+  if (liveText.isNotEmpty && isListening) {
+    result.add(
+      _SpeechSegment(
+        index: result.length + 1,
+        text: liveText,
+        capturedAt: fallbackTime,
+        isLive: true,
+      ),
+    );
+  }
+
+  if (result.isEmpty && previewTranscript.trim().isNotEmpty) {
+    return _buildSpeechSegments(
+      previewTranscript,
+      mode: mode,
+      scene: scene,
+      baseTime: fallbackTime,
+      isListening: isListening,
+    );
+  }
+  return result;
+}
+
+List<_SpeechSegment> _buildSpeechSegments(
+  String transcript, {
+  required _SpeechWorkbenchMode mode,
+  required _LearningScene scene,
+  required DateTime baseTime,
+  required bool isListening,
+}) {
+  final chunks = _splitSpeechChunks(
+    transcript,
+    mode: mode,
+    scene: scene,
+  );
+  return List<_SpeechSegment>.generate(chunks.length, (index) {
+    return _SpeechSegment(
+      index: index + 1,
+      text: chunks[index],
+      capturedAt: baseTime.add(Duration(seconds: index * 8)),
+      isLive: isListening && index == chunks.length - 1,
+    );
+  });
+}
+
+String _formatVoiceClock(Duration duration) {
+  final minutes = duration.inMinutes.toString().padLeft(2, '0');
+  final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
+String _formatVoiceSegmentTime(DateTime value) {
+  final local = value.toLocal();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  final second = local.second.toString().padLeft(2, '0');
+  return '$hour:$minute:$second';
+}
+
+int _countVoiceCharacters(String transcript) {
+  return transcript.replaceAll(RegExp(r'\s+'), '').length;
+}
+
+String _buildVoiceSummary({
+  required _SpeechWorkbenchMode mode,
+  required _LearningScene scene,
+  required List<_SpeechSegment> segments,
+  required String transcript,
+}) {
+  final charCount = _countVoiceCharacters(transcript);
+  switch (mode) {
+    case _SpeechWorkbenchMode.command:
+      return '本次识别到 $charCount 个字，会在结束说话后统一理解并执行对应动作。';
+    case _SpeechWorkbenchMode.transcript:
+      return '已按${scene.label}场景整理成 ${segments.length} 段，共 $charCount 个字，后续可继续做复述检查、朗读纠音或学习复盘。';
+    case _SpeechWorkbenchMode.companion:
+      return '陪伴记录已整理成 ${segments.length} 段，共 $charCount 个字，适合继续追踪孩子整段学习过程并提取关键问题。';
+  }
+}
+
+String _buildVoiceEncouragement({
+  required _SpeechWorkbenchMode mode,
+  required _LearningScene scene,
+}) {
+  switch (scene) {
+    case _LearningScene.taskFinish:
+      return '做完就主动告诉系统，这是在认真管理自己的学习节奏，做得很好。';
+    case _LearningScene.dictation:
+      return mode == _SpeechWorkbenchMode.command
+          ? '你说得很清楚，下一词也能稳稳拿下。'
+          : '一词一词坚持下来，本身就是很棒的专注力训练。';
+    case _LearningScene.recitation:
+      return '敢把内容完整说出来，就是在同时训练记忆、表达和自信。';
+    case _LearningScene.reading:
+      return '愿意一段一段读出来，进步会比闷着更快更扎实。';
+    case _LearningScene.conversation:
+      return '愿意主动开口对话，就是语言能力真正长出来的开始。';
+    case _LearningScene.journal:
+      return '能把自己的想法讲清楚，是非常宝贵的整理能力。';
+    case _LearningScene.companion:
+      return '你不是一个人在坚持，这段努力都会被好好记录下来。';
+  }
 }
 
 List<_JourneyStepData> _buildJourneySteps(DictationSession session) {
@@ -184,37 +605,74 @@ List<String> _buildTracePills(DictationSession session) {
 
 class _VoiceAssistantState {
   const _VoiceAssistantState({
+    this.mode = _SpeechWorkbenchMode.command,
+    this.scene = _LearningScene.taskFinish,
     this.isListening = false,
     this.isResolving = false,
     this.lastTranscript,
+    this.summaryMessage,
+    this.encouragementMessage,
     this.noticeMessage,
     this.errorMessage,
     this.lastResolution,
+    this.recitationAnalysis,
+    this.liveSegmentText,
+    this.sessionStartedAt,
+    this.sessionFinishedAt,
+    this.segments = const <_SpeechSegment>[],
   });
 
+  final _SpeechWorkbenchMode mode;
+  final _LearningScene scene;
   final bool isListening;
   final bool isResolving;
   final String? lastTranscript;
+  final String? summaryMessage;
+  final String? encouragementMessage;
   final String? noticeMessage;
   final String? errorMessage;
   final VoiceCommandResolution? lastResolution;
+  final RecitationAnalysis? recitationAnalysis;
+  final String? liveSegmentText;
+  final DateTime? sessionStartedAt;
+  final DateTime? sessionFinishedAt;
+  final List<_SpeechSegment> segments;
 
   bool get isBusy => isListening || isResolving;
 
+  bool get hasTranscript => (lastTranscript?.trim().isNotEmpty ?? false);
+
   _VoiceAssistantState copyWith({
+    _SpeechWorkbenchMode? mode,
+    _LearningScene? scene,
     bool? isListening,
     bool? isResolving,
     Object? lastTranscript = _missingVoiceValue,
+    Object? summaryMessage = _missingVoiceValue,
+    Object? encouragementMessage = _missingVoiceValue,
     Object? noticeMessage = _missingVoiceValue,
     Object? errorMessage = _missingVoiceValue,
     Object? lastResolution = _missingVoiceValue,
+    Object? recitationAnalysis = _missingVoiceValue,
+    Object? liveSegmentText = _missingVoiceValue,
+    Object? sessionStartedAt = _missingVoiceValue,
+    Object? sessionFinishedAt = _missingVoiceValue,
+    Object? segments = _missingVoiceValue,
   }) {
     return _VoiceAssistantState(
+      mode: mode ?? this.mode,
+      scene: scene ?? this.scene,
       isListening: isListening ?? this.isListening,
       isResolving: isResolving ?? this.isResolving,
       lastTranscript: lastTranscript == _missingVoiceValue
           ? this.lastTranscript
           : lastTranscript as String?,
+      summaryMessage: summaryMessage == _missingVoiceValue
+          ? this.summaryMessage
+          : summaryMessage as String?,
+      encouragementMessage: encouragementMessage == _missingVoiceValue
+          ? this.encouragementMessage
+          : encouragementMessage as String?,
       noticeMessage: noticeMessage == _missingVoiceValue
           ? this.noticeMessage
           : noticeMessage as String?,
@@ -224,6 +682,21 @@ class _VoiceAssistantState {
       lastResolution: lastResolution == _missingVoiceValue
           ? this.lastResolution
           : lastResolution as VoiceCommandResolution?,
+      recitationAnalysis: recitationAnalysis == _missingVoiceValue
+          ? this.recitationAnalysis
+          : recitationAnalysis as RecitationAnalysis?,
+      liveSegmentText: liveSegmentText == _missingVoiceValue
+          ? this.liveSegmentText
+          : liveSegmentText as String?,
+      sessionStartedAt: sessionStartedAt == _missingVoiceValue
+          ? this.sessionStartedAt
+          : sessionStartedAt as DateTime?,
+      sessionFinishedAt: sessionFinishedAt == _missingVoiceValue
+          ? this.sessionFinishedAt
+          : sessionFinishedAt as DateTime?,
+      segments: segments == _missingVoiceValue
+          ? this.segments
+          : segments as List<_SpeechSegment>,
     );
   }
 }
@@ -257,7 +730,8 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
       _familyIdController,
       _userIdController,
       _dateController,
-      _wordListController;
+      _wordListController,
+      _voiceReferenceController;
   late final TaskBoardController _controller;
   late final WordPlaybackController _wordController;
   late final bool _ownsWordController;
@@ -265,6 +739,9 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
   late final bool _ownsSpeechRecognizer;
   _PadHomeTab _selectedTab = _PadHomeTab.tasks;
   _VoiceAssistantState _voiceAssistantState = const _VoiceAssistantState();
+  TaskBoardRequest? _activeVoiceRequest;
+  VoiceCommandSurface? _activeVoiceSurface;
+  Timer? _voiceSessionTicker;
 
   @override
   void initState() {
@@ -280,6 +757,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     _dateController = TextEditingController(
         text: widget.initialDate ?? formatTaskBoardDate(DateTime.now()));
     _wordListController = TextEditingController();
+    _voiceReferenceController = TextEditingController();
     _controller = TaskBoardController(repository: widget.repository);
     if (widget.wordPlaybackController != null) {
       _wordController = widget.wordPlaybackController!;
@@ -309,6 +787,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     _userIdController.dispose();
     _dateController.dispose();
     _wordListController.dispose();
+    _voiceReferenceController.dispose();
     _controller.dispose();
     if (_ownsWordController) {
       _wordController.dispose();
@@ -316,6 +795,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     if (_ownsSpeechRecognizer) {
       unawaited(_speechRecognizer.stop());
     }
+    _voiceSessionTicker?.cancel();
     super.dispose();
   }
 
@@ -342,7 +822,19 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     }
   }
 
-  void _setSelectedTab(_PadHomeTab tab) => setState(() => _selectedTab = tab);
+  void _setSelectedTab(_PadHomeTab tab) {
+    final nextMode = _voiceAssistantState.mode;
+    setState(() {
+      _selectedTab = tab;
+      _voiceAssistantState = _voiceAssistantState.copyWith(
+        scene: _normalizedVoiceScene(
+          nextMode,
+          _voiceAssistantState.scene,
+          tab,
+        ),
+      );
+    });
+  }
 
   Future<void> _updateSingleTask(TaskItem task, bool completed) async {
     final r = _buildRequest();
@@ -456,94 +948,540 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     return 'zh-CN';
   }
 
-  Future<void> _toggleVoiceAssistant() async {
-    if (_voiceAssistantState.isListening) {
-      await _speechRecognizer.stop();
-      if (!mounted) return;
-      setState(() {
-        _voiceAssistantState = _voiceAssistantState.copyWith(
-          isListening: false,
-          isResolving: false,
-          noticeMessage: '语音识别已取消。',
-          errorMessage: null,
-        );
-      });
-      return;
+  List<_LearningScene> _availableVoiceScenes(
+    _SpeechWorkbenchMode mode,
+    _PadHomeTab tab,
+  ) {
+    switch (mode) {
+      case _SpeechWorkbenchMode.command:
+        return <_LearningScene>[
+          tab == _PadHomeTab.words
+              ? _LearningScene.dictation
+              : _LearningScene.taskFinish,
+        ];
+      case _SpeechWorkbenchMode.transcript:
+        return const <_LearningScene>[
+          _LearningScene.recitation,
+          _LearningScene.reading,
+          _LearningScene.conversation,
+          _LearningScene.journal,
+        ];
+      case _SpeechWorkbenchMode.companion:
+        return const <_LearningScene>[
+          _LearningScene.companion,
+          _LearningScene.dictation,
+          _LearningScene.reading,
+          _LearningScene.recitation,
+        ];
     }
-
-    await _runVoiceAssistant();
   }
 
-  Future<void> _runVoiceAssistant() async {
-    final request = _buildRequest();
-    if (request == null) {
-      setState(() {
-        _voiceAssistantState = _voiceAssistantState.copyWith(
-          errorMessage: '请先确认 API、家庭 ID、孩子 ID 和日期配置。',
-          noticeMessage: null,
-        );
-      });
-      return;
+  _LearningScene _defaultVoiceSceneForMode(
+    _SpeechWorkbenchMode mode,
+    _PadHomeTab tab,
+  ) {
+    return _availableVoiceScenes(mode, tab).first;
+  }
+
+  _LearningScene _normalizedVoiceScene(
+    _SpeechWorkbenchMode mode,
+    _LearningScene scene,
+    _PadHomeTab tab,
+  ) {
+    final availableScenes = _availableVoiceScenes(mode, tab);
+    if (availableScenes.contains(scene)) {
+      return scene;
+    }
+    return availableScenes.first;
+  }
+
+  String _voiceLocaleForWorkbench({
+    required _SpeechWorkbenchMode mode,
+    required _LearningScene scene,
+  }) {
+    if (mode == _SpeechWorkbenchMode.command) {
+      return _voiceLocaleForSurface(_currentVoiceSurface);
+    }
+    if (scene == _LearningScene.dictation) {
+      return _wordController.state.language.localeCode;
+    }
+    if (scene == _LearningScene.reading &&
+        _selectedTab == _PadHomeTab.words &&
+        _wordController.state.language == WordPlaybackLanguage.english) {
+      return _wordController.state.language.localeCode;
+    }
+    return 'zh-CN';
+  }
+
+  bool _supportsReferenceAnalysis(_VoiceAssistantState state) {
+    if (state.mode == _SpeechWorkbenchMode.command) {
+      return false;
+    }
+    return state.scene == _LearningScene.recitation ||
+        state.scene == _LearningScene.reading;
+  }
+
+  String? _preferredVoiceReferenceSubject() {
+    final board = _controller.state.board;
+    if (_selectedTab != _PadHomeTab.tasks ||
+        board == null ||
+        board.groups.isEmpty) {
+      return null;
+    }
+    final index =
+        _selectedSubjectIndex < board.groups.length ? _selectedSubjectIndex : 0;
+    return board.groups[index].subject;
+  }
+
+  bool _taskTypeMatchesScene(TaskItem task, _LearningScene scene) {
+    final type = task.taskType.trim().toLowerCase();
+    switch (scene) {
+      case _LearningScene.recitation:
+        return type == 'recitation' ||
+            type == 'memorization' ||
+            type == 'memorize' ||
+            type == 'poem_recitation' ||
+            type == 'classical_poem';
+      case _LearningScene.reading:
+        return type == 'reading' ||
+            type == 'read_aloud' ||
+            type == '朗读' ||
+            type == 'follow_reading';
+      default:
+        return false;
+    }
+  }
+
+  bool _taskSupportsLearningScene(TaskItem task, _LearningScene scene) {
+    if (!task.hasReferenceMaterial) {
+      return false;
+    }
+    if (_taskTypeMatchesScene(task, scene)) {
+      return true;
     }
 
-    final surface = _currentVoiceSurface;
-    if (surface == VoiceCommandSurface.taskBoard &&
-        _controller.state.board == null) {
-      setState(() {
-        _voiceAssistantState = _voiceAssistantState.copyWith(
-          errorMessage: '请先同步任务板，再使用语音助手。',
-          noticeMessage: null,
-        );
-      });
-      return;
+    final haystack = <String>[
+      task.subject,
+      task.groupTitle,
+      task.content,
+      task.referenceTitle,
+      task.analysisMode,
+    ].join(' ').toLowerCase();
+
+    switch (scene) {
+      case _LearningScene.recitation:
+        return haystack.contains('背诵') ||
+            haystack.contains('背默') ||
+            haystack.contains('古诗') ||
+            haystack.contains('诗词') ||
+            haystack.contains('课文') ||
+            haystack.contains('朗诵');
+      case _LearningScene.reading:
+        return haystack.contains('朗读') ||
+            haystack.contains('跟读') ||
+            haystack.contains('阅读') ||
+            haystack.contains('read aloud');
+      default:
+        return false;
     }
-    if (surface == VoiceCommandSurface.dictation &&
-        !_wordController.state.hasWords) {
-      setState(() {
-        _voiceAssistantState = _voiceAssistantState.copyWith(
-          errorMessage: '请先同步词单或开启听写，再使用语音助手。',
-          noticeMessage: null,
-        );
-      });
-      return;
+  }
+
+  int _referenceTaskScore(
+    TaskItem task,
+    _LearningScene scene, {
+    String? preferredSubject,
+  }) {
+    var score = 0;
+    if (!task.completed) {
+      score += 4;
+    }
+    if (preferredSubject != null && task.subject == preferredSubject) {
+      score += 5;
+    }
+    if (_taskTypeMatchesScene(task, scene)) {
+      score += 6;
+    }
+    if (task.analysisMode.trim().isNotEmpty) {
+      score += 1;
+    }
+    if (task.referenceTitle.trim().isNotEmpty) {
+      score += 1;
+    }
+    return score;
+  }
+
+  TaskItem? _currentReferenceTaskForState(_VoiceAssistantState state) {
+    if (!_supportsReferenceAnalysis(state)) {
+      return null;
     }
 
-    final locale = _voiceLocaleForSurface(surface);
+    final board = _controller.state.board;
+    if (board == null || board.tasks.isEmpty) {
+      return null;
+    }
+
+    final preferredSubject = _preferredVoiceReferenceSubject();
+    final candidates = board.tasks
+        .where((task) => _taskSupportsLearningScene(task, state.scene))
+        .toList(growable: false);
+    if (candidates.isEmpty) {
+      return null;
+    }
+
+    final ranked = candidates.toList()
+      ..sort((left, right) {
+        final rightScore = _referenceTaskScore(
+          right,
+          state.scene,
+          preferredSubject: preferredSubject,
+        );
+        final leftScore = _referenceTaskScore(
+          left,
+          state.scene,
+          preferredSubject: preferredSubject,
+        );
+        if (rightScore != leftScore) {
+          return rightScore.compareTo(leftScore);
+        }
+        return left.taskId.compareTo(right.taskId);
+      });
+    return ranked.first;
+  }
+
+  bool _showManualReferenceInput(_VoiceAssistantState state) {
+    if (!_supportsReferenceAnalysis(state)) {
+      return false;
+    }
+    return _currentReferenceTaskForState(state) == null;
+  }
+
+  String _effectiveReferenceText(_VoiceAssistantState state) {
+    final task = _currentReferenceTaskForState(state);
+    if (task != null && task.referenceText.trim().isNotEmpty) {
+      return task.referenceText.trim();
+    }
+    return _voiceReferenceController.text.trim();
+  }
+
+  String? _taskReferenceSummaryTitle(_VoiceAssistantState state) {
+    final task = _currentReferenceTaskForState(state);
+    if (task == null) {
+      return null;
+    }
+    final title = task.referenceTitle.trim().isNotEmpty
+        ? task.referenceTitle.trim()
+        : task.content.trim();
+    return state.scene == _LearningScene.reading
+        ? '当前朗读任务：$title'
+        : '当前背诵任务：$title';
+  }
+
+  String? _taskReferenceSummaryDetail(_VoiceAssistantState state) {
+    final task = _currentReferenceTaskForState(state);
+    if (task == null) {
+      return null;
+    }
+    final author = task.referenceAuthor.trim();
+    final authorLine = author.isEmpty ? '' : '作者：$author。';
+    if (task.hideReferenceFromChild) {
+      return '系统已从任务板自动带入隐藏参考内容。$authorLine 孩子端不展开正文，结束说话后会自动做标题识别和逐句比对。';
+    }
+    return '系统已从任务板自动带入参考内容。$authorLine 结束说话后会直接对照这条任务的标准文本。';
+  }
+
+  String _referenceInputLabel(_VoiceAssistantState state) {
+    return state.scene == _LearningScene.reading ? '家长/老师朗读原文' : '家长/老师背诵原文';
+  }
+
+  String _referenceInputHint(_VoiceAssistantState state) {
+    if (state.scene == _LearningScene.reading) {
+      return '这块更适合由家长/老师预先录入。结束说话时会对照朗读内容，找出不稳的句子。';
+    }
+    return '这块更适合在布置任务时由家长/老师预置。结束说话时会自动识别标题并逐句比对，孩子端不必长期暴露原文。';
+  }
+
+  bool _shouldRunRecitationAnalysis(
+      _SpeechWorkbenchMode mode, _LearningScene scene) {
+    if (mode == _SpeechWorkbenchMode.command) {
+      return false;
+    }
+    return scene == _LearningScene.recitation ||
+        scene == _LearningScene.reading;
+  }
+
+  Map<String, String> _buildRecitationAnalysisMetadata(
+      {TaskItem? referenceTask}) {
+    return <String, String>{
+      'surface': _selectedTab.name,
+      'workbench_mode': _voiceAssistantState.mode.name,
+      'scene': _voiceAssistantState.scene.name,
+      'reference_source': referenceTask == null ? 'manual' : 'task',
+      if (referenceTask != null) 'task_id': '${referenceTask.taskId}',
+      if (referenceTask != null && referenceTask.taskType.trim().isNotEmpty)
+        'task_type': referenceTask.taskType.trim(),
+      if (referenceTask != null && referenceTask.analysisMode.trim().isNotEmpty)
+        'analysis_mode': referenceTask.analysisMode.trim(),
+    };
+  }
+
+  bool _hasUsableApiBaseUrl() {
+    final parsed = Uri.tryParse(_apiBaseUrlController.text.trim());
+    return parsed != null &&
+        (parsed.scheme == 'http' || parsed.scheme == 'https') &&
+        parsed.host.isNotEmpty;
+  }
+
+  List<String> _voiceSamplesForState(_VoiceAssistantState state) {
+    if (state.mode == _SpeechWorkbenchMode.command) {
+      return _currentVoiceSurface.sampleUtterances;
+    }
+    return state.scene.sampleUtterances;
+  }
+
+  String _voiceHintForState(_VoiceAssistantState state) {
+    if (!_speechRecognizer.supportsRecognition) {
+      return '当前设备暂不支持语音识别。';
+    }
+
+    if (state.isListening) {
+      switch (state.mode) {
+        case _SpeechWorkbenchMode.command:
+          return '已经进入持续收听。中间停几秒不会结束，想执行动作时再点“结束说话”。';
+        case _SpeechWorkbenchMode.transcript:
+          return '正在持续记录整段表达。系统会边听边断句，结束时再整理成完整学习记录。';
+        case _SpeechWorkbenchMode.companion:
+          return '陪伴监听进行中。只要你不主动结束，它就会继续像学习记录员一样陪着你。';
+      }
+    }
+
+    switch (state.mode) {
+      case _SpeechWorkbenchMode.command:
+        return '适合短句控制。点击开始后可持续收听，结束时统一理解并执行。';
+      case _SpeechWorkbenchMode.transcript:
+        return '适合背诵、朗读、对话、口述日记，结束时会自动整理出分段记录。';
+      case _SpeechWorkbenchMode.companion:
+        return '适合更长时间的学习陪伴和实时笔记，边学边说也能持续记录。';
+    }
+  }
+
+  Duration _voiceSessionDuration(_VoiceAssistantState state) {
+    final startedAt = state.sessionStartedAt;
+    if (startedAt == null) {
+      return Duration.zero;
+    }
+    final endAt = state.isListening
+        ? DateTime.now()
+        : state.sessionFinishedAt ?? DateTime.now();
+    return endAt.difference(startedAt);
+  }
+
+  void _startVoiceSessionTicker() {
+    _voiceSessionTicker?.cancel();
+    _voiceSessionTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || !_voiceAssistantState.isListening) {
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  void _stopVoiceSessionTicker() {
+    _voiceSessionTicker?.cancel();
+    _voiceSessionTicker = null;
+  }
+
+  void _setVoiceWorkbenchMode(_SpeechWorkbenchMode mode) {
+    if (_voiceAssistantState.isBusy) {
+      return;
+    }
+    final scene = _defaultVoiceSceneForMode(mode, _selectedTab);
     setState(() {
-      _voiceAssistantState = _voiceAssistantState.copyWith(
-        isListening: true,
-        isResolving: false,
-        errorMessage: null,
-        noticeMessage: '正在听你说话...',
+      _voiceAssistantState = _VoiceAssistantState(
+        mode: mode,
+        scene: scene,
+        noticeMessage: '已切换到${mode.label}模式。',
       );
     });
+  }
+
+  void _setVoiceLearningScene(_LearningScene scene) {
+    if (_voiceAssistantState.isBusy) {
+      return;
+    }
+    setState(() {
+      _voiceAssistantState = _VoiceAssistantState(
+        mode: _voiceAssistantState.mode,
+        scene: scene,
+        noticeMessage: '已切换到${scene.label}场景。',
+      );
+    });
+  }
+
+  void _clearVoiceWorkbench() {
+    if (_voiceAssistantState.isBusy) {
+      return;
+    }
+    final mode = _voiceAssistantState.mode;
+    final scene =
+        _normalizedVoiceScene(mode, _voiceAssistantState.scene, _selectedTab);
+    setState(() {
+      _voiceAssistantState = _VoiceAssistantState(
+        mode: mode,
+        scene: scene,
+        noticeMessage: '已清空这次语音记录，可以重新开始。',
+      );
+    });
+  }
+
+  Future<void> _toggleVoiceAssistant() async {
+    if (_voiceAssistantState.isListening) {
+      await _finishVoiceAssistant();
+      return;
+    }
+
+    await _startVoiceAssistant();
+  }
+
+  Future<void> _startVoiceAssistant() async {
+    final mode = _voiceAssistantState.mode;
+    final scene =
+        _normalizedVoiceScene(mode, _voiceAssistantState.scene, _selectedTab);
+    TaskBoardRequest? request;
+    VoiceCommandSurface? surface;
+
+    if (mode == _SpeechWorkbenchMode.command) {
+      request = _buildRequest();
+      if (request == null) {
+        setState(() {
+          _voiceAssistantState = _voiceAssistantState.copyWith(
+            errorMessage: '请先确认 API、家庭 ID、孩子 ID 和日期配置。',
+            noticeMessage: null,
+          );
+        });
+        return;
+      }
+
+      surface = _currentVoiceSurface;
+      if (surface == VoiceCommandSurface.taskBoard &&
+          _controller.state.board == null) {
+        setState(() {
+          _voiceAssistantState = _voiceAssistantState.copyWith(
+            errorMessage: '请先同步任务板，再使用快捷指令。',
+            noticeMessage: null,
+          );
+        });
+        return;
+      }
+      if (surface == VoiceCommandSurface.dictation &&
+          !_wordController.state.hasWords) {
+        setState(() {
+          _voiceAssistantState = _voiceAssistantState.copyWith(
+            errorMessage: '请先同步词单或开启听写，再使用默写快捷指令。',
+            noticeMessage: null,
+          );
+        });
+        return;
+      }
+    }
+
+    final locale = _voiceLocaleForWorkbench(mode: mode, scene: scene);
+    final startedAt = DateTime.now();
+    _activeVoiceRequest = request;
+    _activeVoiceSurface = surface;
+    setState(() {
+      _voiceAssistantState = _voiceAssistantState.copyWith(
+        mode: mode,
+        scene: scene,
+        isListening: true,
+        isResolving: false,
+        lastTranscript: null,
+        summaryMessage: null,
+        encouragementMessage: null,
+        recitationAnalysis: null,
+        liveSegmentText: null,
+        sessionStartedAt: startedAt,
+        sessionFinishedAt: null,
+        segments: const <_SpeechSegment>[],
+        lastResolution: null,
+        errorMessage: null,
+        noticeMessage: mode == _SpeechWorkbenchMode.command
+            ? '已开始持续收听，想执行动作时再点“结束说话”。'
+            : '已开始持续记录，想收尾时再点“结束说话”。',
+      );
+    });
+    _startVoiceSessionTicker();
 
     try {
-      final transcript = await _speechRecognizer.listenOnce(locale: locale);
-      if (!mounted) return;
-
-      final context = _buildVoiceCommandContext(surface);
-      setState(() {
-        _voiceAssistantState = _voiceAssistantState.copyWith(
-          isListening: false,
-          isResolving: true,
-          lastTranscript: transcript.transcript,
-          errorMessage: null,
-          noticeMessage: '正在理解：${transcript.transcript}',
-        );
-      });
-
-      final resolution = await widget.repository.resolveVoiceCommand(
-        request,
-        transcript: transcript.transcript,
-        context: context,
-      );
-      await _applyVoiceCommandResolution(
-        request,
-        transcript: transcript.transcript,
-        resolution: resolution,
+      await _speechRecognizer.startListening(
+        locale: locale,
+        onTranscriptChanged: (transcript) {
+          if (!mounted) {
+            return;
+          }
+          final normalized = _normalizeVoiceTranscript(transcript);
+          final startedAt =
+              _voiceAssistantState.sessionStartedAt ?? DateTime.now();
+          final committedSegments = _voiceAssistantState.segments
+              .where((item) => !item.isLive)
+              .toList(growable: false);
+          final segments = _buildSpeechSegmentsFromRecognizer(
+            committedSegments,
+            previewTranscript: normalized,
+            mode: _voiceAssistantState.mode,
+            scene: _voiceAssistantState.scene,
+            isListening: true,
+            fallbackTime: startedAt,
+          );
+          setState(() {
+            _voiceAssistantState = _voiceAssistantState.copyWith(
+              lastTranscript: normalized,
+              segments: segments,
+              liveSegmentText: _extractLiveSegmentText(
+                normalized,
+                committedSegments,
+              ),
+              errorMessage: null,
+              noticeMessage:
+                  _voiceAssistantState.mode == _SpeechWorkbenchMode.command
+                      ? '正在持续收听，点“结束说话”后再统一理解动作。'
+                      : '正在持续记录，系统会边听边整理断句。',
+            );
+          });
+        },
+        onSegmentCommitted: (segment) {
+          if (!mounted) {
+            return;
+          }
+          final normalizedSegment = _normalizeVoiceTranscript(segment);
+          if (normalizedSegment.isEmpty) {
+            return;
+          }
+          setState(() {
+            final committedSegments = _voiceAssistantState.segments
+                .where((item) => !item.isLive)
+                .toList(growable: true);
+            committedSegments.add(
+              _SpeechSegment(
+                index: committedSegments.length + 1,
+                text: normalizedSegment,
+                capturedAt: DateTime.now(),
+              ),
+            );
+            _voiceAssistantState = _voiceAssistantState.copyWith(
+              segments: committedSegments,
+              liveSegmentText: null,
+              noticeMessage:
+                  _voiceAssistantState.mode == _SpeechWorkbenchMode.command
+                      ? '已捕获一个自然停顿片段，继续说完后再结束。'
+                      : '已按真实停顿记录一段内容，继续说时会接着记。',
+            );
+          });
+        },
       );
     } catch (error) {
+      _stopVoiceSessionTicker();
+      _activeVoiceRequest = null;
+      _activeVoiceSurface = null;
       if (!mounted) return;
       setState(() {
         _voiceAssistantState = _voiceAssistantState.copyWith(
@@ -551,8 +1489,214 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
           isResolving: false,
           errorMessage: '语音指令失败：$error',
           noticeMessage: null,
+          liveSegmentText: null,
+          sessionFinishedAt: DateTime.now(),
         );
       });
+    }
+  }
+
+  Future<void> _finishVoiceAssistant() async {
+    final mode = _voiceAssistantState.mode;
+    final scene = _voiceAssistantState.scene;
+    final request = _activeVoiceRequest;
+    final surface = _activeVoiceSurface;
+    if (mode == _SpeechWorkbenchMode.command &&
+        (request == null || surface == null)) {
+      await _speechRecognizer.stop();
+      _stopVoiceSessionTicker();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: false,
+          noticeMessage: '语音识别已取消。',
+          errorMessage: null,
+          liveSegmentText: null,
+          sessionFinishedAt: DateTime.now(),
+        );
+      });
+      return;
+    }
+
+    _stopVoiceSessionTicker();
+    if (mounted) {
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: mode == _SpeechWorkbenchMode.command,
+          errorMessage: null,
+          noticeMessage: mode == _SpeechWorkbenchMode.command
+              ? '正在整理整段语音内容...'
+              : '正在整理这次学习语音记录...',
+        );
+      });
+    }
+
+    try {
+      final transcript = await _speechRecognizer.finishListening();
+      final normalized = _normalizeVoiceTranscript(transcript.transcript);
+      final finishedAt = DateTime.now();
+      final startedAt = _voiceAssistantState.sessionStartedAt ?? finishedAt;
+      var segments = _buildSpeechSegmentsFromRecognizer(
+        _voiceAssistantState.segments.where((item) => !item.isLive).toList(),
+        previewTranscript: normalized,
+        mode: mode,
+        scene: scene,
+        isListening: false,
+        fallbackTime: finishedAt,
+      );
+      if (segments.isEmpty && normalized.isNotEmpty) {
+        segments = _buildSpeechSegments(
+          normalized,
+          mode: mode,
+          scene: scene,
+          baseTime: startedAt,
+          isListening: false,
+        );
+      }
+      if (!mounted) {
+        return;
+      }
+
+      if (mode != _SpeechWorkbenchMode.command) {
+        final summaryMessage = _buildVoiceSummary(
+          mode: mode,
+          scene: scene,
+          segments: segments,
+          transcript: normalized,
+        );
+        final encouragementMessage = _buildVoiceEncouragement(
+          mode: mode,
+          scene: scene,
+        );
+        var noticeMessage = '本次${scene.label}记录已经整理好了。';
+        RecitationAnalysis? recitationAnalysis;
+
+        if (_shouldRunRecitationAnalysis(mode, scene)) {
+          final referenceTask =
+              _currentReferenceTaskForState(_voiceAssistantState);
+          final referenceText = _effectiveReferenceText(_voiceAssistantState);
+          if (_hasUsableApiBaseUrl()) {
+            setState(() {
+              _voiceAssistantState = _voiceAssistantState.copyWith(
+                isListening: false,
+                isResolving: true,
+                lastTranscript: normalized,
+                segments: segments,
+                summaryMessage: summaryMessage,
+                encouragementMessage: encouragementMessage,
+                sessionFinishedAt: finishedAt,
+                errorMessage: null,
+                noticeMessage: scene == _LearningScene.recitation
+                    ? '正在识别诗题并对照原文...'
+                    : '正在对照朗读原文...',
+                lastResolution: null,
+                recitationAnalysis: null,
+                liveSegmentText: null,
+              );
+            });
+
+            try {
+              recitationAnalysis = await widget.repository.analyzeRecitation(
+                _apiBaseUrlController.text.trim(),
+                transcript: normalized,
+                scene: scene.name,
+                locale: _voiceLocaleForWorkbench(mode: mode, scene: scene),
+                referenceText: referenceText,
+                metadata: _buildRecitationAnalysisMetadata(
+                    referenceTask: referenceTask),
+              );
+              noticeMessage = recitationAnalysis.needsRetry
+                  ? '背诵比对完成，建议按标记句子再熟读一遍后重背。'
+                  : '背诵比对完成，这一遍整体比较稳。';
+            } catch (error) {
+              noticeMessage = '本地记录已经保留，但云端背诵比对暂时失败：$error';
+            }
+          } else {
+            noticeMessage = '本地记录已经整理好，但当前 API 地址无效，暂时无法做背诵对照。';
+          }
+        }
+
+        setState(() {
+          _voiceAssistantState = _voiceAssistantState.copyWith(
+            isListening: false,
+            isResolving: false,
+            lastTranscript: normalized,
+            segments: segments,
+            summaryMessage: summaryMessage,
+            encouragementMessage: encouragementMessage,
+            sessionFinishedAt: finishedAt,
+            errorMessage: null,
+            noticeMessage: noticeMessage,
+            lastResolution: null,
+            recitationAnalysis: recitationAnalysis,
+            liveSegmentText: null,
+          );
+        });
+        return;
+      }
+
+      final commandRequest = request;
+      final commandSurface = surface;
+      if (commandRequest == null || commandSurface == null) {
+        throw StateError('语音指令上下文丢失，请重新开始。');
+      }
+
+      final context = _buildVoiceCommandContext(commandSurface);
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: true,
+          lastTranscript: normalized,
+          segments: segments,
+          summaryMessage: _buildVoiceSummary(
+            mode: mode,
+            scene: scene,
+            segments: segments,
+            transcript: normalized,
+          ),
+          encouragementMessage: _buildVoiceEncouragement(
+            mode: mode,
+            scene: scene,
+          ),
+          sessionFinishedAt: finishedAt,
+          errorMessage: null,
+          noticeMessage: '正在理解整段语音：$normalized',
+          recitationAnalysis: null,
+          liveSegmentText: null,
+        );
+      });
+
+      final resolution = await widget.repository.resolveVoiceCommand(
+        commandRequest,
+        transcript: normalized,
+        context: context,
+      );
+      await _applyVoiceCommandResolution(
+        commandRequest,
+        transcript: normalized,
+        resolution: resolution,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _voiceAssistantState = _voiceAssistantState.copyWith(
+          isListening: false,
+          isResolving: false,
+          errorMessage: '语音指令失败：$error',
+          noticeMessage: null,
+          liveSegmentText: null,
+          sessionFinishedAt: DateTime.now(),
+        );
+      });
+    } finally {
+      _activeVoiceRequest = null;
+      _activeVoiceSurface = null;
     }
   }
 
@@ -793,6 +1937,28 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
                       state: _voiceAssistantState,
                       supportsRecognition:
                           _speechRecognizer.supportsRecognition,
+                      availableScenes: _availableVoiceScenes(
+                        _voiceAssistantState.mode,
+                        _selectedTab,
+                      ),
+                      sessionDuration:
+                          _voiceSessionDuration(_voiceAssistantState),
+                      hintText: _voiceHintForState(_voiceAssistantState),
+                      sampleUtterances:
+                          _voiceSamplesForState(_voiceAssistantState),
+                      referenceController: _voiceReferenceController,
+                      showReferenceInput:
+                          _showManualReferenceInput(_voiceAssistantState),
+                      referenceSummaryTitle:
+                          _taskReferenceSummaryTitle(_voiceAssistantState),
+                      referenceSummaryDetail:
+                          _taskReferenceSummaryDetail(_voiceAssistantState),
+                      referenceLabel:
+                          _referenceInputLabel(_voiceAssistantState),
+                      referenceHint: _referenceInputHint(_voiceAssistantState),
+                      onModeChanged: _setVoiceWorkbenchMode,
+                      onSceneChanged: _setVoiceLearningScene,
+                      onClear: _clearVoiceWorkbench,
                       onTrigger: _voiceAssistantState.isResolving
                           ? null
                           : _toggleVoiceAssistant,
@@ -1169,23 +2335,69 @@ class _VoiceAssistantCard extends StatelessWidget {
     required this.surface,
     required this.state,
     required this.supportsRecognition,
+    required this.availableScenes,
+    required this.sessionDuration,
+    required this.hintText,
+    required this.sampleUtterances,
+    required this.referenceController,
+    required this.showReferenceInput,
+    required this.referenceSummaryTitle,
+    required this.referenceSummaryDetail,
+    required this.referenceLabel,
+    required this.referenceHint,
+    required this.onModeChanged,
+    required this.onSceneChanged,
+    required this.onClear,
     required this.onTrigger,
   });
 
   final VoiceCommandSurface surface;
   final _VoiceAssistantState state;
   final bool supportsRecognition;
+  final List<_LearningScene> availableScenes;
+  final Duration sessionDuration;
+  final String hintText;
+  final List<String> sampleUtterances;
+  final TextEditingController referenceController;
+  final bool showReferenceInput;
+  final String? referenceSummaryTitle;
+  final String? referenceSummaryDetail;
+  final String referenceLabel;
+  final String referenceHint;
+  final ValueChanged<_SpeechWorkbenchMode> onModeChanged;
+  final ValueChanged<_LearningScene> onSceneChanged;
+  final VoidCallback? onClear;
   final VoidCallback? onTrigger;
 
   @override
   Widget build(BuildContext context) {
     final buttonLabel = state.isListening
-        ? '停止收听'
+        ? '结束说话'
         : state.isResolving
             ? '理解中'
             : '开始说话';
-    final hintText =
-        supportsRecognition ? '说一句话，就能直接触发当前场景里的按钮动作。' : '当前设备暂不支持语音识别。';
+    final metricTiles = <Widget>[
+      _VoiceWorkbenchStatTile(
+        label: '模式',
+        value: state.mode.label,
+        color: state.mode.accentColor,
+      ),
+      _VoiceWorkbenchStatTile(
+        label: '场景',
+        value: state.scene.label,
+        color: KidColors.color1,
+      ),
+      _VoiceWorkbenchStatTile(
+        label: '时长',
+        value: _formatVoiceClock(sessionDuration),
+        color: KidColors.color4,
+      ),
+      _VoiceWorkbenchStatTile(
+        label: '分段',
+        value: '${state.segments.length}',
+        color: KidColors.color3,
+      ),
+    ];
 
     return KidCard(
       borderColor: KidColors.black,
@@ -1201,12 +2413,12 @@ class _VoiceAssistantCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '语音助手',
+                      '孩子学习语音工作台',
                       style:
                           TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
                     ),
                     Text(
-                      '当前场景：${surface.label}',
+                      '入口 ${surface.label} · ${state.mode.label} · ${state.scene.label}',
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         color: KidColors.black.withAlpha(170),
@@ -1220,12 +2432,67 @@ class _VoiceAssistantCard extends StatelessWidget {
                 child: KidSmallBtn(
                   key: const Key('voice-assistant-trigger'),
                   label: buttonLabel,
-                  color:
-                      state.isListening ? KidColors.color5 : KidColors.color2,
+                  color: state.isListening
+                      ? KidColors.color5
+                      : state.mode.accentColor,
                   onTap: onTrigger,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '一张面板切换三种语音模式：短指令、长段记录、陪伴监听。',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: KidColors.black.withAlpha(170),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: _SpeechWorkbenchMode.values.map((mode) {
+              final selected = mode == state.mode;
+              return _VoiceWorkbenchChoiceChip(
+                key: Key('voice-mode-${mode.name}'),
+                icon: mode.icon,
+                label: mode.label,
+                caption: mode.description,
+                color: mode.accentColor,
+                selected: selected,
+                onTap: state.isBusy ? null : () => onModeChanged(mode),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '学习场景',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: KidColors.black.withAlpha(220),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: availableScenes.map((scene) {
+              final selected = scene == state.scene;
+              return _VoiceWorkbenchChoiceChip(
+                key: Key('voice-scene-${scene.name}'),
+                icon: Icons.auto_stories_rounded,
+                label: scene.label,
+                caption: scene.description,
+                color: selected
+                    ? state.mode.accentColor
+                    : KidColors.black.withAlpha(140),
+                selected: selected,
+                compact: true,
+                onTap: state.isBusy ? null : () => onSceneChanged(scene),
+              );
+            }).toList(),
           ),
           const SizedBox(height: 16),
           Text(
@@ -1237,17 +2504,232 @@ class _VoiceAssistantCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: metricTiles,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '示例话术',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: KidColors.black.withAlpha(220),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: surface.sampleUtterances
+            children: sampleUtterances
                 .map((item) => _MiniTraceChip(label: item))
                 .toList(),
           ),
-          if (state.lastTranscript != null) ...[
+          if (referenceSummaryTitle != null &&
+              referenceSummaryDetail != null) ...[
+            const SizedBox(height: 18),
+            _VoiceWorkbenchSectionCard(
+              key: const Key('voice-reference-task-summary'),
+              title: referenceSummaryTitle!,
+              icon: Icons.lock_outline_rounded,
+              accentColor: KidColors.color3,
+              child: Text(
+                referenceSummaryDetail!,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: KidColors.black.withAlpha(170),
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ] else if (showReferenceInput) ...[
+            const SizedBox(height: 18),
+            _VoiceWorkbenchSectionCard(
+              title: '$referenceLabel参考台',
+              icon: Icons.menu_book_rounded,
+              accentColor: KidColors.color2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    referenceHint,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: KidColors.black.withAlpha(170),
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const Key('voice-reference-input'),
+                    controller: referenceController,
+                    minLines: 4,
+                    maxLines: 8,
+                    enabled: !state.isBusy,
+                    decoration: InputDecoration(
+                      hintText:
+                          '例如：江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？',
+                      filled: true,
+                      fillColor: KidColors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide(
+                          color: KidColors.black.withAlpha(120),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          _VoiceWorkbenchSectionCard(
+            title: '实时记录',
+            icon: state.isListening ? Icons.graphic_eq_rounded : Icons.notes,
+            accentColor: state.mode.accentColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (state.lastTranscript != null)
+                  Text(
+                    state.isListening
+                        ? '正在记录：${state.lastTranscript}'
+                        : '刚刚听到：${state.lastTranscript}',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  )
+                else
+                  Text(
+                    supportsRecognition
+                        ? '开始说话后，这里会像学习记录板一样实时出现转写内容。'
+                        : '当前设备不支持语音识别，暂时无法开始记录。',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: KidColors.black.withAlpha(170),
+                    ),
+                  ),
+                if (state.segments.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  ...state.segments.map((segment) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: segment.isLive
+                            ? state.mode.accentColor.withAlpha(24)
+                            : KidColors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: segment.isLive
+                              ? state.mode.accentColor
+                              : KidColors.black.withAlpha(90),
+                          width: 2,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                '第 ${segment.index} 段',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _formatVoiceSegmentTime(segment.capturedAt),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: KidColors.black.withAlpha(140),
+                                ),
+                              ),
+                              const Spacer(),
+                              if (segment.isLive)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: state.mode.accentColor.withAlpha(36),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '进行中',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: state.mode.accentColor,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            segment.text,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ],
+            ),
+          ),
+          if (state.summaryMessage != null) ...[
             const SizedBox(height: 16),
-            Text(
-              '刚刚听到：${state.lastTranscript}',
-              style: const TextStyle(fontWeight: FontWeight.w900),
+            _VoiceWorkbenchSectionCard(
+              key: const Key('voice-workbench-summary'),
+              title: '整理结果',
+              icon: Icons.insights_rounded,
+              accentColor: KidColors.color1,
+              child: Text(
+                state.summaryMessage!,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ],
+          if (state.encouragementMessage != null) ...[
+            const SizedBox(height: 16),
+            _VoiceWorkbenchSectionCard(
+              title: '成长鼓励',
+              icon: Icons.star_rounded,
+              accentColor: KidColors.color3,
+              child: Text(
+                state.encouragementMessage!,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ],
+          if (state.recitationAnalysis != null) ...[
+            const SizedBox(height: 16),
+            _VoiceWorkbenchSectionCard(
+              key: const Key('voice-recitation-analysis'),
+              title: '背诵对照',
+              icon: Icons.auto_awesome_rounded,
+              accentColor: state.recitationAnalysis!.needsRetry
+                  ? KidColors.color5
+                  : KidColors.color3,
+              child: _RecitationAnalysisPanel(
+                analysis: state.recitationAnalysis!,
+              ),
             ),
           ],
           if (state.lastResolution != null) ...[
@@ -1271,6 +2753,31 @@ class _VoiceAssistantCard extends StatelessWidget {
                 ),
               ),
           ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: KidSmallBtn(
+                  key: const Key('voice-assistant-clear'),
+                  label: '清空记录',
+                  color: KidColors.color4,
+                  onTap: onClear,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: KidSmallBtn(
+                  label: state.mode == _SpeechWorkbenchMode.command
+                      ? '短句执行'
+                      : state.mode == _SpeechWorkbenchMode.transcript
+                          ? '整理整段'
+                          : '陪伴收听',
+                  color: state.mode.accentColor,
+                  onTap: onTrigger,
+                ),
+              ),
+            ],
+          ),
           if (state.noticeMessage != null || state.errorMessage != null) ...[
             const SizedBox(height: 16),
             Container(
@@ -1296,6 +2803,352 @@ class _VoiceAssistantCard extends StatelessWidget {
                       ? KidColors.color5
                       : KidColors.color3.withAlpha(220),
                 ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _VoiceWorkbenchChoiceChip extends StatelessWidget {
+  const _VoiceWorkbenchChoiceChip({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.caption,
+    required this.color,
+    required this.selected,
+    this.compact = false,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String caption;
+  final Color color;
+  final bool selected;
+  final bool compact;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor =
+        selected ? color.withAlpha(36) : KidColors.white.withAlpha(240);
+    final borderColor =
+        selected ? color : KidColors.black.withAlpha(onTap == null ? 50 : 130);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 14 : 16,
+          vertical: compact ? 12 : 14,
+        ),
+        width: compact ? 168 : 210,
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: compact ? 34 : 38,
+              height: compact ? 34 : 38,
+              decoration: BoxDecoration(
+                color: color.withAlpha(selected ? 42 : 24),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: compact ? 18 : 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: selected ? color : KidColors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    caption,
+                    maxLines: compact ? 2 : 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: compact ? 12 : 13,
+                      fontWeight: FontWeight.w700,
+                      color: KidColors.black.withAlpha(160),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceWorkbenchStatTile extends StatelessWidget {
+  const _VoiceWorkbenchStatTile({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 112,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withAlpha(26),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VoiceWorkbenchSectionCard extends StatelessWidget {
+  const _VoiceWorkbenchSectionCard({
+    super.key,
+    required this.title,
+    required this.icon,
+    required this.accentColor,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Color accentColor;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: accentColor.withAlpha(18),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accentColor.withAlpha(180), width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: accentColor),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: accentColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _RecitationAnalysisPanel extends StatelessWidget {
+  const _RecitationAnalysisPanel({
+    required this.analysis,
+  });
+
+  final RecitationAnalysis analysis;
+
+  @override
+  Widget build(BuildContext context) {
+    final issueChips = analysis.issues
+        .map((item) => _MiniTraceChip(label: item))
+        .toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _VoiceWorkbenchStatTile(
+              label: '标题',
+              value: analysis.displayTitle,
+              color: KidColors.color1,
+            ),
+            _VoiceWorkbenchStatTile(
+              label: '作者',
+              value: analysis.displayAuthor,
+              color: KidColors.color2,
+            ),
+            _VoiceWorkbenchStatTile(
+              label: '完成度',
+              value: analysis.completionLabel,
+              color: analysis.needsRetry ? KidColors.color5 : KidColors.color3,
+            ),
+            _VoiceWorkbenchStatTile(
+              label: '分析',
+              value: analysis.parserModeLabel,
+              color: KidColors.color4,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text(
+          analysis.summary,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+            height: 1.45,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          analysis.suggestion,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: KidColors.black.withAlpha(170),
+            height: 1.45,
+          ),
+        ),
+        if (issueChips.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: issueChips,
+          ),
+        ],
+        if (analysis.matchedLines.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          ...analysis.matchedLines.map((line) {
+            return _RecitationLineTile(
+              line: line,
+              concealExpectedText: analysis.scene == 'recitation',
+            );
+          }),
+        ],
+      ],
+    );
+  }
+}
+
+class _RecitationLineTile extends StatelessWidget {
+  const _RecitationLineTile({
+    required this.line,
+    required this.concealExpectedText,
+  });
+
+  final RecitationLineAnalysis line;
+  final bool concealExpectedText;
+
+  Color get _accentColor {
+    if (line.isMatched) {
+      return KidColors.color3;
+    }
+    if (line.isMissing) {
+      return KidColors.color5;
+    }
+    return KidColors.color4;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _accentColor.withAlpha(18),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _accentColor, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '第 ${line.index} 句',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: _accentColor,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _MiniTraceChip(label: line.statusLabel),
+              const SizedBox(width: 8),
+              _MiniTraceChip(label: line.ratioLabel),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            concealExpectedText
+                ? '原文提示：${line.isMatched ? '这一句基本对上' : '需要家长/老师侧查看或按提示重背'}'
+                : '原文：${line.expected}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            line.observed.trim().isEmpty
+                ? '听到：这一句没有稳定识别出来'
+                : '听到：${line.observed}',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: KidColors.black.withAlpha(180),
+              height: 1.45,
+            ),
+          ),
+          if (line.notes.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              line.notes,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: _accentColor,
+                height: 1.4,
               ),
             ),
           ],

@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-03-13
+
+### Added
+
+- **学习素材自动补全**
+  - `tasks/parse`、草稿保存与确认发布链路新增学习素材元数据透传，支持 `reference_title`、`reference_author`、`reference_text`、`hide_reference_from_child`、`analysis_mode`。
+  - 家长未手动输入学习素材时，系统会先从老师原文中自动抽取古诗词 / 课文标题、作者和正文；若原文仍缺失，再由 LLM 只补全缺口。
+  - 背诵任务默认对孩子隐藏标准原文，避免孩子直接看答案完成伪背诵。
+- **孩子学习语音工作台**
+  - Pad 端连续监听进一步扩展到短指令、长段朗读 / 背诵和陪伴式持续监听三类场景。
+  - 背诵分析新增 `/api/v1/recitation/analyze`，可根据 noisy transcript 识别标题 / 作者、恢复标准文本并输出完成度、问题点和重试建议。
+
+### Changed
+
+- **解析器与发布链路增强**
+  - 背诵 / 朗读任务会自动推断 `task_type`，不再默认全部视为普通 homework。
+  - 老师原文中紧跟在“背诵 / 朗读”任务后的正文块不再被错误并入任务标题，而是转为参考原文素材。
+  - 家长端审核卡在发布前即可看到自动带出的学习素材，并允许人工覆盖。
+- **文档与版本同步**
+  - 根 README、运行手册、交付就绪审计、UAT、发布清单、Release Sync Playbook、用户手册、一页摘要和发布说明统一刷新到 `v0.3.3`。
+  - `apps/parent-web/package.json`、`apps/parent-web/package-lock.json`、`apps/pad-app/pubspec.yaml` 版本号同步到 `v0.3.3`。
+
+### Verified
+
+- `cd apps/api-server && go test ./... -count=1`
+- `cd apps/parent-web && npm test -- --run`
+- `cd apps/parent-web && npm run build`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test --no-pub`
+- `cd apps/pad-app && flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
+- `bash scripts/check_no_tracked_runtime_env.sh`
+- `bash scripts/preflight_local_env.sh`
+- `bash scripts/check_release_scope.sh`
+
 ## [0.3.2] - 2026-03-13
 
 ### Fixed

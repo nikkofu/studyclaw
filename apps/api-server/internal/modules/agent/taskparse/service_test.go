@@ -2,6 +2,7 @@ package taskparse
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/nikkofu/studyclaw/api-server/internal/platform/llm"
@@ -53,6 +54,14 @@ const sampleNormalHomeworkMessage = `数学：
 2. 预习第6课
 1）圈画生字
 2）朗读课文三遍
+`
+
+const sampleRecitationWithReferenceMessage = `语文：
+1. 背诵《江畔独步寻花》
+
+江畔独步寻花【唐】杜甫
+黄师塔前江水东，春光懒困倚微风。
+桃花一簇开无主，可爱深红爱浅红？
 `
 
 func TestExtractStructureOutlineDetectsSectionsAndSignals(t *testing.T) {
@@ -333,8 +342,104 @@ func TestParseFallbackNormalTasksAvoidFalsePositiveNeedsReview(t *testing.T) {
 	}
 }
 
+func TestParseFallbackInfersLearningTaskTypes(t *testing.T) {
+	result := parseFallback(sampleNormalHomeworkMessage)
+
+	readingTask := findTaskByTitle(t, result.Data, "朗读课文三遍")
+	if readingTask.Type != "reading" {
+		t.Fatalf("expected reading task type, got %+v", readingTask)
+	}
+
+	normalMath := findTaskByTitle(t, result.Data, "完成口算本第5页")
+	if normalMath.Type != "homework" {
+		t.Fatalf("expected normal math task to stay homework, got %+v", normalMath)
+	}
+
+	recitationResult := parseFallback("语文：\n1. 背诵《江畔独步寻花》\n2. 背作文")
+	firstRecitation := findTaskByTitle(t, recitationResult.Data, "背诵《江畔独步寻花》")
+	if firstRecitation.Type != "recitation" {
+		t.Fatalf("expected poem recitation type, got %+v", firstRecitation)
+	}
+	secondRecitation := findTaskByTitle(t, recitationResult.Data, "背作文")
+	if secondRecitation.Type != "recitation" {
+		t.Fatalf("expected memorization task type, got %+v", secondRecitation)
+	}
+}
+
+func TestParseFallbackExtractsReferenceMaterialFromTeacherRawText(t *testing.T) {
+	service := NewService(nil)
+
+	result, err := service.Parse(context.Background(), sampleRecitationWithReferenceMessage)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if result.ParserMode != "rule_fallback" {
+		t.Fatalf("expected rule_fallback parser mode, got %s", result.ParserMode)
+	}
+
+	task := findTaskByTitle(t, result.Data, "背诵《江畔独步寻花》")
+	if task.Type != "recitation" {
+		t.Fatalf("expected recitation task type, got %+v", task)
+	}
+	if task.ReferenceTitle != "江畔独步寻花" {
+		t.Fatalf("expected extracted reference title, got %+v", task)
+	}
+	if task.ReferenceAuthor != "杜甫" {
+		t.Fatalf("expected extracted author, got %+v", task)
+	}
+	if task.ReferenceText == "" || !strings.Contains(task.ReferenceText, "黄师塔前江水东") {
+		t.Fatalf("expected extracted reference text, got %+v", task)
+	}
+	if !task.HideReferenceFromChild {
+		t.Fatalf("expected recitation reference to be hidden from child, got %+v", task)
+	}
+	if task.AnalysisMode != "classical_poem" {
+		t.Fatalf("expected classical_poem analysis mode, got %+v", task)
+	}
+	if !containsString(task.Notes, "已从老师原文自动带出参考内容。") {
+		t.Fatalf("expected raw-text enrichment note, got %+v", task.Notes)
+	}
+}
+
+func TestParseUsesLLMToFillMissingReferenceMaterialWhenTeacherDidNotProvideBody(t *testing.T) {
+	service := NewService(&stubLLMClient{
+		responses: []string{
+			`{"status":"success","data":[{"subject":"语文","group_title":"背诵《江畔独步寻花》","title":"背诵《江畔独步寻花》","type":"recitation","confidence":0.95,"needs_review":false,"notes":[]}]}`,
+			`{"status":"success","data":[{"index":0,"reference_title":"江畔独步寻花","reference_author":"杜甫","reference_text":"江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？","hide_reference_from_child":true,"analysis_mode":"classical_poem"}]}`,
+		},
+	})
+
+	result, err := service.Parse(context.Background(), "语文：\n1. 背诵《江畔独步寻花》")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if result.ParserMode != "llm_hybrid" {
+		t.Fatalf("expected llm_hybrid parser mode, got %s", result.ParserMode)
+	}
+
+	task := findTaskByTitle(t, result.Data, "背诵《江畔独步寻花》")
+	if task.ReferenceTitle != "江畔独步寻花" || task.ReferenceAuthor != "杜甫" {
+		t.Fatalf("expected LLM completed identity, got %+v", task)
+	}
+	if task.ReferenceText == "" || !strings.Contains(task.ReferenceText, "可爱深红爱浅红") {
+		t.Fatalf("expected LLM completed reference text, got %+v", task)
+	}
+	if !task.HideReferenceFromChild {
+		t.Fatalf("expected hide_reference_from_child to remain true, got %+v", task)
+	}
+	if task.AnalysisMode != "classical_poem" {
+		t.Fatalf("expected LLM completed analysis_mode, got %+v", task)
+	}
+	if !containsString(task.Notes, "参考素材已由 LLM 自动补全。") {
+		t.Fatalf("expected LLM enrichment note, got %+v", task.Notes)
+	}
+	if !containsString(result.Analysis.Notes, "缺失的 1 条朗读/背诵任务已由 LLM 自动补全参考素材。") {
+		t.Fatalf("expected analysis to mention LLM enrichment, got %+v", result.Analysis.Notes)
+	}
+}
+
 func TestParseHybridReappliesDeterministicReviewRules(t *testing.T) {
-	service := NewService(stubLLMClient{
+	service := NewService(&stubLLMClient{
 		response: `{"status":"success","data":[{"subject":"英语","group_title":"个别同学继续订正","title":"个别同学继续订正","type":"homework","confidence":0.95,"needs_review":false,"notes":[]}]}`,
 	})
 
@@ -381,10 +486,20 @@ func findTaskByTitle(t *testing.T, tasks []ParsedTask, title string) ParsedTask 
 }
 
 type stubLLMClient struct {
-	response string
-	err      error
+	response  string
+	responses []string
+	err       error
+	callCount int
 }
 
-func (s stubLLMClient) Generate(_ context.Context, _ llm.GenerateRequest) (string, error) {
+func (s *stubLLMClient) Generate(_ context.Context, _ llm.GenerateRequest) (string, error) {
+	if len(s.responses) > 0 {
+		index := s.callCount
+		if index >= len(s.responses) {
+			index = len(s.responses) - 1
+		}
+		s.callCount++
+		return s.responses[index], s.err
+	}
 	return s.response, s.err
 }

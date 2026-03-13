@@ -308,3 +308,55 @@ func TestTaskBoardStatusFlowForMarch6Demo(t *testing.T) {
 		t.Fatalf("unexpected markdown content:\n%s", string(content))
 	}
 }
+
+func TestTaskBoardPreservesReferenceMetadata(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("STUDYCLAW_DATA_DIR", dataDir)
+
+	router := SetupRouter()
+
+	createRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/tasks", map[string]any{
+		"family_id":                 512,
+		"assignee_id":               7,
+		"subject":                   "语文",
+		"group_title":               "古诗背诵",
+		"content":                   "背诵《江畔独步寻花》",
+		"assigned_date":             "2026-03-13",
+		"task_type":                 "recitation",
+		"reference_title":           "江畔独步寻花",
+		"reference_author":          "杜甫",
+		"reference_text":            "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+		"hide_reference_from_child": true,
+		"analysis_mode":             "classical_poem",
+	})
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected POST /tasks to return 201, got %d: %s", createRecorder.Code, createRecorder.Body.String())
+	}
+
+	listRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/tasks?family_id=512&user_id=7&date=2026-03-13", nil)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected GET /tasks to return 200, got %d: %s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	board := decodeTaskBoardResponse(t, listRecorder)
+	if len(board.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(board.Tasks))
+	}
+
+	task := board.Tasks[0]
+	if task.TaskType != "recitation" {
+		t.Fatalf("expected task_type recitation, got %+v", task)
+	}
+	if task.ReferenceTitle != "江畔独步寻花" || task.ReferenceAuthor != "杜甫" {
+		t.Fatalf("unexpected reference identity: %+v", task)
+	}
+	if task.ReferenceText == "" {
+		t.Fatalf("expected reference text to be present, got %+v", task)
+	}
+	if !task.HideReferenceFromChild {
+		t.Fatalf("expected hide_reference_from_child true, got %+v", task)
+	}
+	if task.AnalysisMode != "classical_poem" {
+		t.Fatalf("expected analysis_mode classical_poem, got %+v", task)
+	}
+}

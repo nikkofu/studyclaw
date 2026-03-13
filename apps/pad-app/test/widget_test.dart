@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pad_app/app.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
+import 'package:pad_app/task_board/recitation_analysis.dart';
 import 'package:pad_app/task_board/repository.dart';
 import 'package:pad_app/task_board/weekly_stats.dart';
 import 'package:pad_app/voice_commands/models.dart';
@@ -24,7 +25,7 @@ void main() {
           .pumpWidget(StudyClawPadApp(autoLoad: true, repository: repository));
       await tester.pump();
       expect(find.text('挑战舞台'), findsOneWidget);
-      expect(find.text('语音助手'), findsOneWidget);
+      expect(find.text('孩子学习语音工作台'), findsOneWidget);
       boardCompleter.complete(_boardWithTasks());
     });
 
@@ -218,6 +219,9 @@ void main() {
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      expect(find.text('结束说话'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
       await tester.pumpAndSettle();
 
       expect(repository.nextDictationCalls.length, 1);
@@ -314,6 +318,9 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      expect(find.text('结束说话'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
       await tester.pumpAndSettle();
 
       expect(repository.taskGroupUpdates.length, 1);
@@ -324,6 +331,216 @@ void main() {
         find.textContaining('已把“数学”学科任务标记为完成'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('records transcript mode locally without resolving commands',
+        (tester) async {
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => _boardWithTasks(),
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: repository,
+          speechRecognizer: _FakeSpeechRecognizer(
+            transcript: const SpeechTranscript(
+              transcript: '今天我先读第一段。然后我把第二段也读完了。',
+              locale: 'zh-CN',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-mode-transcript')));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-scene-reading')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      expect(find.textContaining('正在记录：今天我先读第一段'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pumpAndSettle();
+
+      expect(repository.resolveVoiceCommandCalls, isEmpty);
+      expect(find.byKey(const Key('voice-workbench-summary')), findsOneWidget);
+      expect(find.textContaining('已按朗读场景整理成 2 段'), findsOneWidget);
+      expect(find.textContaining('愿意一段一段读出来'), findsOneWidget);
+      expect(find.text('第 1 段'), findsOneWidget);
+      expect(find.text('第 2 段'), findsOneWidget);
+    });
+
+    testWidgets('analyzes poem recitation against reference text',
+        (tester) async {
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => _boardWithTasks(),
+        onAnalyzeRecitation: (_, __, ___, ____, _____, ______) async =>
+            const RecitationAnalysis(
+          status: 'success',
+          parserMode: 'llm_hybrid',
+          scene: 'recitation',
+          recognizedTitle: '江畔独步寻花',
+          recognizedAuthor: '杜甫',
+          referenceTitle: '江畔独步寻花',
+          referenceAuthor: '杜甫',
+          referenceText: '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？',
+          normalizedTranscript: '读办将办独步寻花糖杜甫黄思帕钳将水东春光染会以微风桃花一处开无主可爱深红爱浅红',
+          reconstructedText: '江畔独步寻花 杜甫 黄师塔前江水东 春光懒困倚微风 桃花一簇开无主 可爱深红爱浅红',
+          completionRatio: 0.78,
+          needsRetry: true,
+          summary: '已经识别为《江畔独步寻花》，主体内容对上了。',
+          suggestion: '重点回看第 1 句，再完整背一遍。',
+          issues: ['第 1 句还不够稳'],
+          matchedLines: [
+            RecitationLineAnalysis(
+              index: 1,
+              expected: '黄师塔前江水东，春光懒困倚微风。',
+              observed: '黄思帕钳将水东春光染会以微风',
+              matchRatio: 0.61,
+              status: 'partial',
+              notes: '主体对上，但有同音字替换',
+            ),
+            RecitationLineAnalysis(
+              index: 2,
+              expected: '桃花一簇开无主，可爱深红爱浅红？',
+              observed: '桃花一处开无主可爱深红爱浅红',
+              matchRatio: 0.94,
+              status: 'matched',
+              notes: '这一句整体比较稳',
+            ),
+          ],
+        ),
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: repository,
+          speechRecognizer: _FakeSpeechRecognizer(
+            transcript: const SpeechTranscript(
+              transcript: '读办将办独步寻花糖杜甫黄思帕钳将水东春光染会以微风桃花一处开无主可爱深红爱浅红',
+              locale: 'zh-CN',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-mode-transcript')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('voice-reference-input')),
+        '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？',
+      );
+      await tester.pump();
+      await tester.drag(find.byType(ListView).first, const Offset(0, 320));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pumpAndSettle();
+
+      expect(repository.recitationAnalysisCalls.length, 1);
+      expect(
+          find.byKey(const Key('voice-recitation-analysis')), findsOneWidget);
+      expect(find.text('江畔独步寻花'), findsWidgets);
+      expect(find.text('杜甫'), findsWidgets);
+      expect(find.textContaining('重点回看第 1 句'), findsOneWidget);
+      expect(find.textContaining('原文提示：需要家长/老师侧查看'), findsOneWidget);
+      expect(find.textContaining('听到：黄思帕钳将水东春光染会以微风'), findsOneWidget);
+    });
+
+    testWidgets(
+        'uses hidden task reference material automatically for recitation',
+        (tester) async {
+      const referenceText = '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？';
+      final board = _buildBoard(tasks: const [
+        _TaskSeed(
+          taskId: 1,
+          subject: '语文',
+          groupTitle: '古诗背诵',
+          content: '背诵《江畔独步寻花》',
+          completed: false,
+          taskType: 'recitation',
+          referenceTitle: '江畔独步寻花',
+          referenceAuthor: '杜甫',
+          referenceText: referenceText,
+          hideReferenceFromChild: true,
+          analysisMode: 'classical_poem',
+        ),
+      ]);
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => board,
+        onAnalyzeRecitation: (_, __, ___, ____, _____, ______) async =>
+            const RecitationAnalysis(
+          status: 'success',
+          parserMode: 'llm_hybrid',
+          scene: 'recitation',
+          recognizedTitle: '江畔独步寻花',
+          recognizedAuthor: '杜甫',
+          referenceTitle: '江畔独步寻花',
+          referenceAuthor: '杜甫',
+          referenceText: referenceText,
+          normalizedTranscript: '江畔独步寻花糖杜甫黄思塔前江水东春光缆会以微风桃花一处开无主可爱深红爱浅红',
+          reconstructedText: '江畔独步寻花 杜甫 黄师塔前江水东 春光懒困倚微风 桃花一簇开无主 可爱深红爱浅红',
+          completionRatio: 0.8,
+          needsRetry: true,
+          summary: '已经识别为《江畔独步寻花》，主体内容对上了。',
+          suggestion: '建议把第一句再熟读一遍。',
+          issues: ['第 1 句还不够稳'],
+          matchedLines: [],
+        ),
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: repository,
+          speechRecognizer: _FakeSpeechRecognizer(
+            transcript: const SpeechTranscript(
+              transcript: '江畔独步寻花糖杜甫黄思塔前江水东春光缆会以微风桃花一处开无主可爱深红爱浅红',
+              locale: 'zh-CN',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-mode-transcript')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('voice-reference-input')), findsNothing);
+      expect(
+        find.byKey(const Key('voice-reference-task-summary')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('当前背诵任务：江畔独步寻花'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pumpAndSettle();
+
+      expect(repository.recitationAnalysisCalls.length, 1);
+      expect(repository.recitationAnalysisCalls.first.referenceText,
+          referenceText);
+      expect(
+          repository.recitationAnalysisCalls.first.metadata['reference_source'],
+          'task');
+      expect(repository.recitationAnalysisCalls.first.metadata['task_id'], '1');
     });
 
     testWidgets('shows daily encouragement on the task board', (tester) async {
@@ -486,6 +703,7 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
       this.onGetDictationSession,
       this.onGradeDictationSession,
       this.onResolveVoiceCommand,
+      this.onAnalyzeRecitation,
       TaskBoard? fallbackBoard})
       : _lastBoard = fallbackBoard ?? _boardWithTasks();
 
@@ -514,10 +732,20 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
     String transcript,
     VoiceCommandContext context,
   )? onResolveVoiceCommand;
+  final Future<RecitationAnalysis> Function(
+    String apiBaseUrl,
+    String transcript,
+    String scene,
+    String? locale,
+    String? referenceText,
+    Map<String, String> metadata,
+  )? onAnalyzeRecitation;
 
   final List<_SingleTaskUpdateCall> singleTaskUpdates = [];
   final List<_TaskGroupUpdateCall> taskGroupUpdates = [];
   final List<String> nextDictationCalls = [];
+  final List<String> resolveVoiceCommandCalls = [];
+  final List<_RecitationAnalysisCall> recitationAnalysisCalls = [];
   final TaskBoard _lastBoard;
 
   @override
@@ -608,18 +836,64 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
 
   @override
   Future<VoiceCommandResolution> resolveVoiceCommand(TaskBoardRequest request,
-          {required String transcript,
-          required VoiceCommandContext context}) async =>
-      await (onResolveVoiceCommand?.call(request, transcript, context) ??
-          Future.value(const VoiceCommandResolution(
-            action: 'none',
-            reason: '未命中',
-            parserMode: 'rule_fallback',
-            confidence: 0,
-            normalizedTranscript: '',
-            surface: VoiceCommandSurface.taskBoard,
-            target: VoiceCommandTarget(),
-          )));
+      {required String transcript,
+      required VoiceCommandContext context}) async {
+    resolveVoiceCommandCalls.add(transcript);
+    return await (onResolveVoiceCommand?.call(request, transcript, context) ??
+        Future.value(const VoiceCommandResolution(
+          action: 'none',
+          reason: '未命中',
+          parserMode: 'rule_fallback',
+          confidence: 0,
+          normalizedTranscript: '',
+          surface: VoiceCommandSurface.taskBoard,
+          target: VoiceCommandTarget(),
+        )));
+  }
+
+  @override
+  Future<RecitationAnalysis> analyzeRecitation(
+    String apiBaseUrl, {
+    required String transcript,
+    required String scene,
+    String? locale,
+    String? referenceText,
+    Map<String, String> metadata = const <String, String>{},
+  }) async {
+    recitationAnalysisCalls.add(_RecitationAnalysisCall(
+      transcript: transcript,
+      scene: scene,
+      locale: locale,
+      referenceText: referenceText ?? '',
+      metadata: Map<String, String>.from(metadata),
+    ));
+    return await (onAnalyzeRecitation?.call(
+          apiBaseUrl,
+          transcript,
+          scene,
+          locale,
+          referenceText,
+          metadata,
+        ) ??
+        Future.value(const RecitationAnalysis(
+          status: 'success',
+          parserMode: 'rule_fallback',
+          scene: 'recitation',
+          recognizedTitle: '',
+          recognizedAuthor: '',
+          referenceTitle: '',
+          referenceAuthor: '',
+          referenceText: '',
+          normalizedTranscript: '',
+          reconstructedText: '',
+          completionRatio: 0,
+          needsRetry: true,
+          summary: '缺少参考原文，暂时无法比对。',
+          suggestion: '请补充原文后重试。',
+          issues: [],
+          matchedLines: [],
+        )));
+  }
 }
 
 class _SingleTaskUpdateCall {
@@ -638,6 +912,22 @@ class _TaskGroupUpdateCall {
   final String subject;
   final String? groupTitle;
   final bool completed;
+}
+
+class _RecitationAnalysisCall {
+  const _RecitationAnalysisCall({
+    required this.transcript,
+    required this.scene,
+    required this.locale,
+    required this.referenceText,
+    required this.metadata,
+  });
+
+  final String transcript;
+  final String scene;
+  final String? locale;
+  final String referenceText;
+  final Map<String, String> metadata;
 }
 
 TaskBoard _buildBoard({required List<_TaskSeed> tasks}) {
@@ -677,7 +967,13 @@ TaskBoard _buildBoard({required List<_TaskSeed> tasks}) {
               groupTitle: t.groupTitle,
               content: t.content,
               completed: t.completed,
-              status: t.completed ? 'completed' : 'pending'))
+              status: t.completed ? 'completed' : 'pending',
+              taskType: t.taskType,
+              referenceTitle: t.referenceTitle,
+              referenceAuthor: t.referenceAuthor,
+              referenceText: t.referenceText,
+              hideReferenceFromChild: t.hideReferenceFromChild,
+              analysisMode: t.analysisMode))
           .toList(),
       groups: subjectCounts.entries.map((entry) {
         final completed = subjectCompletedCounts[entry.key] ?? 0;
@@ -771,12 +1067,24 @@ class _TaskSeed {
       required this.subject,
       required this.groupTitle,
       required this.content,
-      required this.completed});
+      required this.completed,
+      this.taskType = '',
+      this.referenceTitle = '',
+      this.referenceAuthor = '',
+      this.referenceText = '',
+      this.hideReferenceFromChild = false,
+      this.analysisMode = ''});
   final int taskId;
   final String subject;
   final String groupTitle;
   final String content;
   final bool completed;
+  final String taskType;
+  final String referenceTitle;
+  final String referenceAuthor;
+  final String referenceText;
+  final bool hideReferenceFromChild;
+  final String analysisMode;
 }
 
 class _FakeWordSpeaker implements WordSpeaker {
@@ -799,16 +1107,37 @@ class _FakeSpeechRecognizer implements SpeechRecognizer {
   });
 
   final SpeechTranscript transcript;
+  bool _isListening = false;
+
   @override
   bool get supportsRecognition => true;
 
   @override
-  bool get isListening => false;
+  bool get isListening => _isListening;
+
+  @override
+  Future<void> startListening({
+    required String locale,
+    SpeechTranscriptListener? onTranscriptChanged,
+    SpeechSegmentListener? onSegmentCommitted,
+  }) async {
+    _isListening = true;
+    onTranscriptChanged?.call(transcript.transcript);
+    onSegmentCommitted?.call(transcript.transcript);
+  }
+
+  @override
+  Future<SpeechTranscript> finishListening() async {
+    _isListening = false;
+    return transcript;
+  }
 
   @override
   Future<SpeechTranscript> listenOnce({required String locale}) async =>
       transcript;
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    _isListening = false;
+  }
 }

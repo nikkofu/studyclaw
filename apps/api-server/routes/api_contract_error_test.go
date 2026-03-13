@@ -88,3 +88,20 @@ func TestInternalHandlersValidationUseSharedErrorContract(t *testing.T) {
 		t.Fatalf("expected missing days_data field, got %+v", weeklyPayload.Details)
 	}
 }
+
+func TestRecitationAnalysisValidationUsesSharedErrorContract(t *testing.T) {
+	router := SetupRouter()
+
+	recorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/recitation/analyze", map[string]interface{}{})
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected recitation analyze validation to return 400, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	payload := decodeRouteErrorResponse(t, recorder)
+	if payload.ErrorCode != "missing_required_fields" {
+		t.Fatalf("expected missing_required_fields, got %s", payload.ErrorCode)
+	}
+	if !containsAll(detailStringSlice(t, payload, "fields"), "transcript") {
+		t.Fatalf("expected missing transcript field, got %+v", payload.Details)
+	}
+}

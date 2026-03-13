@@ -1,6 +1,7 @@
 package app
 
 import (
+	recitationanalysis "github.com/nikkofu/studyclaw/api-server/internal/modules/agent/recitationanalysis"
 	taskparse "github.com/nikkofu/studyclaw/api-server/internal/modules/agent/taskparse"
 	voicecommand "github.com/nikkofu/studyclaw/api-server/internal/modules/agent/voicecommand"
 	weeklyinsights "github.com/nikkofu/studyclaw/api-server/internal/modules/agent/weeklyinsights"
@@ -16,6 +17,7 @@ type Container struct {
 	PhaseOne  *taskboardapp.PhaseOneService
 	TaskParse *taskparse.Service
 	Voice     *voicecommand.Service
+	Recite    *recitationanalysis.Service
 	WordParse *wordparse.Service
 	Weekly    *weeklyinsights.Service
 }
@@ -31,6 +33,7 @@ func NewContainer() *Container {
 		PhaseOne:  taskboardapp.NewPhaseOneService(taskboardService, phaseOneRepo),
 		TaskParse: taskparse.NewService(llmClient),
 		Voice:     voicecommand.NewService(llmClient),
+		Recite:    recitationanalysis.NewService(llmClient),
 		WordParse: wordparse.NewService(llmClient),
 		Weekly:    weeklyinsights.NewService(llmClient),
 	}

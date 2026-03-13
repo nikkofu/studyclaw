@@ -3,8 +3,11 @@ package markdown
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/nikkofu/studyclaw/api-server/internal/modules/taskboard/domain"
 )
 
 func TestAddTaskAndGetTasks(t *testing.T) {
@@ -15,7 +18,12 @@ func TestAddTaskAndGetTasks(t *testing.T) {
 	userID := uint(202)
 	date := time.Now()
 
-	if err := repository.AddTask(familyID, userID, "数学", "", "口算 30 题", date); err != nil {
+	if err := repository.AddTask(domain.CreateTaskInput{
+		FamilyID:   familyID,
+		AssigneeID: userID,
+		Subject:    "数学",
+		Content:    "口算 30 题",
+	}, date); err != nil {
 		t.Fatalf("AddTask returned error: %v", err)
 	}
 
@@ -99,16 +107,40 @@ func TestUpdateTaskCompletionFlows(t *testing.T) {
 	userID := uint(6)
 	date := time.Date(2026, 3, 6, 8, 0, 0, 0, time.Local)
 
-	if err := repository.AddTask(familyID, userID, "数学", "校本作业", "校本P14～15", date); err != nil {
+	if err := repository.AddTask(domain.CreateTaskInput{
+		FamilyID:   familyID,
+		AssigneeID: userID,
+		Subject:    "数学",
+		GroupTitle: "校本作业",
+		Content:    "校本P14～15",
+	}, date); err != nil {
 		t.Fatalf("AddTask returned error: %v", err)
 	}
-	if err := repository.AddTask(familyID, userID, "数学", "练习册", "练习册P12～13", date); err != nil {
+	if err := repository.AddTask(domain.CreateTaskInput{
+		FamilyID:   familyID,
+		AssigneeID: userID,
+		Subject:    "数学",
+		GroupTitle: "练习册",
+		Content:    "练习册P12～13",
+	}, date); err != nil {
 		t.Fatalf("AddTask returned error: %v", err)
 	}
-	if err := repository.AddTask(familyID, userID, "英语", "预习M1U2", "书本上标注好“黄页”出现单词的音标", date); err != nil {
+	if err := repository.AddTask(domain.CreateTaskInput{
+		FamilyID:   familyID,
+		AssigneeID: userID,
+		Subject:    "英语",
+		GroupTitle: "预习M1U2",
+		Content:    "书本上标注好“黄页”出现单词的音标",
+	}, date); err != nil {
 		t.Fatalf("AddTask returned error: %v", err)
 	}
-	if err := repository.AddTask(familyID, userID, "英语", "预习M1U2", "沪学习听录音跟读", date); err != nil {
+	if err := repository.AddTask(domain.CreateTaskInput{
+		FamilyID:   familyID,
+		AssigneeID: userID,
+		Subject:    "英语",
+		GroupTitle: "预习M1U2",
+		Content:    "沪学习听录音跟读",
+	}, date); err != nil {
 		t.Fatalf("AddTask returned error: %v", err)
 	}
 
@@ -194,4 +226,71 @@ func TestUpdateTaskCompletionFlows(t *testing.T) {
 	if string(content) != expectedMarkdown {
 		t.Fatalf("unexpected markdown content:\n%s", string(content))
 	}
+}
+
+func TestTaskMetadataRoundTrip(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+
+	repository := NewRepository()
+	familyID := uint(12)
+	userID := uint(34)
+	date := time.Date(2026, 3, 13, 8, 0, 0, 0, time.Local)
+
+	err := repository.AddTask(domain.CreateTaskInput{
+		FamilyID:               familyID,
+		AssigneeID:             userID,
+		Subject:                "语文",
+		GroupTitle:             "古诗背诵",
+		Content:                "背诵《江畔独步寻花》",
+		TaskType:               "recitation",
+		ReferenceTitle:         "江畔独步寻花",
+		ReferenceAuthor:        "杜甫",
+		ReferenceText:          "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+		HideReferenceFromChild: true,
+		AnalysisMode:           "classical_poem",
+	}, date)
+	if err != nil {
+		t.Fatalf("AddTask returned error: %v", err)
+	}
+
+	tasks, err := repository.GetTasks(familyID, userID, date)
+	if err != nil {
+		t.Fatalf("GetTasks returned error: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+
+	task := tasks[0]
+	if task.TaskType != "recitation" {
+		t.Fatalf("expected task_type recitation, got %q", task.TaskType)
+	}
+	if task.ReferenceTitle != "江畔独步寻花" || task.ReferenceAuthor != "杜甫" {
+		t.Fatalf("unexpected reference identity: %+v", task)
+	}
+	if task.ReferenceText == "" {
+		t.Fatalf("expected reference text to round-trip, got %+v", task)
+	}
+	if !task.HideReferenceFromChild {
+		t.Fatalf("expected hide_reference_from_child true, got %+v", task)
+	}
+	if task.AnalysisMode != "classical_poem" {
+		t.Fatalf("expected analysis_mode classical_poem, got %q", task.AnalysisMode)
+	}
+
+	path, err := repository.EnsureDailyFile(familyID, userID, date)
+	if err != nil {
+		t.Fatalf("EnsureDailyFile returned error: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if !contains(string(content), "studyclaw:task:") {
+		t.Fatalf("expected markdown to contain metadata comment, got:\n%s", string(content))
+	}
+}
+
+func contains(text, fragment string) bool {
+	return strings.Contains(text, fragment)
 }

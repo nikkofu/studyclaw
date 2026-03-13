@@ -17,7 +17,13 @@ type draftParseResponse struct {
 			TotalTasks int `json:"total_tasks"`
 		} `json:"summary"`
 		TaskItems []struct {
-			Title string `json:"title"`
+			Title                  string `json:"title"`
+			Type                   string `json:"type"`
+			ReferenceTitle         string `json:"reference_title"`
+			ReferenceAuthor        string `json:"reference_author"`
+			ReferenceText          string `json:"reference_text"`
+			HideReferenceFromChild bool   `json:"hide_reference_from_child"`
+			AnalysisMode           string `json:"analysis_mode"`
 		} `json:"task_items"`
 	} `json:"daily_assignment_draft"`
 }
@@ -154,6 +160,30 @@ type voiceCommandResolutionResponse struct {
 			TaskContent string `json:"task_content"`
 		} `json:"target"`
 	} `json:"resolution"`
+}
+
+type recitationAnalysisResponse struct {
+	Analysis struct {
+		ParserMode           string  `json:"parser_mode"`
+		Scene                string  `json:"scene"`
+		RecognizedTitle      string  `json:"recognized_title"`
+		RecognizedAuthor     string  `json:"recognized_author"`
+		ReferenceTitle       string  `json:"reference_title"`
+		ReferenceAuthor      string  `json:"reference_author"`
+		NormalizedTranscript string  `json:"normalized_transcript"`
+		CompletionRatio      float64 `json:"completion_ratio"`
+		NeedsRetry           bool    `json:"needs_retry"`
+		Summary              string  `json:"summary"`
+		Suggestion           string  `json:"suggestion"`
+		MatchedLines         []struct {
+			Index      int     `json:"index"`
+			Expected   string  `json:"expected"`
+			Observed   string  `json:"observed"`
+			MatchRatio float64 `json:"match_ratio"`
+			Status     string  `json:"status"`
+			Notes      string  `json:"notes"`
+		} `json:"matched_lines"`
+	} `json:"analysis"`
 }
 
 func TestPhaseOneDailyAssignmentPublishAndPadFetch(t *testing.T) {
@@ -376,6 +406,90 @@ func TestPhaseOneVoiceCommandResolveTaskBoardFallback(t *testing.T) {
 	}
 	if payload.Resolution.Target.Subject != "数学" || payload.Resolution.Target.GroupTitle != "订正" {
 		t.Fatalf("unexpected target: %+v", payload.Resolution.Target)
+	}
+}
+
+func TestPhaseOneRecitationAnalyzeFallback(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_RECITATION_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	recorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/recitation/analyze", map[string]any{
+		"scene":          "recitation",
+		"locale":         "zh-CN",
+		"transcript":     "读办将办独步寻花糖杜甫黄思帕钳将水东春光染会以微风桃花一处开无主可爱深红爱浅红",
+		"reference_text": "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+	})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected recitation analyze to return 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload recitationAnalysisResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal recitation analysis response: %v", err)
+	}
+	if payload.Analysis.ParserMode != "rule_fallback" {
+		t.Fatalf("expected rule_fallback parser mode, got %+v", payload.Analysis)
+	}
+	if payload.Analysis.ReferenceTitle != "江畔独步寻花" {
+		t.Fatalf("expected reference title, got %+v", payload.Analysis)
+	}
+	if payload.Analysis.RecognizedTitle != "江畔独步寻花" {
+		t.Fatalf("expected title to be recognized from transcript, got %+v", payload.Analysis)
+	}
+	if len(payload.Analysis.MatchedLines) != 2 {
+		t.Fatalf("expected 2 line assessments, got %+v", payload.Analysis.MatchedLines)
+	}
+	if payload.Analysis.CompletionRatio <= 0.45 {
+		t.Fatalf("expected usable completion ratio, got %+v", payload.Analysis)
+	}
+	if !payload.Analysis.NeedsRetry {
+		t.Fatalf("expected noisy transcript to still require retry, got %+v", payload.Analysis)
+	}
+}
+
+func TestPhaseOneDraftParsePreservesLearningReferenceMetadata(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	recitationText := "语文：\n1. 背诵《江畔独步寻花》\n\n江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？"
+	parseRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/daily-assignments/drafts/parse", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+		"source_text":   recitationText,
+	})
+	if parseRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected draft parse to return 201, got %d: %s", parseRecorder.Code, parseRecorder.Body.String())
+	}
+
+	var payload draftParseResponse
+	if err := json.Unmarshal(parseRecorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal draft parse response: %v", err)
+	}
+	if len(payload.Draft.TaskItems) != 1 {
+		t.Fatalf("expected 1 task item, got %+v", payload.Draft.TaskItems)
+	}
+
+	task := payload.Draft.TaskItems[0]
+	if task.Type != "recitation" {
+		t.Fatalf("expected recitation task item, got %+v", task)
+	}
+	if task.ReferenceTitle != "江畔独步寻花" || task.ReferenceAuthor != "杜甫" {
+		t.Fatalf("expected draft task item to preserve reference identity, got %+v", task)
+	}
+	if task.ReferenceText == "" || task.AnalysisMode != "classical_poem" {
+		t.Fatalf("expected draft task item to preserve reference metadata, got %+v", task)
+	}
+	if !task.HideReferenceFromChild {
+		t.Fatalf("expected draft task item to hide recitation text from child, got %+v", task)
 	}
 }
 

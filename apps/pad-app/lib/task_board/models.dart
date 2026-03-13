@@ -102,6 +102,12 @@ class TaskItem {
     required this.content,
     required this.completed,
     required this.status,
+    this.taskType = '',
+    this.referenceTitle = '',
+    this.referenceAuthor = '',
+    this.referenceText = '',
+    this.hideReferenceFromChild = false,
+    this.analysisMode = '',
   });
 
   factory TaskItem.fromJson(Map<String, dynamic> json) {
@@ -114,6 +120,12 @@ class TaskItem {
       content: json['content']?.toString() ?? '',
       completed: json['completed'] == true,
       status: json['status']?.toString() ?? 'pending',
+      taskType: _readString(json['task_type']),
+      referenceTitle: _readString(json['reference_title']),
+      referenceAuthor: _readString(json['reference_author']),
+      referenceText: _readString(json['reference_text']),
+      hideReferenceFromChild: json['hide_reference_from_child'] == true,
+      analysisMode: _readString(json['analysis_mode']),
     );
   }
 
@@ -123,6 +135,14 @@ class TaskItem {
   final String content;
   final bool completed;
   final String status;
+  final String taskType;
+  final String referenceTitle;
+  final String referenceAuthor;
+  final String referenceText;
+  final bool hideReferenceFromChild;
+  final String analysisMode;
+
+  bool get hasReferenceMaterial => referenceText.trim().isNotEmpty;
 }
 
 class HomeworkGroup {

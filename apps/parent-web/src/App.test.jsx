@@ -175,17 +175,29 @@ function createParsedTask({
   subject = "数学",
   group_title = "默认分组",
   title = "默认任务",
+  type = "homework",
   confidence = 0.92,
   needs_review = false,
   notes = [],
+  reference_title = "",
+  reference_author = "",
+  reference_text = "",
+  hide_reference_from_child = false,
+  analysis_mode = "",
 } = {}) {
   return {
     subject,
     group_title,
     title,
+    type,
     confidence,
     needs_review,
     notes,
+    reference_title,
+    reference_author,
+    reference_text,
+    hide_reference_from_child,
+    analysis_mode,
   }
 }
 
@@ -413,6 +425,191 @@ describe("App", () => {
     await screen.findByText("任务已发布")
 
     expect(screen.getByRole("button", { name: "快捷看反馈" })).toBeInTheDocument()
+  })
+
+  it("allows force publishing duplicate tasks from the review dock", async () => {
+    let confirmBody
+    const fetchMock = createFetchMock({
+      parseHandlers: [
+        createParseSuccess([
+          createParsedTask({
+            subject: "数学",
+            title: "重复练习册订正",
+          }),
+          createParsedTask({
+            subject: "数学",
+            title: "重复练习册订正",
+          }),
+        ]),
+      ],
+      confirmHandlers: [
+        (_, init) => {
+          confirmBody = JSON.parse(init.body)
+          return createSuccessResponse({
+            tasks: [
+              { subject: "数学", content: "重复练习册订正" },
+              { subject: "数学", content: "重复练习册订正" },
+            ],
+            created_count: 2,
+          })
+        },
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText("AI 草稿已生成")
+
+    const forcePublishButton = screen.getByRole("button", { name: "强制发布 (2)" })
+    expect(forcePublishButton).toBeEnabled()
+
+    await user.click(forcePublishButton)
+    await screen.findByText("任务已强制发布")
+
+    expect(confirmBody.tasks).toHaveLength(2)
+    expect(screen.getByRole("button", { name: "快捷看反馈" })).toBeInTheDocument()
+  })
+
+  it("publishes recitation reference metadata configured in the review card", async () => {
+    let confirmBody
+    const fetchMock = createFetchMock({
+      parseHandlers: [
+        createParseSuccess([
+          createParsedTask({
+            subject: "语文",
+            group_title: "古诗背诵",
+            title: "背诵《江畔独步寻花》",
+          }),
+        ]),
+      ],
+      confirmHandlers: [
+        (_, init) => {
+          confirmBody = JSON.parse(init.body)
+          return createSuccessResponse({
+            tasks: [
+              {
+                subject: "语文",
+                content: "背诵《江畔独步寻花》",
+                task_type: "recitation",
+                reference_title: "江畔独步寻花",
+              },
+            ],
+            created_count: 1,
+          })
+        },
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText("AI 草稿已生成")
+
+    const draftCard = screen.getAllByTestId("draft-card")[0]
+    await user.selectOptions(within(draftCard).getByLabelText("任务类型"), "recitation")
+    await user.selectOptions(within(draftCard).getByLabelText("分析模式"), "classical_poem")
+    await user.clear(within(draftCard).getByLabelText("参考标题"))
+    await user.type(within(draftCard).getByLabelText("参考标题"), "江畔独步寻花")
+    await user.type(within(draftCard).getByLabelText("参考作者 / 来源"), "杜甫")
+    await user.type(
+      within(draftCard).getByLabelText("背诵标准原文"),
+      "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+    )
+    await user.click(within(draftCard).getByRole("checkbox", { name: "对孩子隐藏正文" }))
+
+    await user.click(screen.getByRole("button", { name: "确认发布选中任务 (1)" }))
+    await screen.findByText("任务已发布")
+
+    expect(confirmBody.tasks).toHaveLength(1)
+    expect(confirmBody.tasks[0]).toMatchObject({
+      subject: "语文",
+      group_title: "古诗背诵",
+      title: "背诵《江畔独步寻花》",
+      type: "recitation",
+      task_type: "recitation",
+      reference_title: "江畔独步寻花",
+      reference_author: "杜甫",
+      hide_reference_from_child: true,
+      analysis_mode: "classical_poem",
+    })
+    expect(confirmBody.tasks[0].reference_text).toContain("黄师塔前江水东")
+  })
+
+  it("auto-extracts recitation reference content from the teacher raw text", async () => {
+    let confirmBody
+    const fetchMock = createFetchMock({
+      parseHandlers: [
+        createParseSuccess([
+          createParsedTask({
+            subject: "语文",
+            group_title: "古诗背诵",
+            title: "背诵《江畔独步寻花》",
+          }),
+        ]),
+      ],
+      confirmHandlers: [
+        (_, init) => {
+          confirmBody = JSON.parse(init.body)
+          return createSuccessResponse({
+            tasks: [
+              {
+                subject: "语文",
+                content: "背诵《江畔独步寻花》",
+                task_type: "recitation",
+              },
+            ],
+            created_count: 1,
+          })
+        },
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+    const user = userEvent.setup()
+
+    fireEvent.change(screen.getByLabelText("学校群原文"), {
+      target: {
+        value: `语文：
+1. 背诵《江畔独步寻花》
+
+江畔独步寻花【唐】杜甫
+黄师塔前江水东，春光懒困倚微风。
+桃花一簇开无主，可爱深红爱浅红？`,
+      },
+    })
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText(/已识别 1 个建议任务，其中 1 条已自动带出学习参考内容/)
+
+    const draftCard = screen.getAllByTestId("draft-card")[0]
+    expect(within(draftCard).getByLabelText("任务类型")).toHaveValue("recitation")
+    expect(within(draftCard).getByLabelText("参考标题")).toHaveValue("江畔独步寻花")
+    expect(within(draftCard).getByLabelText("参考作者 / 来源")).toHaveValue("杜甫")
+    expect(within(draftCard).getByLabelText("背诵标准原文")).toHaveValue(
+      "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+    )
+    expect(within(draftCard).getByRole("checkbox", { name: "对孩子隐藏正文" })).toBeChecked()
+
+    await user.click(screen.getByRole("button", { name: "确认发布选中任务 (1)" }))
+    await screen.findByText("任务已发布")
+
+    expect(confirmBody.tasks[0]).toMatchObject({
+      task_type: "recitation",
+      reference_title: "江畔独步寻花",
+      reference_author: "杜甫",
+      hide_reference_from_child: true,
+      analysis_mode: "classical_poem",
+    })
+    expect(confirmBody.tasks[0].reference_text).toContain("桃花一簇开无主")
   })
 
   it("shows the raw text composer after tapping 去录入原文 from scope", async () => {

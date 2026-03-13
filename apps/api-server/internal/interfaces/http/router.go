@@ -18,6 +18,7 @@ func SetupRouter(container *app.Container) *gin.Engine {
 	dailyAssignmentHandler := handlers.NewDailyAssignmentHandler(container.PhaseOne, container.TaskParse)
 	pointsHandler := handlers.NewPointsHandler(container.PhaseOne)
 	voiceCommandHandler := handlers.NewVoiceCommandHandler(container.Voice)
+	recitationAnalysisHandler := handlers.NewRecitationAnalysisHandler(container.Recite)
 	wordsHandler := handlers.NewWordsHandler(container.PhaseOne, container.WordParse)
 	statsHandler := handlers.NewStatsHandler(container.PhaseOne)
 
@@ -31,6 +32,7 @@ func SetupRouter(container *app.Container) *gin.Engine {
 		apiV1.POST("/internal/parse", internalAgentHandler.Parse)
 		apiV1.POST("/internal/analyze/weekly", internalAgentHandler.AnalyzeWeekly)
 		apiV1.POST("/voice-commands/resolve", voiceCommandHandler.Resolve)
+		apiV1.POST("/recitation/analyze", recitationAnalysisHandler.Analyze)
 		apiV1.POST("/tasks", taskHandler.CreateTask)
 		apiV1.POST("/tasks/parse", taskHandler.ParseAndCreateTasks)
 		apiV1.POST("/tasks/confirm", taskHandler.ConfirmTasks)

@@ -1,11 +1,11 @@
-# StudyClaw v0.3.2 交付验收用例
+# StudyClaw v0.3.3 交付验收用例
 
 本文档把当前阶段的交付验收步骤固定下来，作为 API、Parent Web、Pad 三端一起跑的正式基线。
 
 ## 1. 验收基线
 
 - 验收日期：`2026-03-13`
-- 版本：`v0.3.2`
+- 版本：`v0.3.3`
 - 固定数据：
   - `family_id=306`
   - `user_id / child_id=1`
@@ -47,12 +47,17 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 | `UAT-07A` | 家长端 H5 | 用手机视口打开 Parent Web 并切换 `发布 / 反馈 / 积分 / 单词` | 页面表现为手机 H5 工位，底部导航始终可用，不是 PC 多栏长页面 |
 | `UAT-07B` | 家长端 H5 | 在发布主屏切换 `范围 / 原文 / 审核 / 发布 / 拆分 / 任务 / 摘要 / 任务板` | 发布子页可以切换，默认不需要横向拖动才能看到完整入口 |
 | `UAT-07C` | 家长端 H5 | 在 `范围` 页点击“去录入原文” | 立即切到 `原文` 子页面，并看到原文输入框，而不是被带回 `范围` |
+| `UAT-07D` | 学习素材 | 用包含古诗词正文的老师原文调用 `POST /api/v1/tasks/parse` | 解析结果里包含 `reference_title`、`reference_author`、`reference_text`、`hide_reference_from_child=true`、`analysis_mode=classical_poem` |
+| `UAT-07E` | 学习素材 | 发布草稿后检查 `daily_assignment_draft.task_items` | 草稿中仍保留学习素材元数据，不会在 parse -> draft 阶段丢失 |
+| `UAT-07F` | 学习素材 | 以解析结果直接调用 `POST /api/v1/tasks/confirm` | 任务板中仍保留学习素材元数据，不会在 confirm 阶段丢失 |
 | `UAT-08` | 孩子读取 | `GET /api/v1/tasks?family_id=306&user_id=1&date=2026-03-12` | 返回 4 条任务和正确 summary |
 | `UAT-09` | 孩子完成 | `PATCH /api/v1/tasks/status/item` | `updated_count=1`，summary 从 `0/4` 变为 `1/4` |
 | `UAT-09A` | 鼓励反馈 | 在 Pad 勾选一个包含“订正 / 默写 / 复习”等关键词的任务 | 页面出现即时鼓励，如“这一步不轻松，你还是认真拿下了。” |
 | `UAT-10` | 家长反馈 | `GET /api/v1/stats/daily` | 返回 `completed_tasks=1`、`auto_points=1`、非空 `encouragement` |
 | `UAT-11` | 语音任务完成 | 在 Pad 任务板说“数学订正好了” | Pad 调用 `/api/v1/voice-commands/resolve` 并执行对应完成动作 |
 | `UAT-11A` | 语音启动 | 在 Pad 点击“开始说话” | 不出现 `type 'Null' is not a bool in boolean expression`，可以正常进入监听或返回明确语音失败提示 |
+| `UAT-11B` | 长段语音 | 在 Pad 朗读 / 背诵任务中开始说话，停顿后继续，再手动结束 | 监听在人工结束前保持可用，期间 transcript 会分段记录而不是几秒内自动失败 |
+| `UAT-11C` | 背诵分析 | `POST /api/v1/recitation/analyze` | 返回标题 / 作者 / 完成度 / `matched_lines` / `needs_retry` / 建议 |
 | `UAT-12` | 积分 | `POST /api/v1/points/ledger` | 成功写入一条人工奖励 |
 | `UAT-13` | 积分 | `GET /api/v1/points/ledger` 与 `GET /api/v1/points/balance` | 返回自动积分 `1` + 人工积分 `2`，余额 `3` |
 | `UAT-14` | 词单 | `POST /api/v1/word-lists/parse` | 返回结构化词项 |
@@ -88,7 +93,9 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 
 - Parent Web 与 Pad Web 页面都能正常返回 HTML。
 - Parent Web 点击“去录入原文”后可直接进入 `原文` 子页面并看到输入框。
+- 背诵类任务在解析、草稿和确认发布后都能保留学习素材元数据。
 - API 成功完成 `parse -> confirm -> list -> status update -> daily/monthly stats`。
+- `POST /api/v1/recitation/analyze` 可以返回标题、完成度和逐句匹配。
 - 任务完成后自动积分 `+1`，家长人工奖励 `+2`，余额正确汇总为 `3`。
 - 词单 `wordlist_000001` 保存成功。
 - 听写会话 `session_000002` 成功执行 `start -> next -> replay`。
@@ -102,5 +109,5 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 2. `git status --short` 中只剩计划提交的文件。
 3. 不把 `.gopath/`、`build/`、`dist/`、`.dart_tool/`、运行时密钥文件带进 commit。
 4. 根 README、运行手册、用户手册、release checklist、delivery readiness、UAT cases 已同步。
-5. 版本声明已经对齐到 `v0.3.2`。
+5. 版本声明已经对齐到 `v0.3.3`。
 6. 自动化验证和三端联调结果已附在 release commit 或 PR 描述中。

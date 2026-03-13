@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/nikkofu/studyclaw/api-server/internal/platform/llm"
 	"github.com/nikkofu/studyclaw/api-server/internal/shared/agentic"
@@ -45,6 +47,10 @@ var (
 	bulletSubItemPattern       = regexp.MustCompile(`^[-•·]\s*(.+)$`)
 	taskTargetReferencePattern = regexp.MustCompile(`[A-Za-z]+\d+|\d`)
 	jsonFencePattern           = regexp.MustCompile("(?s)^```(?:json)?\\s*(.*?)\\s*```$")
+	quotedTitlePattern         = regexp.MustCompile(`《([^》]+)》`)
+	learningActionTitlePattern = regexp.MustCompile(`(?:背诵|朗读|跟读|诵读|朗诵)\s*[《“"]?([^》”"，。；、\s]{2,30})[》”"]?`)
+	referenceHeaderPattern     = regexp.MustCompile(`^(.*?)[【\[\(（〔][^】\]\)）〕]{1,12}[】\]\)）〕]\s*([^\s]{1,16})$`)
+	referenceAuthorPattern     = regexp.MustCompile(`^作者[:：]\s*([^\s]{1,16})$`)
 	conditionalSignalKeywords  = []string{"可免", "选做", "如需", "如果", "酌情", "全对", "完成后", "做完后"}
 	conditionalSignalPatterns  = []*regexp.Regexp{
 		regexp.MustCompile(`(^|[，,；;。:：\s])若(?:有|需|未|完成|全对|正确|时间|背会|默写)`),
@@ -56,18 +62,25 @@ var (
 		"本", "卷", "册", "页", "课", "课文", "单词", "错词", "错题", "练习", "练习册", "试卷",
 		"校本", "作业", "口算", "作文", "默写", "听写", "知识点", "音标", "录音", "题",
 	}
+	recitationTaskKeywords = []string{"背诵", "背默", "默背", "背课文", "背作文", "古诗", "诗词", "熟背", "背会"}
+	readingTaskKeywords    = []string{"朗读", "跟读", "诵读", "朗诵", "read aloud", "follow reading"}
 )
 
 var parsePatternSelection = agentic.PhaseOneTaskParsePattern
 
 type ParsedTask struct {
-	Subject     string   `json:"subject"`
-	GroupTitle  string   `json:"group_title,omitempty"`
-	Title       string   `json:"title"`
-	Type        string   `json:"type"`
-	Confidence  float64  `json:"confidence,omitempty"`
-	NeedsReview bool     `json:"needs_review,omitempty"`
-	Notes       []string `json:"notes,omitempty"`
+	Subject                string   `json:"subject"`
+	GroupTitle             string   `json:"group_title,omitempty"`
+	Title                  string   `json:"title"`
+	Type                   string   `json:"type"`
+	Confidence             float64  `json:"confidence,omitempty"`
+	NeedsReview            bool     `json:"needs_review,omitempty"`
+	Notes                  []string `json:"notes,omitempty"`
+	ReferenceTitle         string   `json:"reference_title,omitempty"`
+	ReferenceAuthor        string   `json:"reference_author,omitempty"`
+	ReferenceText          string   `json:"reference_text,omitempty"`
+	HideReferenceFromChild bool     `json:"hide_reference_from_child,omitempty"`
+	AnalysisMode           string   `json:"analysis_mode,omitempty"`
 }
 
 type ParseAnalysis struct {
@@ -94,6 +107,25 @@ type Result struct {
 type llmResult struct {
 	Status string       `json:"status"`
 	Data   []ParsedTask `json:"data"`
+}
+
+type learningReferenceLLMResult struct {
+	Status string                    `json:"status"`
+	Data   []learningReferenceLLMRow `json:"data"`
+}
+
+type learningReferenceLLMRow struct {
+	Index                  int    `json:"index"`
+	ReferenceTitle         string `json:"reference_title,omitempty"`
+	ReferenceAuthor        string `json:"reference_author,omitempty"`
+	ReferenceText          string `json:"reference_text,omitempty"`
+	HideReferenceFromChild *bool  `json:"hide_reference_from_child,omitempty"`
+	AnalysisMode           string `json:"analysis_mode,omitempty"`
+}
+
+type looseReferenceBlock struct {
+	StartIndex int
+	Lines      []string
 }
 
 type outlineItem struct {
@@ -175,6 +207,459 @@ func normalizedSignalParts(values ...string) []string {
 
 func normalizedSignalText(values ...string) string {
 	return normalizedKeywordText(normalizedSignalParts(values...)...)
+}
+
+func inferTaskType(values ...string) string {
+	text := strings.ToLower(normalizedSignalText(values...))
+	if text == "" {
+		return "homework"
+	}
+
+	for _, keyword := range recitationTaskKeywords {
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return "recitation"
+		}
+	}
+
+	for _, keyword := range readingTaskKeywords {
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return "reading"
+		}
+	}
+
+	return "homework"
+}
+
+func normalizeLearningTaskType(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "homework":
+		return "homework"
+	case "recitation", "memorization", "memorize", "poem_recitation", "classical_poem":
+		return "recitation"
+	case "reading", "read_aloud", "follow_reading", "english_reading":
+		return "reading"
+	default:
+		return normalized
+	}
+}
+
+func usesReferenceMaterial(taskType string) bool {
+	switch normalizeLearningTaskType(taskType) {
+	case "recitation", "reading":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeComparisonText(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(normalized))
+	for _, r := range normalized {
+		switch {
+		case unicode.IsLetter(r), unicode.IsNumber(r):
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func splitRawMessageLines(rawText string) []string {
+	lines := strings.Split(strings.ReplaceAll(rawText, "\r\n", "\n"), "\n")
+	normalized := make([]string, 0, len(lines))
+	for _, line := range lines {
+		normalized = append(normalized, strings.TrimSpace(line))
+	}
+	return normalized
+}
+
+func isSubjectHeadingLine(line string) bool {
+	headingMatch := headingPattern.FindStringSubmatch(strings.TrimSpace(line))
+	return len(headingMatch) == 3 && headingKeyPattern.MatchString(whitespacePattern.ReplaceAllString(headingMatch[1], ""))
+}
+
+func isStructuralLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	if isSubjectHeadingLine(trimmed) {
+		return true
+	}
+	if mainItemPattern.MatchString(trimmed) || bracketedSubItemPattern.MatchString(trimmed) || numberedSubItemPattern.MatchString(trimmed) {
+		return true
+	}
+	if circledSubItemPattern.MatchString(trimmed) || bulletSubItemPattern.MatchString(trimmed) {
+		return true
+	}
+	return false
+}
+
+func extractQuotedTitle(text string) string {
+	if matches := quotedTitlePattern.FindStringSubmatch(strings.TrimSpace(text)); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := learningActionTitlePattern.FindStringSubmatch(strings.TrimSpace(text)); len(matches) == 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	return ""
+}
+
+func parseReferenceHeader(firstLine, fallbackTitle string) (string, string) {
+	line := strings.TrimSpace(firstLine)
+	fallbackTitle = strings.TrimSpace(fallbackTitle)
+	if line == "" {
+		return fallbackTitle, ""
+	}
+
+	quotedTitle := extractQuotedTitle(line)
+	if matches := referenceHeaderPattern.FindStringSubmatch(line); len(matches) == 3 {
+		title := strings.TrimSpace(strings.ReplaceAll(matches[1], "《", ""))
+		title = strings.TrimSpace(strings.ReplaceAll(title, "》", ""))
+		if quotedTitle != "" {
+			title = quotedTitle
+		}
+		if title == "" {
+			title = fallbackTitle
+		}
+		return title, strings.TrimSpace(matches[2])
+	}
+
+	if matches := referenceAuthorPattern.FindStringSubmatch(line); len(matches) == 2 {
+		return fallbackTitle, strings.TrimSpace(matches[1])
+	}
+
+	if quotedTitle != "" {
+		return quotedTitle, ""
+	}
+
+	if !strings.ContainsAny(line, "，。！？；,.!?") && utf8.RuneCountInString(line) <= 24 {
+		title := strings.TrimSpace(strings.ReplaceAll(line, "《", ""))
+		title = strings.TrimSpace(strings.ReplaceAll(title, "》", ""))
+		if title == "" {
+			title = fallbackTitle
+		}
+		return title, ""
+	}
+
+	return fallbackTitle, ""
+}
+
+func looksLikeReferenceBlock(lines []string) bool {
+	if len(lines) == 0 {
+		return false
+	}
+
+	joined := strings.TrimSpace(strings.Join(lines, "\n"))
+	if utf8.RuneCountInString(joined) < 12 {
+		return false
+	}
+
+	if len(lines) >= 2 {
+		return true
+	}
+	if strings.ContainsAny(joined, "，。！？；,.!?") {
+		return true
+	}
+	if quotedTitlePattern.MatchString(joined) {
+		return true
+	}
+	return referenceHeaderPattern.MatchString(joined)
+}
+
+func collectReferenceBlockAfterLine(lines []string, anchorIndex int) []string {
+	if anchorIndex < 0 {
+		return nil
+	}
+
+	block := make([]string, 0)
+	started := false
+	for index := anchorIndex + 1; index < len(lines); index++ {
+		trimmed := strings.TrimSpace(lines[index])
+		if trimmed == "" {
+			if started {
+				break
+			}
+			continue
+		}
+		if isStructuralLine(trimmed) {
+			if started {
+				break
+			}
+			continue
+		}
+
+		started = true
+		block = append(block, trimmed)
+	}
+
+	if !looksLikeReferenceBlock(block) {
+		return nil
+	}
+	return block
+}
+
+func extractLooseReferenceBlocks(lines []string) []looseReferenceBlock {
+	blocks := make([]looseReferenceBlock, 0)
+	current := make([]string, 0)
+	startIndex := -1
+
+	flush := func() {
+		if looksLikeReferenceBlock(current) {
+			blocks = append(blocks, looseReferenceBlock{
+				StartIndex: startIndex,
+				Lines:      append([]string(nil), current...),
+			})
+		}
+		current = current[:0]
+		startIndex = -1
+	}
+
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || isStructuralLine(trimmed) {
+			flush()
+			continue
+		}
+
+		if len(current) == 0 {
+			startIndex = index
+		}
+		current = append(current, trimmed)
+	}
+	flush()
+
+	return blocks
+}
+
+func findBestAnchorIndex(lines []string, task ParsedTask) int {
+	searchTerms := []string{
+		task.Title,
+		task.GroupTitle,
+		extractQuotedTitle(task.Title),
+		extractQuotedTitle(task.GroupTitle),
+	}
+
+	bestIndex := -1
+	bestScore := -1
+	for index, line := range lines {
+		normalizedLine := normalizeComparisonText(line)
+		if normalizedLine == "" {
+			continue
+		}
+
+		for _, term := range searchTerms {
+			normalizedTerm := normalizeComparisonText(term)
+			if normalizedTerm == "" || !strings.Contains(normalizedLine, normalizedTerm) {
+				continue
+			}
+
+			score := utf8.RuneCountInString(normalizedTerm) * 10
+			if isStructuralLine(line) {
+				score += 5
+			}
+			if score > bestScore {
+				bestScore = score
+				bestIndex = index
+			}
+		}
+	}
+
+	return bestIndex
+}
+
+func findReferenceBlockForTask(lines []string, task ParsedTask, extractedTitle string) []string {
+	anchorIndex := findBestAnchorIndex(lines, task)
+	if block := collectReferenceBlockAfterLine(lines, anchorIndex); len(block) > 0 {
+		return block
+	}
+
+	titleHint := normalizeComparisonText(extractedTitle)
+	if titleHint == "" {
+		return nil
+	}
+
+	for _, block := range extractLooseReferenceBlocks(lines) {
+		if len(block.Lines) == 0 {
+			continue
+		}
+		if strings.Contains(normalizeComparisonText(block.Lines[0]), titleHint) {
+			return append([]string(nil), block.Lines...)
+		}
+	}
+
+	return nil
+}
+
+func inferAnalysisMode(taskType, referenceText, title, author string) string {
+	normalizedType := normalizeLearningTaskType(taskType)
+	lines := make([]string, 0)
+	for _, line := range strings.Split(strings.TrimSpace(referenceText), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+
+	joined := strings.Join(lines, "")
+	if normalizedType == "reading" {
+		if containsASCIIAlpha(joined) {
+			return "english_reading"
+		}
+		return "read_aloud"
+	}
+
+	if normalizedType != "recitation" {
+		return ""
+	}
+
+	shortLineCount := 0
+	for _, line := range lines {
+		if utf8.RuneCountInString(line) <= 18 {
+			shortLineCount++
+		}
+	}
+	hasDynastyMarker := false
+	if len(lines) > 0 {
+		hasDynastyMarker = referenceHeaderPattern.MatchString(lines[0])
+	}
+	if (hasDynastyMarker || strings.TrimSpace(author) != "") && len(lines) >= 2 && shortLineCount >= minInt(len(lines), 3) {
+		return "classical_poem"
+	}
+	if strings.TrimSpace(title) != "" && len(lines) >= 2 && shortLineCount == len(lines) && strings.ContainsAny(joined, "，。！？；") {
+		return "classical_poem"
+	}
+	return "text_recitation"
+}
+
+func containsASCIIAlpha(value string) bool {
+	for _, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			return true
+		}
+		if r >= 'a' && r <= 'z' {
+			return true
+		}
+	}
+	return false
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func firstMeaningfulLine(value string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func finalizeLearningReferenceFields(task ParsedTask) ParsedTask {
+	task.Type = normalizeLearningTaskType(task.Type)
+	task.ReferenceTitle = strings.TrimSpace(task.ReferenceTitle)
+	task.ReferenceAuthor = strings.TrimSpace(task.ReferenceAuthor)
+	task.ReferenceText = strings.TrimSpace(strings.ReplaceAll(task.ReferenceText, "\r\n", "\n"))
+	task.AnalysisMode = strings.TrimSpace(task.AnalysisMode)
+
+	if !usesReferenceMaterial(task.Type) {
+		return task
+	}
+
+	fallbackTitle := extractQuotedTitle(task.Title)
+	if fallbackTitle == "" {
+		fallbackTitle = extractQuotedTitle(task.GroupTitle)
+	}
+
+	headerTitle, headerAuthor := parseReferenceHeader(firstMeaningfulLine(task.ReferenceText), fallbackTitle)
+	if task.ReferenceTitle == "" {
+		task.ReferenceTitle = headerTitle
+	}
+	if task.ReferenceAuthor == "" {
+		task.ReferenceAuthor = headerAuthor
+	}
+	if task.ReferenceTitle == "" {
+		task.ReferenceTitle = fallbackTitle
+	}
+
+	if task.ReferenceText != "" {
+		if task.AnalysisMode == "" {
+			task.AnalysisMode = inferAnalysisMode(task.Type, task.ReferenceText, task.ReferenceTitle, task.ReferenceAuthor)
+		}
+		if task.Type == "recitation" {
+			task.HideReferenceFromChild = true
+		}
+	}
+
+	return task
+}
+
+func enrichTasksWithLearningReferences(rawText string, tasks []ParsedTask) []ParsedTask {
+	lines := splitRawMessageLines(rawText)
+	enriched := make([]ParsedTask, 0, len(tasks))
+
+	for _, original := range tasks {
+		task := original
+		taskType := task.Type
+		inferredType := inferTaskType(task.Subject, task.GroupTitle, task.Title)
+		if strings.TrimSpace(taskType) == "" || (normalizeLearningTaskType(taskType) == "homework" && usesReferenceMaterial(inferredType)) {
+			taskType = inferredType
+		}
+		task.Type = normalizeLearningTaskType(taskType)
+
+		fallbackTitle := extractQuotedTitle(task.Title)
+		if fallbackTitle == "" {
+			fallbackTitle = extractQuotedTitle(task.GroupTitle)
+		}
+
+		if usesReferenceMaterial(task.Type) && strings.TrimSpace(task.ReferenceText) == "" {
+			if block := findReferenceBlockForTask(lines, task, fallbackTitle); len(block) > 0 {
+				task.ReferenceText = strings.Join(block, "\n")
+				task.Notes = mergeNotes(task.Notes, "已从老师原文自动带出参考内容。")
+			}
+		}
+
+		enriched = append(enriched, finalizeLearningReferenceFields(task))
+	}
+
+	return enriched
+}
+
+func looksLikeReferenceLineForTask(taskTitle, line string) bool {
+	taskType := inferTaskType(taskTitle)
+	if !usesReferenceMaterial(taskType) {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || isStructuralLine(trimmed) {
+		return false
+	}
+
+	fallbackTitle := extractQuotedTitle(taskTitle)
+	headerTitle, headerAuthor := parseReferenceHeader(trimmed, fallbackTitle)
+	if headerAuthor != "" {
+		return true
+	}
+	if fallbackTitle != "" && headerTitle == fallbackTitle {
+		return true
+	}
+	if fallbackTitle != "" && strings.ContainsAny(trimmed, "，。！？；,.!?") && utf8.RuneCountInString(trimmed) >= 8 {
+		return true
+	}
+	return false
 }
 
 func containsAnyKeyword(text string, keywords []string) bool {
@@ -418,7 +903,7 @@ func flattenSectionsToTasks(sections []outlineSection) []ParsedTask {
 					Subject:     section.Subject,
 					GroupTitle:  groupTitle,
 					Title:       atomicTitle,
-					Type:        "homework",
+					Type:        inferTaskType(section.Subject, groupTitle, atomicTitle),
 					Confidence:  confidence,
 					NeedsReview: needsReview,
 					Notes:       notes,
@@ -442,6 +927,7 @@ func extractStructureOutline(rawText string) structureOutline {
 	sections := make([]outlineSection, 0)
 	var currentSection *outlineSection
 	var currentTask *outlineItem
+	skippingReferenceBlock := false
 	signals := make([]string, 0)
 
 	markSignal := func(signal string) {
@@ -486,6 +972,14 @@ func extractStructureOutline(rawText string) structureOutline {
 	}
 
 	for _, line := range lines {
+		if skippingReferenceBlock {
+			if isStructuralLine(line) {
+				skippingReferenceBlock = false
+			} else {
+				continue
+			}
+		}
+
 		if containsConditionalSignal(line) {
 			markSignal("conditional_notes")
 		}
@@ -541,6 +1035,7 @@ func extractStructureOutline(rawText string) structureOutline {
 		if matches := mainItemPattern.FindStringSubmatch(line); len(matches) == 2 {
 			markSignal("numbered_tasks")
 			flushTask()
+			skippingReferenceBlock = false
 			if currentSection == nil {
 				currentSection = ensureSection("未分类")
 			}
@@ -550,6 +1045,13 @@ func extractStructureOutline(rawText string) structureOutline {
 
 		if currentSection == nil {
 			currentSection = ensureSection("未分类")
+		}
+
+		if currentTask != nil && len(currentTask.Subitems) == 0 && looksLikeReferenceLineForTask(currentTask.Text, line) {
+			flushTask()
+			currentTask = nil
+			skippingReferenceBlock = true
+			continue
 		}
 
 		if currentTask == nil {
@@ -608,20 +1110,28 @@ func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
 
 	confidence, needsReview, notes := normalizeTaskMetadata(subject, groupTitle, title, confidence, item.NeedsReview, notes)
 
-	taskType := strings.TrimSpace(item.Type)
-	if taskType == "" {
-		taskType = "homework"
+	taskType := normalizeLearningTaskType(item.Type)
+	inferredType := inferTaskType(subject, groupTitle, title)
+	if strings.TrimSpace(item.Type) == "" || (taskType == "homework" && usesReferenceMaterial(inferredType)) {
+		taskType = inferredType
 	}
 
-	return ParsedTask{
-		Subject:     subject,
-		GroupTitle:  groupTitle,
-		Title:       title,
-		Type:        taskType,
-		Confidence:  confidence,
-		NeedsReview: needsReview,
-		Notes:       notes,
-	}, true
+	normalized := finalizeLearningReferenceFields(ParsedTask{
+		Subject:                subject,
+		GroupTitle:             groupTitle,
+		Title:                  title,
+		Type:                   taskType,
+		Confidence:             confidence,
+		NeedsReview:            needsReview,
+		Notes:                  notes,
+		ReferenceTitle:         item.ReferenceTitle,
+		ReferenceAuthor:        item.ReferenceAuthor,
+		ReferenceText:          item.ReferenceText,
+		HideReferenceFromChild: item.HideReferenceFromChild,
+		AnalysisMode:           item.AnalysisMode,
+	})
+
+	return normalized, true
 }
 
 func normalizeTaskList(items []ParsedTask) []ParsedTask {
@@ -818,34 +1328,194 @@ func (s *Service) invokeLLM(ctx context.Context, rawText string, structure struc
 	return result, nil
 }
 
+func buildLearningReferencePrompt(rawText string, tasks []ParsedTask) (string, error) {
+	type promptTask struct {
+		Index          int    `json:"index"`
+		Subject        string `json:"subject"`
+		GroupTitle     string `json:"group_title"`
+		Title          string `json:"title"`
+		TaskType       string `json:"task_type"`
+		ReferenceTitle string `json:"reference_title,omitempty"`
+	}
+
+	candidates := make([]promptTask, 0)
+	for index, task := range tasks {
+		taskType := normalizeLearningTaskType(task.Type)
+		if !usesReferenceMaterial(taskType) || strings.TrimSpace(task.ReferenceText) != "" {
+			continue
+		}
+
+		candidates = append(candidates, promptTask{
+			Index:          index,
+			Subject:        task.Subject,
+			GroupTitle:     task.GroupTitle,
+			Title:          task.Title,
+			TaskType:       taskType,
+			ReferenceTitle: strings.TrimSpace(task.ReferenceTitle),
+		})
+	}
+
+	if len(candidates) == 0 {
+		return "", nil
+	}
+
+	candidateJSON, err := json.Marshal(candidates)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(`
+你是 StudyClaw 的学习素材补全 Agent。你要为“背诵/朗读”任务补全标准参考内容，优先服务孩子的学习分析和陪伴场景。
+
+【老师原始内容】
+%s
+
+【待补全任务】
+%s
+
+【规则】
+1. 只处理 task_type 为 recitation 或 reading 的任务。
+2. 优先使用老师原始内容里的标准正文；如果原文没有给出正文，但标题明确且你对标准内容高度确定，也可以补全。
+3. 不确定时宁可留空，不要编造。
+4. recitation 有参考正文时，hide_reference_from_child 设为 true；reading 默认 false。
+5. analysis_mode 只能是 classical_poem / text_recitation / english_reading / read_aloud / ""。
+6. 只返回 JSON，不要输出解释。
+
+【输出格式】
+{
+  "status": "success",
+  "data": [
+    {
+      "index": 0,
+      "reference_title": "江畔独步寻花",
+      "reference_author": "杜甫",
+      "reference_text": "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+      "hide_reference_from_child": true,
+      "analysis_mode": "classical_poem"
+    }
+  ]
+}
+`, rawText, string(candidateJSON)), nil
+}
+
+func (s *Service) enrichMissingLearningReferencesWithLLM(ctx context.Context, rawText string, tasks []ParsedTask) ([]ParsedTask, int, error) {
+	prompt, err := buildLearningReferencePrompt(rawText, tasks)
+	if err != nil {
+		return tasks, 0, fmt.Errorf("build learning reference prompt: %w", err)
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return tasks, 0, nil
+	}
+
+	resultText, err := s.llmClient.Generate(ctx, llm.GenerateRequest{
+		ModelEnvKey: "LLM_PARSER_MODEL_NAME",
+		Temperature: 0.1,
+		Messages: []llm.Message{
+			{
+				Role:    "system",
+				Content: "You are a careful learning reference completion agent. Return valid JSON only.",
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+	})
+	if err != nil {
+		return tasks, 0, err
+	}
+
+	var parsed learningReferenceLLMResult
+	if err := json.Unmarshal([]byte(stripJSONFence(resultText)), &parsed); err != nil {
+		return tasks, 0, fmt.Errorf("decode learning reference result: %w", err)
+	}
+
+	if strings.EqualFold(strings.TrimSpace(parsed.Status), "failed") {
+		return tasks, 0, nil
+	}
+
+	updated := append([]ParsedTask(nil), tasks...)
+	appliedCount := 0
+	for _, row := range parsed.Data {
+		if row.Index < 0 || row.Index >= len(updated) {
+			continue
+		}
+
+		task := updated[row.Index]
+		changed := false
+
+		if task.ReferenceTitle == "" && strings.TrimSpace(row.ReferenceTitle) != "" {
+			task.ReferenceTitle = strings.TrimSpace(row.ReferenceTitle)
+			changed = true
+		}
+		if task.ReferenceAuthor == "" && strings.TrimSpace(row.ReferenceAuthor) != "" {
+			task.ReferenceAuthor = strings.TrimSpace(row.ReferenceAuthor)
+			changed = true
+		}
+		if task.ReferenceText == "" && strings.TrimSpace(row.ReferenceText) != "" {
+			task.ReferenceText = strings.TrimSpace(row.ReferenceText)
+			changed = true
+		}
+		if task.AnalysisMode == "" && strings.TrimSpace(row.AnalysisMode) != "" {
+			task.AnalysisMode = strings.TrimSpace(row.AnalysisMode)
+			changed = true
+		}
+		if row.HideReferenceFromChild != nil && *row.HideReferenceFromChild && !task.HideReferenceFromChild {
+			task.HideReferenceFromChild = true
+			changed = true
+		}
+
+		task = finalizeLearningReferenceFields(task)
+		if changed {
+			task.Notes = mergeNotes(task.Notes, "参考素材已由 LLM 自动补全。")
+			appliedCount++
+		}
+		updated[row.Index] = task
+	}
+
+	return updated, appliedCount, nil
+}
+
 func (s *Service) Parse(ctx context.Context, rawText string) (Result, error) {
 	structure := extractStructureOutline(rawText)
 	fallbackResult := parseFallback(rawText)
+	fallbackTasks := enrichTasksWithLearningReferences(rawText, fallbackResult.Data)
 
-	if s.llmClient == nil {
-		return fallbackResult, nil
+	result := Result{
+		Status:     fallbackResult.Status,
+		Message:    fallbackResult.Message,
+		ParserMode: fallbackResult.ParserMode,
+		Analysis:   buildAnalysis(fallbackResult.ParserMode, structure, fallbackTasks, append([]string(nil), fallbackResult.Analysis.Notes...)),
+		Data:       fallbackTasks,
 	}
 
-	llmResult, err := s.invokeLLM(ctx, rawText, structure)
-	if err != nil {
-		fallbackResult.Analysis.Notes = append(fallbackResult.Analysis.Notes, "LLM 调用失败，已自动降级到规则解析: "+err.Error())
-		fallbackResult.Message = err.Error()
-		return fallbackResult, nil
+	if s.llmClient != nil {
+		llmResult, err := s.invokeLLM(ctx, rawText, structure)
+		if err != nil {
+			result.Analysis.Notes = append(result.Analysis.Notes, "LLM 调用失败，已自动降级到规则解析: "+err.Error())
+			result.Message = err.Error()
+		} else {
+			llmTasks := normalizeTaskList(llmResult.Data)
+			if llmResult.Status == "success" && len(llmTasks) > 0 {
+				mergedTasks, mergeNotes := mergeTaskLists(llmTasks, fallbackTasks)
+				mergedTasks = enrichTasksWithLearningReferences(rawText, mergedTasks)
+				analysisNotes := []string{"已使用 LLM 结合结构提示完成语义拆解，并自动创建任务。"}
+				analysisNotes = append(analysisNotes, mergeNotes...)
+				result = Result{
+					Status:     "success",
+					ParserMode: "llm_hybrid",
+					Analysis:   buildAnalysis("llm_hybrid", structure, mergedTasks, analysisNotes),
+					Data:       mergedTasks,
+				}
+			}
+		}
+
+		enrichedTasks, enrichedCount, err := s.enrichMissingLearningReferencesWithLLM(ctx, rawText, result.Data)
+		if err == nil && enrichedCount > 0 {
+			result.Data = normalizeTaskList(enrichedTasks)
+			result.Analysis = buildAnalysis(result.ParserMode, structure, result.Data, append(result.Analysis.Notes, fmt.Sprintf("缺失的 %d 条朗读/背诵任务已由 LLM 自动补全参考素材。", enrichedCount)))
+		}
 	}
 
-	llmTasks := normalizeTaskList(llmResult.Data)
-	if llmResult.Status != "success" || len(llmTasks) == 0 {
-		return fallbackResult, nil
-	}
-
-	mergedTasks, mergeNotes := mergeTaskLists(llmTasks, fallbackResult.Data)
-	analysisNotes := []string{"已使用 LLM 结合结构提示完成语义拆解，并自动创建任务。"}
-	analysisNotes = append(analysisNotes, mergeNotes...)
-
-	return Result{
-		Status:     "success",
-		ParserMode: "llm_hybrid",
-		Analysis:   buildAnalysis("llm_hybrid", structure, mergedTasks, analysisNotes),
-		Data:       mergedTasks,
-	}, nil
+	return result, nil
 }

@@ -36,12 +36,18 @@ type parseTaskResponse struct {
 		NeedsReviewCount int `json:"needs_review_count"`
 	} `json:"analysis"`
 	Tasks []struct {
-		Subject     string   `json:"subject"`
-		GroupTitle  string   `json:"group_title"`
-		Title       string   `json:"title"`
-		Confidence  float64  `json:"confidence"`
-		NeedsReview bool     `json:"needs_review"`
-		Notes       []string `json:"notes"`
+		Subject                string   `json:"subject"`
+		GroupTitle             string   `json:"group_title"`
+		Title                  string   `json:"title"`
+		Type                   string   `json:"type"`
+		Confidence             float64  `json:"confidence"`
+		NeedsReview            bool     `json:"needs_review"`
+		Notes                  []string `json:"notes"`
+		ReferenceTitle         string   `json:"reference_title"`
+		ReferenceAuthor        string   `json:"reference_author"`
+		ReferenceText          string   `json:"reference_text"`
+		HideReferenceFromChild bool     `json:"hide_reference_from_child"`
+		AnalysisMode           string   `json:"analysis_mode"`
 	} `json:"tasks"`
 }
 
@@ -185,5 +191,74 @@ func TestParseThenConfirmTasksForSpecificDate(t *testing.T) {
 	markdownPath := filepath.Join(os.Getenv("STUDYCLAW_DATA_DIR"), "workspaces", "family_306", "user_1", "2026-03-10.md")
 	if _, err := os.Stat(markdownPath); err != nil {
 		t.Fatalf("expected markdown file to exist: %v", err)
+	}
+}
+
+func TestParseAndConfirmCarriesLearningReferenceMetadata(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+
+	router := SetupRouter()
+
+	rawText := "语文：\n1. 背诵《江畔独步寻花》\n\n江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？"
+	parseRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/tasks/parse", map[string]interface{}{
+		"family_id":     306,
+		"assignee_id":   1,
+		"assigned_date": "2026-03-11",
+		"auto_create":   false,
+		"raw_text":      rawText,
+	})
+	if parseRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected parse to return 201, got %d: %s", parseRecorder.Code, parseRecorder.Body.String())
+	}
+
+	parsePayload := decodeParseTaskResponse(t, parseRecorder.Body.Bytes())
+	if parsePayload.ParsedCount != 1 || len(parsePayload.Tasks) != 1 {
+		t.Fatalf("expected 1 parsed task, got %+v", parsePayload)
+	}
+
+	task := parsePayload.Tasks[0]
+	if task.Type != "recitation" {
+		t.Fatalf("expected recitation type, got %+v", task)
+	}
+	if task.ReferenceTitle != "江畔独步寻花" || task.ReferenceAuthor != "杜甫" {
+		t.Fatalf("expected parse response to include reference identity, got %+v", task)
+	}
+	if task.ReferenceText == "" || task.AnalysisMode != "classical_poem" {
+		t.Fatalf("expected parse response to include reference metadata, got %+v", task)
+	}
+	if !task.HideReferenceFromChild {
+		t.Fatalf("expected parse response to hide recitation text from child, got %+v", task)
+	}
+
+	confirmRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/tasks/confirm", map[string]interface{}{
+		"family_id":     306,
+		"assignee_id":   1,
+		"assigned_date": "2026-03-11",
+		"tasks":         parsePayload.Tasks,
+	})
+	if confirmRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected confirm to return 201, got %d: %s", confirmRecorder.Code, confirmRecorder.Body.String())
+	}
+
+	listRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/tasks?family_id=306&user_id=1&date=2026-03-11", nil)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected list to return 200, got %d: %s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	board := decodeTaskBoardResponse(t, listRecorder)
+	if len(board.Tasks) != 1 {
+		t.Fatalf("expected 1 stored task, got %d", len(board.Tasks))
+	}
+	if board.Tasks[0].ReferenceTitle != "江畔独步寻花" || board.Tasks[0].ReferenceAuthor != "杜甫" {
+		t.Fatalf("expected stored task to preserve reference identity, got %+v", board.Tasks[0])
+	}
+	if board.Tasks[0].ReferenceText == "" || board.Tasks[0].AnalysisMode != "classical_poem" {
+		t.Fatalf("expected stored task to preserve reference metadata, got %+v", board.Tasks[0])
+	}
+	if !board.Tasks[0].HideReferenceFromChild {
+		t.Fatalf("expected stored task to keep hide_reference_from_child, got %+v", board.Tasks[0])
 	}
 }

@@ -24,18 +24,23 @@ const (
 )
 
 type TaskItem struct {
-	TaskID      int      `json:"task_id"`
-	Subject     string   `json:"subject"`
-	GroupTitle  string   `json:"group_title"`
-	Title       string   `json:"title"`
-	Content     string   `json:"content"`
-	Type        string   `json:"type,omitempty"`
-	Confidence  float64  `json:"confidence,omitempty"`
-	NeedsReview bool     `json:"needs_review"`
-	Notes       []string `json:"notes,omitempty"`
-	Completed   bool     `json:"completed"`
-	Status      string   `json:"status"`
-	PointsValue int      `json:"points_value"`
+	TaskID                 int      `json:"task_id"`
+	Subject                string   `json:"subject"`
+	GroupTitle             string   `json:"group_title"`
+	Title                  string   `json:"title"`
+	Content                string   `json:"content"`
+	Type                   string   `json:"type,omitempty"`
+	Confidence             float64  `json:"confidence,omitempty"`
+	NeedsReview            bool     `json:"needs_review"`
+	Notes                  []string `json:"notes,omitempty"`
+	Completed              bool     `json:"completed"`
+	Status                 string   `json:"status"`
+	PointsValue            int      `json:"points_value"`
+	ReferenceTitle         string   `json:"reference_title,omitempty"`
+	ReferenceAuthor        string   `json:"reference_author,omitempty"`
+	ReferenceText          string   `json:"reference_text,omitempty"`
+	HideReferenceFromChild bool     `json:"hide_reference_from_child,omitempty"`
+	AnalysisMode           string   `json:"analysis_mode,omitempty"`
 }
 
 type DailyAssignmentSummary struct {

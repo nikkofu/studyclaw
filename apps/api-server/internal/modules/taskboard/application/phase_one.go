@@ -1062,18 +1062,23 @@ func normalizeTaskItems(items []taskboarddomain.TaskItem) []taskboarddomain.Task
 		}
 
 		normalized = append(normalized, taskboarddomain.TaskItem{
-			TaskID:      taskID,
-			Subject:     subject,
-			GroupTitle:  groupTitle,
-			Title:       title,
-			Content:     content,
-			Type:        strings.TrimSpace(item.Type),
-			Confidence:  item.Confidence,
-			NeedsReview: item.NeedsReview,
-			Notes:       append([]string(nil), item.Notes...),
-			Completed:   item.Completed,
-			Status:      status,
-			PointsValue: pointsValue,
+			TaskID:                 taskID,
+			Subject:                subject,
+			GroupTitle:             groupTitle,
+			Title:                  title,
+			Content:                content,
+			Type:                   strings.TrimSpace(item.Type),
+			Confidence:             item.Confidence,
+			NeedsReview:            item.NeedsReview,
+			Notes:                  append([]string(nil), item.Notes...),
+			Completed:              item.Completed,
+			Status:                 status,
+			PointsValue:            pointsValue,
+			ReferenceTitle:         strings.TrimSpace(item.ReferenceTitle),
+			ReferenceAuthor:        strings.TrimSpace(item.ReferenceAuthor),
+			ReferenceText:          strings.TrimSpace(item.ReferenceText),
+			HideReferenceFromChild: item.HideReferenceFromChild && strings.TrimSpace(item.ReferenceText) != "",
+			AnalysisMode:           strings.TrimSpace(item.AnalysisMode),
 		})
 	}
 	return normalized
@@ -1091,12 +1096,18 @@ func boardTasksFromTaskItems(items []taskboarddomain.TaskItem) []taskboarddomain
 			status = "completed"
 		}
 		tasks = append(tasks, taskboarddomain.Task{
-			TaskID:     taskID,
-			Completed:  item.Completed,
-			Status:     status,
-			Subject:    item.Subject,
-			GroupTitle: item.GroupTitle,
-			Content:    item.Title,
+			TaskID:                 taskID,
+			Completed:              item.Completed,
+			Status:                 status,
+			Subject:                item.Subject,
+			GroupTitle:             item.GroupTitle,
+			Content:                item.Title,
+			TaskType:               item.Type,
+			ReferenceTitle:         item.ReferenceTitle,
+			ReferenceAuthor:        item.ReferenceAuthor,
+			ReferenceText:          item.ReferenceText,
+			HideReferenceFromChild: item.HideReferenceFromChild,
+			AnalysisMode:           item.AnalysisMode,
 		})
 	}
 	return tasks
@@ -1106,14 +1117,20 @@ func mergeTaskItemsWithBoard(existing []taskboarddomain.TaskItem, boardTasks []t
 	boardItems := make([]taskboarddomain.TaskItem, 0, len(boardTasks))
 	for _, task := range boardTasks {
 		boardItems = append(boardItems, taskboarddomain.TaskItem{
-			TaskID:      task.TaskID,
-			Subject:     task.Subject,
-			GroupTitle:  task.GroupTitle,
-			Title:       task.Content,
-			Content:     task.Content,
-			Completed:   task.Completed,
-			Status:      task.Status,
-			PointsValue: 1,
+			TaskID:                 task.TaskID,
+			Subject:                task.Subject,
+			GroupTitle:             task.GroupTitle,
+			Title:                  task.Content,
+			Content:                task.Content,
+			Type:                   task.TaskType,
+			Completed:              task.Completed,
+			Status:                 task.Status,
+			PointsValue:            1,
+			ReferenceTitle:         task.ReferenceTitle,
+			ReferenceAuthor:        task.ReferenceAuthor,
+			ReferenceText:          task.ReferenceText,
+			HideReferenceFromChild: task.HideReferenceFromChild,
+			AnalysisMode:           task.AnalysisMode,
 		})
 	}
 	if len(existing) != len(boardItems) {
@@ -1128,6 +1145,11 @@ func mergeTaskItemsWithBoard(existing []taskboarddomain.TaskItem, boardTasks []t
 		item.Confidence = stored.Confidence
 		item.NeedsReview = stored.NeedsReview
 		item.Notes = append([]string(nil), stored.Notes...)
+		item.ReferenceTitle = stored.ReferenceTitle
+		item.ReferenceAuthor = stored.ReferenceAuthor
+		item.ReferenceText = stored.ReferenceText
+		item.HideReferenceFromChild = stored.HideReferenceFromChild
+		item.AnalysisMode = stored.AnalysisMode
 		if strings.TrimSpace(stored.Title) != "" {
 			item.Title = strings.TrimSpace(stored.Title)
 			item.Content = item.Title

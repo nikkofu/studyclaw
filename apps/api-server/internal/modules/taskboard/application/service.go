@@ -10,7 +10,7 @@ import (
 
 type Repository interface {
 	EnsureDailyFile(familyID, userID uint, date time.Time) (string, error)
-	AddTask(familyID, userID uint, subject, groupTitle, content string, date time.Time) error
+	AddTask(input domain.CreateTaskInput, date time.Time) error
 	GetTasks(familyID, userID uint, date time.Time) ([]domain.Task, error)
 	ReplaceTasks(familyID, userID uint, date time.Time, tasks []domain.Task) error
 	ListAvailableDates(familyID, userID uint) ([]time.Time, error)
@@ -66,8 +66,21 @@ func NormalizeTaskFields(subject, groupTitle, content string) (string, string, s
 	return normalizedSubject, normalizedGroupTitle, normalizedContent
 }
 
+func normalizeTaskLearningFields(input domain.CreateTaskInput) domain.CreateTaskInput {
+	input.TaskType = strings.TrimSpace(input.TaskType)
+	input.ReferenceTitle = strings.TrimSpace(input.ReferenceTitle)
+	input.ReferenceAuthor = strings.TrimSpace(input.ReferenceAuthor)
+	input.ReferenceText = strings.TrimSpace(input.ReferenceText)
+	input.AnalysisMode = strings.TrimSpace(input.AnalysisMode)
+	if input.ReferenceText == "" {
+		input.HideReferenceFromChild = false
+	}
+	return input
+}
+
 func (s *Service) CreateTask(input domain.CreateTaskInput) (time.Time, error) {
 	input.Subject, input.GroupTitle, input.Content = NormalizeTaskFields(input.Subject, input.GroupTitle, input.Content)
+	input = normalizeTaskLearningFields(input)
 	if input.Content == "" {
 		return time.Time{}, fmt.Errorf("content cannot be empty")
 	}
@@ -77,7 +90,7 @@ func (s *Service) CreateTask(input domain.CreateTaskInput) (time.Time, error) {
 		return time.Time{}, err
 	}
 
-	if err := s.repo.AddTask(input.FamilyID, input.AssigneeID, input.Subject, input.GroupTitle, input.Content, assignedDate); err != nil {
+	if err := s.repo.AddTask(input, assignedDate); err != nil {
 		return time.Time{}, err
 	}
 

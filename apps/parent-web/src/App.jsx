@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react"
-import { flattenSectionsToTasks, parseSchoolTaskMessage, REFERENCE_GROUP_MESSAGE } from "./schoolTaskParser"
+import { enrichTasksWithLearningReferences, flattenSectionsToTasks, parseSchoolTaskMessage, REFERENCE_GROUP_MESSAGE } from "./schoolTaskParser"
 
 const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"
 const CHILD_PROFILES = [
@@ -22,6 +22,23 @@ const POINTS_PANEL_ORDER = ["compose", "ledger"]
 const WORD_PANEL_ORDER = ["create", "lists"]
 const PUBLISH_PANEL_ORDER = ["scope", "compose", "review", "release", "split", "preview", "analysis", "board"]
 const EMPTY_STATE_PUBLISH_FALLBACK_PANELS = ["review", "release"]
+const TASK_TYPE_OPTIONS = [
+  { value: "homework", label: "普通作业" },
+  { value: "recitation", label: "背诵任务" },
+  { value: "reading", label: "朗读任务" },
+]
+const ANALYSIS_MODE_OPTIONS = {
+  recitation: [
+    { value: "", label: "自动判断" },
+    { value: "classical_poem", label: "古诗词背诵" },
+    { value: "text_recitation", label: "课文 / 定义 / 公式背诵" },
+  ],
+  reading: [
+    { value: "", label: "自动判断" },
+    { value: "read_aloud", label: "通用朗读" },
+    { value: "english_reading", label: "英语朗读" },
+  ],
+}
 const POINT_REASON_PRESETS = {
   reward: ["按时完成全部任务", "主动完成额外练习", "主动整理错题", "晚饭前独立完成作业"],
   penalty: ["回家后拖延未开工", "未整理错题", "多次提醒后才完成", "作业完成后未复盘"],
@@ -149,6 +166,45 @@ function usePageTransition(activeId, orderedIds) {
 
 function createLocalId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeDraftTaskType(value) {
+  const normalized = String(value || "").trim().toLowerCase()
+  switch (normalized) {
+    case "":
+    case "homework":
+      return "homework"
+    case "recitation":
+    case "memorization":
+    case "memorize":
+    case "poem_recitation":
+    case "classical_poem":
+      return "recitation"
+    case "reading":
+    case "read_aloud":
+    case "follow_reading":
+    case "english_reading":
+      return "reading"
+    default:
+      return normalized
+  }
+}
+
+function usesReferenceMaterial(taskType) {
+  const normalized = normalizeDraftTaskType(taskType)
+  return normalized === "recitation" || normalized === "reading"
+}
+
+function getTaskTypeLabel(taskType) {
+  switch (normalizeDraftTaskType(taskType)) {
+    case "recitation":
+      return "背诵任务"
+    case "reading":
+      return "朗读任务"
+    case "homework":
+    default:
+      return "普通作业"
+  }
 }
 
 async function requestJSON(url, options = {}) {
@@ -1218,6 +1274,16 @@ function ServerTaskList({ title, tasks, emptyText, caption }) {
               <div>
                 <strong>{task.content || task.title}</strong>
                 {task.group_title && task.group_title !== (task.content || task.title) ? <p>分组: {task.group_title}</p> : null}
+                {(task.task_type || task.type) ? <p>类型: {getTaskTypeLabel(task.task_type || task.type)}</p> : null}
+                {task.reference_title ? (
+                  <p>
+                    参考内容: {task.reference_title}
+                    {task.reference_author ? ` / ${task.reference_author}` : ""}
+                  </p>
+                ) : null}
+                {task.reference_text ? (
+                  <p>{task.hide_reference_from_child ? "Pad 端默认隐藏正文，仅用于 AI 对照。" : "Pad 端可使用这段参考内容做对照。"}</p>
+                ) : null}
                 {"completed" in task ? (
                   <p>{task.completed ? "已完成" : "待完成"}</p>
                 ) : (
@@ -1233,6 +1299,13 @@ function ServerTaskList({ title, tasks, emptyText, caption }) {
 }
 
 function createDraftTask(task = {}) {
+  const rawTaskType = String(task.task_type || task.type || task.taskType || "").trim()
+  const taskType = normalizeDraftTaskType(rawTaskType)
+  const referenceText = String(task.reference_text || task.referenceText || "").trim()
+  const hasHideReferenceFlag =
+    Object.prototype.hasOwnProperty.call(task, "hide_reference_from_child") ||
+    Object.prototype.hasOwnProperty.call(task, "hideReferenceFromChild")
+
   return {
     id: createLocalId("draft"),
     subject: task.subject || "未分类",
@@ -1241,6 +1314,16 @@ function createDraftTask(task = {}) {
     confidence: Number(task.confidence || 0),
     needs_review: Boolean(task.needs_review),
     notes: Array.isArray(task.notes) ? task.notes : [],
+    task_type: taskType,
+    reference_title: String(task.reference_title || task.referenceTitle || "").trim(),
+    reference_author: String(task.reference_author || task.referenceAuthor || "").trim(),
+    reference_text: referenceText,
+    hide_reference_from_child: hasHideReferenceFlag
+      ? Boolean(task.hide_reference_from_child || task.hideReferenceFromChild) && Boolean(referenceText)
+      : undefined,
+    analysis_mode:
+      String(task.analysis_mode || task.analysisMode || "").trim() ||
+      (rawTaskType && normalizeDraftTaskType(rawTaskType) !== rawTaskType.toLowerCase() ? rawTaskType.toLowerCase() : ""),
     source: task.source || "ai",
   }
 }
@@ -1314,6 +1397,7 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
         issues: [],
         issueKeys: new Set(),
         hasBlocking: false,
+        hasForceReview: false,
       },
     ]),
   )
@@ -1325,9 +1409,12 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
     }
 
     target.issueKeys.add(key)
-    target.issues.push({ severity, message })
+    target.issues.push({ key, severity, message })
     if (severity === "block") {
       target.hasBlocking = true
+    }
+    if (severity === "force") {
+      target.hasForceReview = true
     }
   }
 
@@ -1342,6 +1429,9 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
   draftTasks.forEach((task) => {
     const normalizedTitle = normalizeComparisonText(task.title)
     const normalizedSubject = normalizeComparisonText(task.subject)
+    const normalizedReferenceTitle = normalizeComparisonText(task.reference_title)
+    const normalizedReferenceText = normalizeComparisonText(task.reference_text)
+    const taskType = normalizeDraftTaskType(task.task_type)
 
     if (!normalizedTitle) {
       addIssue(task.id, "empty-title", "block", "任务标题为空，确认前需要补全。")
@@ -1349,6 +1439,28 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
 
     if (!normalizedSubject) {
       addIssue(task.id, "empty-subject", "warn", "学科为空，将按“未分类”创建。")
+    }
+
+    if (usesReferenceMaterial(taskType) && !normalizedReferenceText) {
+      addIssue(
+        task.id,
+        `missing-reference-text-${taskType}`,
+        "warn",
+        `${getTaskTypeLabel(taskType)}建议补充标准原文，孩子端才能自动做标题识别、逐句对照和完成度分析。`,
+      )
+    }
+
+    if (usesReferenceMaterial(taskType) && normalizedReferenceText && !normalizedReferenceTitle) {
+      addIssue(
+        task.id,
+        `missing-reference-title-${taskType}`,
+        "warn",
+        `${getTaskTypeLabel(taskType)}已配置原文，但还缺参考标题，建议补上，便于 AI 识别具体篇目。`,
+      )
+    }
+
+    if (task.hide_reference_from_child && !normalizedReferenceText) {
+      addIssue(task.id, "hide-without-reference", "warn", "已勾选“对孩子隐藏正文”，但当前还没有可隐藏的参考原文。")
     }
   })
 
@@ -1366,8 +1478,8 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
       }
 
       if (leftTitle === rightTitle) {
-        addIssue(left.id, `duplicate-draft-${right.id}`, "block", `与另一条草稿任务重复: ${right.title}`)
-        addIssue(right.id, `duplicate-draft-${left.id}`, "block", `与另一条草稿任务重复: ${left.title}`)
+        addIssue(left.id, `duplicate-draft-${right.id}`, "force", `与另一条草稿任务重复: ${right.title}`)
+        addIssue(right.id, `duplicate-draft-${left.id}`, "force", `与另一条草稿任务重复: ${left.title}`)
         continue
       }
 
@@ -1395,7 +1507,7 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
         addIssue(
           task.id,
           `duplicate-today-${todayTask.id}`,
-          "block",
+          "force",
           `与当日任务重复: ${todayTask.rawTitle}${todayTask.completed ? "（已完成）" : ""}`,
         )
         return
@@ -1415,6 +1527,7 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
 
   const summary = {
     blockTasks: 0,
+    forceReviewTasks: 0,
     warningTasks: 0,
     cleanTasks: 0,
     duplicateTasks: 0,
@@ -1426,10 +1539,13 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
     if (item.hasBlocking) {
       summary.blockTasks += 1
     }
+    if (item.hasForceReview) {
+      summary.forceReviewTasks += 1
+    }
     if (hasWarnings) {
       summary.warningTasks += 1
     }
-    if (!item.hasBlocking && !hasWarnings) {
+    if (!item.hasBlocking && !item.hasForceReview && !hasWarnings) {
       summary.cleanTasks += 1
     }
     summary.duplicateTasks += item.issues.filter((issue) => issue.message.includes("重复")).length
@@ -1439,9 +1555,10 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
   return { byId: diagnosticsById, summary }
 }
 
-function getDraftTaskRiskMeta(task, diagnostics = { issues: [], hasBlocking: false }) {
+function getDraftTaskRiskMeta(task, diagnostics = { issues: [], hasBlocking: false, hasForceReview: false }) {
   const confidence = Number(task.confidence || 0)
   const firstBlockingIssue = diagnostics.issues.find((issue) => issue.severity === "block")
+  const firstForceReviewIssue = diagnostics.issues.find((issue) => issue.severity === "force")
   const firstWarningIssue = diagnostics.issues.find((issue) => issue.severity === "warn")
   const reasons = []
 
@@ -1462,6 +1579,19 @@ function getDraftTaskRiskMeta(task, diagnostics = { issues: [], hasBlocking: fal
       tone: "block",
       order: 0,
       caption: firstBlockingIssue?.message || "修正阻断项后才能发布。",
+      reasons,
+    }
+  }
+
+  if (diagnostics.hasForceReview) {
+    if (!reasons.length) {
+      reasons.push("存在重复风险")
+    }
+    return {
+      label: "可强制发布",
+      tone: "high",
+      order: 1,
+      caption: firstForceReviewIssue?.message || "检测到重复风险，确认无误后可强制发布。",
       reasons,
     }
   }
@@ -1555,7 +1685,7 @@ function DraftTaskList({
   const riskyTaskCount = taskEntries.filter((entry) => entry.riskMeta.order <= 1).length
   const warningTaskCount = taskEntries.filter((entry) => entry.riskMeta.order === 2).length
   const recommendedCount = taskEntries.filter(
-    (entry) => !entry.diagnostics.hasBlocking && !entry.task.needs_review && Number(entry.task.confidence || 0) >= 0.7,
+    (entry) => entry.riskMeta.order === 3,
   ).length
   const selectedCount = taskEntries.filter((entry) => selectedTaskIds.includes(entry.task.id)).length
   const filterPredicates = {
@@ -1740,6 +1870,10 @@ function DraftTaskList({
               const confidenceMeta = getConfidenceMeta(confidence)
               const isVisible = visibleEntries.some((entry) => entry.task.id === task.id)
               const isFocused = activeEntry?.task.id === task.id
+              const taskType = normalizeDraftTaskType(task.task_type)
+              const usesReference = usesReferenceMaterial(taskType)
+              const analysisModeOptions = ANALYSIS_MODE_OPTIONS[taskType] || [{ value: "", label: "自动判断" }]
+              const hasReferenceText = Boolean(String(task.reference_text || "").trim())
 
               return (
                 <article
@@ -1791,6 +1925,95 @@ function DraftTaskList({
                     </label>
                   </div>
 
+                  <div className="draft-learning-panel">
+                    <div className="draft-learning-heading">
+                      <strong>学习任务设置</strong>
+                      <p>
+                        {usesReference
+                          ? taskType === "reading"
+                            ? "这条会按朗读任务发布，Pad 端会用标准原文做对照。"
+                            : "这条会按背诵任务发布，Pad 端可隐藏正文，仅用于标题识别和逐句比对。"
+                          : "普通作业不需要额外原文；如果这是背诵或朗读，请在这里切换任务类型。"}
+                      </p>
+                    </div>
+
+                    <div className="draft-edit-grid draft-learning-grid">
+                      <label>
+                        <span>任务类型</span>
+                        <select value={taskType} onChange={(event) => onFieldChange(task.id, "task_type", normalizeDraftTaskType(event.target.value))}>
+                          {TASK_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>分析模式</span>
+                        <select
+                          value={task.analysis_mode || ""}
+                          onChange={(event) => onFieldChange(task.id, "analysis_mode", event.target.value)}
+                          disabled={!usesReference}
+                        >
+                          {analysisModeOptions.map((option) => (
+                            <option key={`${task.id}-analysis-${option.value || "auto"}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      {usesReference ? (
+                        <>
+                          <label>
+                            <span>参考标题</span>
+                            <input
+                              value={task.reference_title || ""}
+                              onChange={(event) => onFieldChange(task.id, "reference_title", event.target.value)}
+                              placeholder={taskType === "reading" ? "例如：Lesson 3 Reading" : "例如：江畔独步寻花"}
+                            />
+                          </label>
+                          <label>
+                            <span>参考作者 / 来源</span>
+                            <input
+                              value={task.reference_author || ""}
+                              onChange={(event) => onFieldChange(task.id, "reference_author", event.target.value)}
+                              placeholder={taskType === "reading" ? "例如：教材 M1U2" : "例如：杜甫"}
+                            />
+                          </label>
+                          <label className="draft-title-field">
+                            <span>{taskType === "reading" ? "朗读标准原文" : "背诵标准原文"}</span>
+                            <textarea
+                              rows={5}
+                              value={task.reference_text || ""}
+                              onChange={(event) => onFieldChange(task.id, "reference_text", event.target.value)}
+                              placeholder={
+                                taskType === "reading"
+                                  ? "粘贴需要朗读或跟读的完整标准文本"
+                                  : "粘贴需要背诵的完整标准文本，发布后孩子端默认不直接展示正文"
+                              }
+                            />
+                          </label>
+                          <label className="draft-toggle-field">
+                            <span>Pad 展示策略</span>
+                            <div className="draft-toggle-control">
+                              <input
+                                aria-label="对孩子隐藏正文"
+                                type="checkbox"
+                                checked={Boolean(task.hide_reference_from_child)}
+                                disabled={!hasReferenceText}
+                                onChange={(event) => onFieldChange(task.id, "hide_reference_from_child", event.target.checked)}
+                              />
+                              <strong>{task.hide_reference_from_child ? "孩子端隐藏正文" : "孩子端可看正文"}</strong>
+                              <p>{taskType === "reading" ? "朗读一般可公开原文；若想只做对照，也可以改成隐藏。" : "背诵任务建议隐藏正文，只保留题目和作者提示。"} </p>
+                            </div>
+                          </label>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+
                   <p>置信度 {Math.round(confidence * 100)}%</p>
                   {diagnostics.issues.length > 0 ? (
                     <ul className="quality-list">
@@ -1832,15 +2055,20 @@ function CreatePanel({
 }) {
   const selectedBlockingTasks = selectedTasks.filter((task) => diagnosticsById[task.id]?.hasBlocking)
   const selectedBlockingCount = selectedBlockingTasks.length
+  const selectedForceReviewTasks = selectedTasks.filter((task) => diagnosticsById[task.id]?.hasForceReview)
+  const selectedForceReviewCount = selectedForceReviewTasks.length
   const selectedRiskTaskItems = selectedTasks.filter((task) => {
-    const riskMeta = getDraftTaskRiskMeta(task, diagnosticsById[task.id] || { issues: [], hasBlocking: false })
+    const riskMeta = getDraftTaskRiskMeta(task, diagnosticsById[task.id] || { issues: [], hasBlocking: false, hasForceReview: false })
     return riskMeta.order <= 1 && !(diagnosticsById[task.id]?.hasBlocking)
   })
   const selectedRiskCount = selectedRiskTaskItems.length
   const selectedReadyTasks = selectedTasks.filter(
-    (task) => !diagnosticsById[task.id]?.hasBlocking && !task.needs_review && Number(task.confidence || 0) >= 0.7,
+    (task) => getDraftTaskRiskMeta(task, diagnosticsById[task.id] || { issues: [], hasBlocking: false, hasForceReview: false }).order === 3,
   )
   const selectedReadyCount = selectedReadyTasks.length
+  const selectedReferenceTasks = selectedTasks.filter((task) => usesReferenceMaterial(task.task_type))
+  const selectedConfiguredReferenceCount = selectedReferenceTasks.filter((task) => String(task.reference_text || "").trim()).length
+  const selectedMissingReferenceCount = selectedReferenceTasks.length - selectedConfiguredReferenceCount
   const canSubmit = selectedTasks.length > 0 && selectedBlockingCount === 0 && !isConfirming
   const jumpCards = [
     {
@@ -1887,8 +2115,13 @@ function CreatePanel({
         <span className="summary-chip">准备发布</span>
         <strong>{assignedDate || "未选择日期"}</strong>
         <p>
-          当前已选 {selectedTasks.length} 条，其中阻断 {selectedBlockingCount} 条，高风险 {selectedRiskCount} 条，可直接发布 {selectedReadyCount} 条。
+          当前已选 {selectedTasks.length} 条，其中硬阻断 {selectedBlockingCount} 条，强提醒 {selectedForceReviewCount} 条，高风险 {selectedRiskCount} 条，可直接发布 {selectedReadyCount} 条。
         </p>
+        {selectedReferenceTasks.length > 0 ? (
+          <p>
+            其中学习语音任务 {selectedReferenceTasks.length} 条，已配置参考内容 {selectedConfiguredReferenceCount} 条，待补参考内容 {selectedMissingReferenceCount} 条。
+          </p>
+        ) : null}
       </div>
 
       <div className="analysis-grid confirm-grid">
@@ -1909,13 +2142,22 @@ function CreatePanel({
 
       <ul className="rule-list compact">
         <li>阻断项任务 {diagnosticsSummary.blockTasks} 条，必须先修正后才能发布。</li>
+        <li>强提醒任务 {diagnosticsSummary.forceReviewTasks} 条，可强制发布，但建议先确认是否重复。</li>
         <li>提醒项任务 {diagnosticsSummary.warningTasks} 条，可发布但建议先人工确认。</li>
         <li>`needs_review` 和低置信会保留原始后端含义，只在前端做风险高亮，不改变字段语义。</li>
       </ul>
 
       <p className="inline-hint">当前所选任务会发布到 {assignedDate || "未选择日期"}。</p>
-      {selectedBlockingCount > 0 ? <p className="inline-hint hint-error">当前选中项含阻断风险，先修正标题或去重后再发布。</p> : null}
+      {selectedBlockingCount > 0 ? <p className="inline-hint hint-error">当前选中项含硬阻断，请先补全标题后再发布。</p> : null}
+      {selectedForceReviewCount > 0 ? (
+        <p className="inline-hint hint-warning">当前选中项含 {selectedForceReviewCount} 条重复强提醒，如确认无误可直接强制发布。</p>
+      ) : null}
       {selectedRiskCount > 0 ? <p className="inline-hint hint-warning">当前选中项含 {selectedRiskCount} 条高风险任务，建议逐条核对。</p> : null}
+      {selectedMissingReferenceCount > 0 ? (
+        <p className="inline-hint hint-warning">
+          当前选中项里有 {selectedMissingReferenceCount} 条背诵/朗读任务还没配置标准原文。可以继续发布，但孩子端将无法自动做完整对照分析。
+        </p>
+      ) : null}
       {selectedTasks.length === 0 ? <p className="inline-hint">先在上方勾选要发布的任务，再进入发布。</p> : null}
 
       <div className="confirm-action-row">
@@ -1923,13 +2165,27 @@ function CreatePanel({
           只选建议发布 ({recommendedCount})
         </button>
         <button className="primary-button secondary" type="button" disabled={!canSubmit} onClick={onConfirm}>
-          {isConfirming ? "发布中..." : `确认发布选中任务 (${selectedTasks.length})`}
+          {isConfirming
+            ? selectedForceReviewCount > 0
+              ? "强制发布中..."
+              : "发布中..."
+            : selectedForceReviewCount > 0
+              ? `强制发布选中任务 (${selectedTasks.length})`
+              : `确认发布选中任务 (${selectedTasks.length})`}
         </button>
       </div>
 
       <StatusBanner
         status={createStatus}
-        actionLabel={createStatus?.retryable ? (isConfirming ? "重试中..." : "重试发布") : undefined}
+        actionLabel={
+          createStatus?.retryable
+            ? isConfirming
+              ? "重试中..."
+              : selectedForceReviewCount > 0
+                ? "重试强制发布"
+                : "重试发布"
+            : undefined
+        }
         onAction={createStatus?.retryable ? onConfirm : undefined}
         actionDisabled={!createStatus?.retryable || !canSubmit}
       />
@@ -3194,12 +3450,13 @@ export default function App() {
   const diagnostics = buildTaskDiagnostics(draftTasks, todayTasks)
   const selectedDraftTasks = draftTasks.filter((task) => selectedTaskIds.includes(task.id))
   const selectedBlockingDraftCount = selectedDraftTasks.filter((task) => diagnostics.byId[task.id]?.hasBlocking).length
+  const selectedForceReviewDraftCount = selectedDraftTasks.filter((task) => diagnostics.byId[task.id]?.hasForceReview).length
   const riskyDraftTaskCount = draftTasks.filter((task) => {
-    const riskMeta = getDraftTaskRiskMeta(task, diagnostics.byId[task.id] || { issues: [], hasBlocking: false })
+    const riskMeta = getDraftTaskRiskMeta(task, diagnostics.byId[task.id] || { issues: [], hasBlocking: false, hasForceReview: false })
     return riskMeta.order <= 1
   }).length
   const recommendedTaskCount = draftTasks.filter(
-    (task) => !diagnostics.byId[task.id]?.hasBlocking && !task.needs_review && Number(task.confidence || 0) >= 0.7,
+    (task) => getDraftTaskRiskMeta(task, diagnostics.byId[task.id] || { issues: [], hasBlocking: false, hasForceReview: false }).order === 3,
   ).length
   const matchedProfile = resolveChildProfile(familyId, assigneeId)
   const childLabel = matchedProfile ? matchedProfile.label : `自定义孩子 / ${assigneeId}`
@@ -3647,10 +3904,16 @@ export default function App() {
           return task
         }
 
-        return {
+        const nextTask = {
           ...task,
           [field]: value,
         }
+
+        if (["task_type", "title", "group_title"].includes(field)) {
+          return enrichTasksWithLearningReferences(rawText, [nextTask])[0]
+        }
+
+        return nextTask
       }),
     )
   }
@@ -3678,7 +3941,7 @@ export default function App() {
   function selectRecommendedTasks() {
     setSelectedTaskIds(
       draftTasks
-        .filter((task) => !diagnostics.byId[task.id]?.hasBlocking && !task.needs_review && Number(task.confidence || 0) >= 0.7)
+        .filter((task) => getDraftTaskRiskMeta(task, diagnostics.byId[task.id] || { issues: [], hasBlocking: false, hasForceReview: false }).order === 3)
         .map((task) => task.id),
     )
   }
@@ -3688,7 +3951,9 @@ export default function App() {
   }
 
   function selectCleanTasks() {
-    setSelectedTaskIds(draftTasks.filter((task) => !(diagnostics.byId[task.id]?.hasBlocking)).map((task) => task.id))
+    setSelectedTaskIds(
+      draftTasks.filter((task) => !diagnostics.byId[task.id]?.hasBlocking && !diagnostics.byId[task.id]?.hasForceReview).map((task) => task.id),
+    )
   }
 
   function clearTaskSelection() {
@@ -3737,15 +4002,17 @@ export default function App() {
       })
 
       const parsedTasks = Array.isArray(data.tasks) ? data.tasks.map((task) => createDraftTask(task)) : []
-      setDraftTasks(parsedTasks)
+      const enrichedTasks = enrichTasksWithLearningReferences(rawText.trim(), parsedTasks)
+      const autoReferenceCount = enrichedTasks.filter((task) => String(task.reference_text || "").trim()).length
+      setDraftTasks(enrichedTasks)
       setSelectedTaskIds(
-        parsedTasks.filter((task) => !task.needs_review && Number(task.confidence || 0) >= 0.7).map((task) => task.id),
+        enrichedTasks.filter((task) => !task.needs_review && Number(task.confidence || 0) >= 0.7).map((task) => task.id),
       )
       setCreatedTasks([])
       setParserMode(data.parser_mode || "")
       setAnalysis(data.analysis || null)
 
-      if (parsedTasks.length === 0) {
+      if (enrichedTasks.length === 0) {
         handlePublishPanelChange("preview")
         setParseStatus({
           tone: "warning",
@@ -3758,7 +4025,10 @@ export default function App() {
         setParseStatus({
           tone: "success",
           title: "AI 草稿已生成",
-          message: `已识别 ${data.parsed_count || parsedTasks.length} 个建议任务，目标日期 ${assignedDate}，请先处理风险项再确认发布。`,
+          message:
+            autoReferenceCount > 0
+              ? `已识别 ${data.parsed_count || enrichedTasks.length} 个建议任务，其中 ${autoReferenceCount} 条已自动带出学习参考内容，目标日期 ${assignedDate}，请先处理风险项再确认发布。`
+              : `已识别 ${data.parsed_count || enrichedTasks.length} 个建议任务，目标日期 ${assignedDate}，请先处理风险项再确认发布。`,
           retryable: false,
         })
       }
@@ -3807,21 +4077,35 @@ export default function App() {
       setCreateStatus({
         tone: "error",
         title: "当前选中项含阻断风险",
-        message: `当前选中的任务里有 ${blockingTasks.length} 条存在重复或标题为空，请先修改后再确认发布。`,
+        message: `当前选中的任务里有 ${blockingTasks.length} 条标题为空，请先补全后再确认发布。`,
         retryable: false,
       })
       return
     }
 
+    const forceReviewTasks = selectedDraftTasks.filter((task) => diagnostics.byId[task.id]?.hasForceReview)
+
     const sanitizedTasks = selectedDraftTasks
-      .map((task) => ({
-        subject: task.subject.trim(),
-        group_title: (task.group_title || task.title).trim(),
-        title: task.title.trim(),
-        confidence: task.confidence,
-        needs_review: task.needs_review,
-        notes: task.notes,
-      }))
+      .map((task) => {
+        const taskType = normalizeDraftTaskType(task.task_type)
+        const shouldUseReference = usesReferenceMaterial(taskType)
+        const referenceText = shouldUseReference ? String(task.reference_text || "").trim() : ""
+        return {
+          subject: task.subject.trim(),
+          group_title: (task.group_title || task.title).trim(),
+          title: task.title.trim(),
+          type: taskType,
+          task_type: taskType,
+          confidence: task.confidence,
+          needs_review: task.needs_review,
+          notes: task.notes,
+          reference_title: shouldUseReference ? String(task.reference_title || "").trim() : "",
+          reference_author: shouldUseReference ? String(task.reference_author || "").trim() : "",
+          reference_text: referenceText,
+          hide_reference_from_child: shouldUseReference ? Boolean(task.hide_reference_from_child) && Boolean(referenceText) : false,
+          analysis_mode: shouldUseReference ? String(task.analysis_mode || "").trim() : "",
+        }
+      })
       .filter((task) => task.title)
 
     if (sanitizedTasks.length === 0) {
@@ -3855,8 +4139,11 @@ export default function App() {
       handlePublishPanelChange("board")
       setCreateStatus({
         tone: "success",
-        title: "任务已发布",
-        message: `已确认并发布 ${data.created_count || sanitizedTasks.length} 个任务到 ${assignedDate}。`,
+        title: forceReviewTasks.length > 0 ? "任务已强制发布" : "任务已发布",
+        message:
+          forceReviewTasks.length > 0
+            ? `已强制发布 ${data.created_count || sanitizedTasks.length} 个任务到 ${assignedDate}，其中 ${forceReviewTasks.length} 条带重复强提醒。`
+            : `已确认并发布 ${data.created_count || sanitizedTasks.length} 个任务到 ${assignedDate}。`,
         retryable: false,
       })
       await refreshTasks()
@@ -4382,16 +4669,24 @@ export default function App() {
   if (publishStage === "review") {
     publishDockConfig = {
       stage: "review",
-      badge: `${selectedDraftTasks.length} 条已选 / ${selectedBlockingDraftCount} 条阻断`,
+      badge: `${selectedDraftTasks.length} 条已选 / ${selectedBlockingDraftCount} 条阻断 / ${selectedForceReviewDraftCount} 条强提醒`,
       title: "审核后直接发布",
       caption:
         selectedBlockingDraftCount > 0
           ? "当前选中项里还有阻断任务，先跳回去修正。"
+          : selectedForceReviewDraftCount > 0
+            ? "当前选中项里有重复强提醒，如确认无误可直接强制发布。"
           : selectedDraftTasks.length > 0
             ? "底部保留快捷发布入口，手机上不用反复滚到确认区。"
             : "先在草稿卡里勾选要发布的任务，再从这里继续。",
       primaryAction: {
-        label: isConfirming ? "快捷发布中..." : `快捷发布 (${selectedDraftTasks.length})`,
+        label: isConfirming
+          ? selectedForceReviewDraftCount > 0
+            ? "强制发布中..."
+            : "快捷发布中..."
+          : selectedForceReviewDraftCount > 0
+            ? `强制发布 (${selectedDraftTasks.length})`
+            : `快捷发布 (${selectedDraftTasks.length})`,
         onClick: () => void runConfirmCreate(),
         disabled: isConfirming || selectedDraftTasks.length === 0 || selectedBlockingDraftCount > 0,
         emphasis: "secondary",
@@ -4403,7 +4698,10 @@ export default function App() {
             riskyDraftTaskCount > 0 ? "risk" : "selected",
             (riskyDraftTaskCount > 0
               ? draftTasks.find((task) => {
-                const riskMeta = getDraftTaskRiskMeta(task, diagnostics.byId[task.id] || { issues: [], hasBlocking: false })
+                const riskMeta = getDraftTaskRiskMeta(
+                  task,
+                  diagnostics.byId[task.id] || { issues: [], hasBlocking: false, hasForceReview: false },
+                )
                 return riskMeta.order <= 1
               })
               : selectedDraftTasks[0]

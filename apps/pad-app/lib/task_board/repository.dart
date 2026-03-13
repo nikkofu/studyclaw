@@ -1,5 +1,6 @@
 import 'package:pad_app/task_board/api_client.dart';
 import 'package:pad_app/task_board/models.dart';
+import 'package:pad_app/task_board/recitation_analysis.dart';
 import 'package:pad_app/task_board/weekly_stats.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/voice_commands/models.dart';
@@ -60,6 +61,15 @@ abstract interface class TaskBoardRepository {
     TaskBoardRequest request, {
     required String transcript,
     required VoiceCommandContext context,
+  });
+
+  Future<RecitationAnalysis> analyzeRecitation(
+    String apiBaseUrl, {
+    required String transcript,
+    required String scene,
+    String? locale,
+    String? referenceText,
+    Map<String, String> metadata = const <String, String>{},
   });
 }
 
@@ -300,6 +310,32 @@ class RemoteTaskBoardRepository implements TaskBoardRepository {
     );
     return VoiceCommandResolution.fromJson(
       payload['resolution'] as Map<String, dynamic>,
+    );
+  }
+
+  @override
+  Future<RecitationAnalysis> analyzeRecitation(
+    String apiBaseUrl, {
+    required String transcript,
+    required String scene,
+    String? locale,
+    String? referenceText,
+    Map<String, String> metadata = const <String, String>{},
+  }) async {
+    final payload = await clientFactory(apiBaseUrl).send(
+      'POST',
+      '/api/v1/recitation/analyze',
+      body: {
+        'transcript': transcript,
+        'scene': scene,
+        if (locale != null && locale.trim().isNotEmpty) 'locale': locale,
+        if (referenceText != null && referenceText.trim().isNotEmpty)
+          'reference_text': referenceText,
+        if (metadata.isNotEmpty) 'metadata': metadata,
+      },
+    );
+    return RecitationAnalysis.fromJson(
+      payload['analysis'] as Map<String, dynamic>,
     );
   }
 

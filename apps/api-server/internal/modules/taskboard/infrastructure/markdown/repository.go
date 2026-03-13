@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,7 +21,17 @@ var (
 	checkboxTaskPattern   = regexp.MustCompile(`^\s*-\s*\[([ xX])\]\s*(.+)$`)
 	subjectHeadingPattern = regexp.MustCompile(`^###\s+(.+)$`)
 	groupHeadingPattern   = regexp.MustCompile(`^####\s+(.+)$`)
+	taskMetadataPattern   = regexp.MustCompile(`^\s*<!--\s*studyclaw:task:(\{.*\})\s*-->\s*$`)
 )
+
+type taskMetadata struct {
+	TaskType               string `json:"task_type,omitempty"`
+	ReferenceTitle         string `json:"reference_title,omitempty"`
+	ReferenceAuthor        string `json:"reference_author,omitempty"`
+	ReferenceText          string `json:"reference_text,omitempty"`
+	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
+	AnalysisMode           string `json:"analysis_mode,omitempty"`
+}
 
 func NewRepository() *Repository {
 	return &Repository{}
@@ -58,6 +69,59 @@ func normalizeStoredTask(subject, groupTitle, content string) (string, string, s
 	}
 
 	return normalizedSubject, normalizedGroupTitle, normalizedContent
+}
+
+func normalizeTaskMetadataFields(taskType, referenceTitle, referenceAuthor, referenceText string, hideReferenceFromChild bool, analysisMode string) taskMetadata {
+	metadata := taskMetadata{
+		TaskType:               strings.TrimSpace(taskType),
+		ReferenceTitle:         strings.TrimSpace(referenceTitle),
+		ReferenceAuthor:        strings.TrimSpace(referenceAuthor),
+		ReferenceText:          strings.TrimSpace(referenceText),
+		HideReferenceFromChild: hideReferenceFromChild,
+		AnalysisMode:           strings.TrimSpace(analysisMode),
+	}
+	if metadata.ReferenceText == "" {
+		metadata.HideReferenceFromChild = false
+	}
+	return metadata
+}
+
+func applyTaskMetadata(task domain.Task, metadata taskMetadata) domain.Task {
+	normalized := normalizeTaskMetadataFields(
+		metadata.TaskType,
+		metadata.ReferenceTitle,
+		metadata.ReferenceAuthor,
+		metadata.ReferenceText,
+		metadata.HideReferenceFromChild,
+		metadata.AnalysisMode,
+	)
+	task.TaskType = normalized.TaskType
+	task.ReferenceTitle = normalized.ReferenceTitle
+	task.ReferenceAuthor = normalized.ReferenceAuthor
+	task.ReferenceText = normalized.ReferenceText
+	task.HideReferenceFromChild = normalized.HideReferenceFromChild
+	task.AnalysisMode = normalized.AnalysisMode
+	return task
+}
+
+func taskMetadataFromTask(task domain.Task) (taskMetadata, bool) {
+	metadata := normalizeTaskMetadataFields(
+		task.TaskType,
+		task.ReferenceTitle,
+		task.ReferenceAuthor,
+		task.ReferenceText,
+		task.HideReferenceFromChild,
+		task.AnalysisMode,
+	)
+	if metadata.TaskType == "" &&
+		metadata.ReferenceTitle == "" &&
+		metadata.ReferenceAuthor == "" &&
+		metadata.ReferenceText == "" &&
+		!metadata.HideReferenceFromChild &&
+		metadata.AnalysisMode == "" {
+		return taskMetadata{}, false
+	}
+	return metadata, true
 }
 
 func newMarkdownTask(taskID int, rawLine string, checkedMark string, subject string, groupTitle string, content string) domain.Task {
@@ -99,6 +163,18 @@ func renderTaskLine(task domain.Task) string {
 		checkMark = "x"
 	}
 	return fmt.Sprintf("- [%s] %s", checkMark, strings.TrimSpace(task.Content))
+}
+
+func renderTaskMetadataLine(task domain.Task) string {
+	metadata, ok := taskMetadataFromTask(task)
+	if !ok {
+		return ""
+	}
+	content, err := json.Marshal(metadata)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("  <!-- studyclaw:task:%s -->", string(content))
 }
 
 func renderMarkdownDocument(date time.Time, tasks []domain.Task) string {
@@ -145,11 +221,17 @@ func renderMarkdownDocument(date time.Time, tasks []domain.Task) string {
 		}
 
 		group.Tasks = append(group.Tasks, domain.Task{
-			Completed:  task.Completed,
-			Status:     task.Status,
-			Subject:    subject,
-			GroupTitle: groupTitle,
-			Content:    content,
+			Completed:              task.Completed,
+			Status:                 task.Status,
+			Subject:                subject,
+			GroupTitle:             groupTitle,
+			Content:                content,
+			TaskType:               task.TaskType,
+			ReferenceTitle:         task.ReferenceTitle,
+			ReferenceAuthor:        task.ReferenceAuthor,
+			ReferenceText:          task.ReferenceText,
+			HideReferenceFromChild: task.HideReferenceFromChild,
+			AnalysisMode:           task.AnalysisMode,
 		})
 	}
 
@@ -165,6 +247,10 @@ func renderMarkdownDocument(date time.Time, tasks []domain.Task) string {
 			for _, task := range group.Tasks {
 				builder.WriteString(renderTaskLine(task))
 				builder.WriteString("\n")
+				if metadataLine := renderTaskMetadataLine(task); metadataLine != "" {
+					builder.WriteString(metadataLine)
+					builder.WriteString("\n")
+				}
 			}
 		}
 	}
@@ -191,29 +277,37 @@ func (r *Repository) EnsureDailyFile(familyID, userID uint, date time.Time) (str
 	return path, nil
 }
 
-func (r *Repository) AddTask(familyID, userID uint, subject, groupTitle, content string, date time.Time) error {
-	subject, groupTitle, content = normalizeStoredTask(subject, groupTitle, content)
+func (r *Repository) AddTask(input domain.CreateTaskInput, date time.Time) error {
+	subject, groupTitle, content := normalizeStoredTask(input.Subject, input.GroupTitle, input.Content)
 	if content == "" {
 		return fmt.Errorf("task content cannot be empty")
 	}
 
-	path, err := r.EnsureDailyFile(familyID, userID, date)
+	path, err := r.EnsureDailyFile(input.FamilyID, input.AssigneeID, date)
 	if err != nil {
 		return err
 	}
 
-	tasks, err := r.GetTasks(familyID, userID, date)
+	tasks, err := r.GetTasks(input.FamilyID, input.AssigneeID, date)
 	if err != nil {
 		return err
 	}
 
-	tasks = append(tasks, domain.Task{
+	task := applyTaskMetadata(domain.Task{
 		Subject:    subject,
 		GroupTitle: groupTitle,
 		Content:    content,
 		Completed:  false,
 		Status:     "pending",
+	}, taskMetadata{
+		TaskType:               input.TaskType,
+		ReferenceTitle:         input.ReferenceTitle,
+		ReferenceAuthor:        input.ReferenceAuthor,
+		ReferenceText:          input.ReferenceText,
+		HideReferenceFromChild: input.HideReferenceFromChild,
+		AnalysisMode:           input.AnalysisMode,
 	})
+	tasks = append(tasks, task)
 
 	return writeTasksToMD(path, date, tasks)
 }
@@ -254,6 +348,18 @@ func (r *Repository) GetTasks(familyID, userID uint, date time.Time) ([]domain.T
 		}
 
 		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if matches := taskMetadataPattern.FindStringSubmatch(line); len(matches) == 2 {
+			if len(tasks) == 0 {
+				continue
+			}
+			var metadata taskMetadata
+			if err := json.Unmarshal([]byte(matches[1]), &metadata); err != nil {
+				continue
+			}
+			tasks[len(tasks)-1] = applyTaskMetadata(tasks[len(tasks)-1], metadata)
 			continue
 		}
 

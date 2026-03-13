@@ -20,12 +20,19 @@ type TaskHandler struct {
 }
 
 type CreateTaskReq struct {
-	FamilyID     uint   `json:"family_id" binding:"required"`
-	AssigneeID   uint   `json:"assignee_id" binding:"required"`
-	Subject      string `json:"subject"`
-	GroupTitle   string `json:"group_title,omitempty"`
-	Content      string `json:"content" binding:"required"`
-	AssignedDate string `json:"assigned_date,omitempty"`
+	FamilyID               uint   `json:"family_id" binding:"required"`
+	AssigneeID             uint   `json:"assignee_id" binding:"required"`
+	Subject                string `json:"subject"`
+	GroupTitle             string `json:"group_title,omitempty"`
+	Content                string `json:"content" binding:"required"`
+	AssignedDate           string `json:"assigned_date,omitempty"`
+	Type                   string `json:"type,omitempty"`
+	TaskType               string `json:"task_type,omitempty"`
+	ReferenceTitle         string `json:"reference_title,omitempty"`
+	ReferenceAuthor        string `json:"reference_author,omitempty"`
+	ReferenceText          string `json:"reference_text,omitempty"`
+	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
+	AnalysisMode           string `json:"analysis_mode,omitempty"`
 }
 
 type ParseTaskReq struct {
@@ -37,12 +44,19 @@ type ParseTaskReq struct {
 }
 
 type ConfirmTaskItem struct {
-	Subject     string   `json:"subject"`
-	GroupTitle  string   `json:"group_title,omitempty"`
-	Title       string   `json:"title"`
-	Confidence  float64  `json:"confidence,omitempty"`
-	NeedsReview bool     `json:"needs_review,omitempty"`
-	Notes       []string `json:"notes,omitempty"`
+	Subject                string   `json:"subject"`
+	GroupTitle             string   `json:"group_title,omitempty"`
+	Title                  string   `json:"title"`
+	Type                   string   `json:"type,omitempty"`
+	TaskType               string   `json:"task_type,omitempty"`
+	Confidence             float64  `json:"confidence,omitempty"`
+	NeedsReview            bool     `json:"needs_review,omitempty"`
+	Notes                  []string `json:"notes,omitempty"`
+	ReferenceTitle         string   `json:"reference_title,omitempty"`
+	ReferenceAuthor        string   `json:"reference_author,omitempty"`
+	ReferenceText          string   `json:"reference_text,omitempty"`
+	HideReferenceFromChild bool     `json:"hide_reference_from_child,omitempty"`
+	AnalysisMode           string   `json:"analysis_mode,omitempty"`
 }
 
 type ConfirmTasksReq struct {
@@ -90,12 +104,18 @@ func mapParsedTasksToCreateReqs(familyID, assigneeID uint, assignedDate string, 
 		}
 
 		createdTasks = append(createdTasks, taskboarddomain.CreateTaskInput{
-			FamilyID:     familyID,
-			AssigneeID:   assigneeID,
-			Subject:      subject,
-			GroupTitle:   groupTitle,
-			Content:      content,
-			AssignedDate: assignedDate,
+			FamilyID:               familyID,
+			AssigneeID:             assigneeID,
+			Subject:                subject,
+			GroupTitle:             groupTitle,
+			Content:                content,
+			AssignedDate:           assignedDate,
+			TaskType:               strings.TrimSpace(task.Type),
+			ReferenceTitle:         task.ReferenceTitle,
+			ReferenceAuthor:        task.ReferenceAuthor,
+			ReferenceText:          task.ReferenceText,
+			HideReferenceFromChild: task.HideReferenceFromChild,
+			AnalysisMode:           task.AnalysisMode,
 		})
 	}
 
@@ -110,18 +130,23 @@ func mapParsedTasksToTaskItems(parsedTasks []taskparse.ParsedTask) []taskboarddo
 			continue
 		}
 		items = append(items, taskboarddomain.TaskItem{
-			TaskID:      index + 1,
-			Subject:     subject,
-			GroupTitle:  groupTitle,
-			Title:       content,
-			Content:     content,
-			Type:        strings.TrimSpace(task.Type),
-			Confidence:  task.Confidence,
-			NeedsReview: task.NeedsReview,
-			Notes:       append([]string(nil), task.Notes...),
-			Completed:   false,
-			Status:      "pending",
-			PointsValue: 1,
+			TaskID:                 index + 1,
+			Subject:                subject,
+			GroupTitle:             groupTitle,
+			Title:                  content,
+			Content:                content,
+			Type:                   strings.TrimSpace(task.Type),
+			Confidence:             task.Confidence,
+			NeedsReview:            task.NeedsReview,
+			Notes:                  append([]string(nil), task.Notes...),
+			Completed:              false,
+			Status:                 "pending",
+			PointsValue:            1,
+			ReferenceTitle:         task.ReferenceTitle,
+			ReferenceAuthor:        task.ReferenceAuthor,
+			ReferenceText:          task.ReferenceText,
+			HideReferenceFromChild: task.HideReferenceFromChild,
+			AnalysisMode:           task.AnalysisMode,
 		})
 	}
 	return items
@@ -162,13 +187,24 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		return
 	}
 
+	taskType := strings.TrimSpace(req.TaskType)
+	if taskType == "" {
+		taskType = strings.TrimSpace(req.Type)
+	}
+
 	assignedDate, err := h.taskboard.CreateTask(taskboarddomain.CreateTaskInput{
-		FamilyID:     req.FamilyID,
-		AssigneeID:   req.AssigneeID,
-		Subject:      req.Subject,
-		GroupTitle:   req.GroupTitle,
-		Content:      req.Content,
-		AssignedDate: req.AssignedDate,
+		FamilyID:               req.FamilyID,
+		AssigneeID:             req.AssigneeID,
+		Subject:                req.Subject,
+		GroupTitle:             req.GroupTitle,
+		Content:                req.Content,
+		AssignedDate:           req.AssignedDate,
+		TaskType:               taskType,
+		ReferenceTitle:         req.ReferenceTitle,
+		ReferenceAuthor:        req.ReferenceAuthor,
+		ReferenceText:          req.ReferenceText,
+		HideReferenceFromChild: req.HideReferenceFromChild,
+		AnalysisMode:           req.AnalysisMode,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -294,14 +330,24 @@ func (h *TaskHandler) ConfirmTasks(c *gin.Context) {
 		if content == "" {
 			continue
 		}
+		taskType := strings.TrimSpace(task.TaskType)
+		if taskType == "" {
+			taskType = strings.TrimSpace(task.Type)
+		}
 
 		createdTasks = append(createdTasks, taskboarddomain.CreateTaskInput{
-			FamilyID:     req.FamilyID,
-			AssigneeID:   req.AssigneeID,
-			Subject:      subject,
-			GroupTitle:   groupTitle,
-			Content:      content,
-			AssignedDate: assignedDate.Format("2006-01-02"),
+			FamilyID:               req.FamilyID,
+			AssigneeID:             req.AssigneeID,
+			Subject:                subject,
+			GroupTitle:             groupTitle,
+			Content:                content,
+			AssignedDate:           assignedDate.Format("2006-01-02"),
+			TaskType:               taskType,
+			ReferenceTitle:         task.ReferenceTitle,
+			ReferenceAuthor:        task.ReferenceAuthor,
+			ReferenceText:          task.ReferenceText,
+			HideReferenceFromChild: task.HideReferenceFromChild,
+			AnalysisMode:           task.AnalysisMode,
 		})
 	}
 

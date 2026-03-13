@@ -304,6 +304,16 @@ func TestFrozenPhaseOneQueryAndActionRoutes(t *testing.T) {
 	}
 	assertHasKeys(t, decodeObjectResponse(t, sessionGetRecorder.Body.Bytes()), "dictation_session")
 
+	recitationRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/recitation/analyze", map[string]any{
+		"transcript":     "江畔独步寻花杜甫黄师塔前江水东春光懒困倚微风",
+		"scene":          "recitation",
+		"reference_text": "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。",
+	})
+	if recitationRecorder.Code != http.StatusOK {
+		t.Fatalf("expected recitation analyze to return 200, got %d", recitationRecorder.Code)
+	}
+	assertHasKeys(t, decodeObjectResponse(t, recitationRecorder.Body.Bytes()), "analysis")
+
 	// Test POST /dictation-sessions/:session_id/replay
 	replayRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/dictation-sessions/"+sessionID+"/replay", nil)
 	if replayRecorder.Code != http.StatusOK {

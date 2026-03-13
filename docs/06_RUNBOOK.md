@@ -1,6 +1,6 @@
 # StudyClaw 本地运行手册
 
-本文档描述 `2026-03-13` 的 `v0.3.2` 交付基线下的真实运行方式。当前正式运行形态是 `Go API + React Parent Web + Flutter Pad` 三端协同，不再需要额外的 Python 后端进程。
+本文档描述 `2026-03-13` 的 `v0.3.3` 交付基线下的真实运行方式。当前正式运行形态是 `Go API + React Parent Web + Flutter Pad` 三端协同，不再需要额外的 Python 后端进程。
 
 ## 1. 前置条件
 
@@ -103,6 +103,7 @@ VITE_API_BASE_URL=http://127.0.0.1:38080 npm run dev -- --host 127.0.0.1 --port 
 - 家长端当前主干已改为移动优先 H5 工位，桌面浏览器打开时也会使用手机单列宽度和底部固定导航。
 - 家长端当前主干已把复杂功能拆成“四大主屏 + 子页面菜单”，发布、反馈、积分、单词都按 App 式切页组织，不再是长单页。
 - 点击“去录入原文”会直接切到 `原文` 子页面，不再被空状态逻辑错误带回 `范围`。
+- 背诵 / 朗读类任务在解析和审核阶段会自动带出学习素材字段；家长手动输入优先，缺失时先从老师原文抽取，再由 LLM 补全剩余空缺。
 - 真机访问时优先使用手机浏览器；如果用桌面浏览器联调，不需要再手动缩到很窄才能看到移动布局。
 
 ### 4.3 启动 Pad Web
@@ -122,7 +123,8 @@ Pad 语音助手说明：
 - 任务板和听写页签共用 `/api/v1/voice-commands/resolve` 做语音意图解析。
 - Web 首次使用语音助手时，浏览器会请求麦克风权限，需要点允许。
 - 当前推荐使用 Chrome / Edge；如果浏览器不支持语音识别，Pad 会保留按钮但给出明确失败提示。
-- `v0.3.2` 已修复 Web/STT 场景下“开始说话”后的启动判定与 `done / notListening` 收尾逻辑。
+- `v0.3.3` 已支持短口令、长段朗读 / 背诵和陪伴式持续监听三种语音场景。
+- `v0.3.3` 已修复 Web/STT 场景下“开始说话”后的启动判定与 `done / notListening` 收尾逻辑，并补上背诵分析主链。
 - 任务完成和听写关键节点会展示正向鼓励文案，用于孩子端即时反馈。
 
 ## 5. 交付前标准联调路径
@@ -165,6 +167,13 @@ curl -X POST http://127.0.0.1:38080/api/v1/tasks/parse \
     "raw_text": "数学：1、校本P16-17\n2、练习册P14-15\n\n英语：1、背默M1U2单词\n2、预习课文"
   }'
 ```
+
+背诵 / 朗读学习素材自动补全：
+
+- 如果家长在审核阶段已手动填写 `reference_title / reference_author / reference_text`，系统直接保留人工输入。
+- 如果家长未填写，解析器会优先从老师原文中自动抽取古诗词 / 课文标题、作者和正文。
+- 如果老师原文里只有“背诵《xxx》”而没有正文，且配置了可用 LLM，系统会只补全文本缺口，不覆盖家长已填内容。
+- 背诵任务默认 `hide_reference_from_child=true`，Pad 不直接展示标准原文，但可用来做背诵分析。
 
 确认写入：
 
@@ -211,6 +220,25 @@ curl -X PATCH http://127.0.0.1:38080/api/v1/tasks/status/item \
 - 在 Pad 任务板可以直接说“数学订正好了”“一课一练做完了”“全部都好了”。
 - Pad 会先做 STT，再把 transcript 和当前页面上下文发给 `/api/v1/voice-commands/resolve`，再执行对应按钮动作。
 - 单任务、分组、学科或全部完成后，Pad 会展示“成长小鼓励”卡片，并显示当前完成进度。
+
+背诵分析：
+
+```bash
+curl -X POST http://127.0.0.1:38080/api/v1/recitation/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "scene": "recitation",
+    "locale": "zh-CN",
+    "transcript": "江畔独步寻花糖杜甫黄思塔前江水东春光缆会以微风",
+    "reference_text": "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？"
+  }'
+```
+
+预期：
+
+- 返回 `reference_title`、`reference_author`、`completion_ratio`
+- 返回逐句 `matched_lines`
+- 能给出 `needs_retry`、`summary`、`suggestion`
 
 ### 5.5 家长端查看反馈和积分
 
