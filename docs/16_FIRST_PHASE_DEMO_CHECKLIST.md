@@ -4,7 +4,7 @@
 
 适用目标：
 
-- 版本目标：`v0.3.4`
+- 版本目标：`v0.3.5`
 - 目标日期：`2026-03-14`
 
 推荐先完成基础检查：
@@ -118,7 +118,7 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 ## 5. 验收确认模板
 ```text
 Date: 2026-03-14
-Version: v0.3.4
+Version: v0.3.5
 Sign-off Status: [PASS / FAIL]
 Verified By:
 Notes:

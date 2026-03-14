@@ -8,9 +8,9 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 
 ## 当前阶段
 
-- 当前交付版本：`v0.3.4`
-- 当前状态：在 `v0.3.3` 稳定基线之上，继续完成 Pad 端“词单缺失友好等待态 + 成长鼓励语音播报 + 平板 TTS 补齐”收口
-- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.4` 基线
+- 当前交付版本：`v0.3.5`
+- 当前状态：在 `v0.3.4` 正式基线之上，继续完成 release scope 校验脚本硬化、三端联调证据补录和发布资产同步
+- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.5` 基线
 
 ## 当前已闭环能力
 
@@ -118,10 +118,10 @@ bash scripts/demo_local_stack.sh
 ## 交付文档
 
 - 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
-- 用户操作手册：[docs/USER_MANUAL_V0.3.4.md](docs/USER_MANUAL_V0.3.4.md)
+- 用户操作手册：[docs/USER_MANUAL_V0.3.5.md](docs/USER_MANUAL_V0.3.5.md)
 - 家长端移动 H5 操作手册：[docs/PARENT_WEB_H5_MANUAL.md](docs/PARENT_WEB_H5_MANUAL.md)
-- 阶段一页摘要：[docs/28_PHASE_ONE_PAGER_V0.3.4.md](docs/28_PHASE_ONE_PAGER_V0.3.4.md)
-- `v0.3.4` 发布说明：[docs/27_RELEASE_NOTES_V0.3.4.md](docs/27_RELEASE_NOTES_V0.3.4.md)
+- 阶段一页摘要：[docs/30_PHASE_ONE_PAGER_V0.3.5.md](docs/30_PHASE_ONE_PAGER_V0.3.5.md)
+- `v0.3.5` 发布说明：[docs/29_RELEASE_NOTES_V0.3.5.md](docs/29_RELEASE_NOTES_V0.3.5.md)
 - 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
 - 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
 - Release 同步手册：[docs/20_RELEASE_SYNC_PLAYBOOK.md](docs/20_RELEASE_SYNC_PLAYBOOK.md)
@@ -133,10 +133,10 @@ bash scripts/demo_local_stack.sh
 - `v0.3.0` 已作为历史正式版本保留
 - `v0.3.1` 已作为上一版正式标签保留
 - `v0.3.2` 已作为上一版正式标签保留
-- `v0.3.3` 已作为上一版正式标签和 GitHub release 基线同步
-- `v0.3.4` 已作为当前正式标签和 GitHub release 基线同步
-- 当前正式发版范围包括 Pad 端词单缺失友好等待态、成长鼓励语音播报、平板 TTS 补齐，以及版本文档同步
-- `2026-03-14` 已重新通过 `smoke/demo`，并修复 `scripts/check_release_scope.sh` 在干净工作区下的误报
+- `v0.3.3` 已作为历史正式标签和 GitHub release 基线同步
+- `v0.3.4` 已作为上一版正式标签和 GitHub release 基线同步
+- `v0.3.5` 已作为当前正式标签和 GitHub release 基线同步
+- 当前正式发版范围包括 release scope 校验脚本硬化、三端联调证据回填、发布说明与交付文档同步
 
 ## 许可
 

@@ -1,6 +1,6 @@
 # StudyClaw Release Sync Playbook
 
-本文档定义 `v0.3.4` 进入 GitHub 正式同步前的最小操作顺序。目标不是“把所有改动都推上去”，而是“只把本次交付范围内的源码、文档和版本文件推上去”。
+本文档定义 `v0.3.5` 进入 GitHub 正式同步前的最小操作顺序。目标不是“把所有改动都推上去”，而是“只把本次交付范围内的源码、文档和版本文件推上去”。
 
 ## 1. 先决条件
 
@@ -27,7 +27,7 @@ bash scripts/check_release_scope.sh
 - 后端：`apps/api-server/cmd/`、`config/`、`internal/`、`routes/`
 - 家长端：`apps/parent-web/src/`、`package.json`、`package-lock.json`
 - 孩子端：`apps/pad-app/lib/`、`assets/`、`test/`、`pubspec.yaml`、`pubspec.lock`、`README.md`
-- 交付文档：`docs/06_RUNBOOK.md`、`docs/13_RELEASE_CHECKLIST.md`、`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`、`docs/17_DELIVERY_READINESS.md`、`docs/19_DELIVERY_UAT_CASES.md`、`docs/20_RELEASE_SYNC_PLAYBOOK.md`、`docs/USER_MANUAL_V0.3.4.md`、`docs/PARENT_WEB_H5_MANUAL.md`、`docs/27_RELEASE_NOTES_V0.3.4.md`、`docs/28_PHASE_ONE_PAGER_V0.3.4.md`
+- 交付文档：`docs/06_RUNBOOK.md`、`docs/13_RELEASE_CHECKLIST.md`、`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md`、`docs/17_DELIVERY_READINESS.md`、`docs/19_DELIVERY_UAT_CASES.md`、`docs/20_RELEASE_SYNC_PLAYBOOK.md`、`docs/USER_MANUAL_V0.3.5.md`、`docs/PARENT_WEB_H5_MANUAL.md`、`docs/29_RELEASE_NOTES_V0.3.5.md`、`docs/30_PHASE_ONE_PAGER_V0.3.5.md`
 - 测试夹具：`test/daily_homework.txt`、`test/listen_image.jpg`
 
 明确禁止进入本次 release 的路径：
@@ -67,7 +67,7 @@ git add README.md CHANGELOG.md .env.example
 git add apps/api-server/cmd apps/api-server/internal apps/api-server/routes apps/api-server/go.mod
 git add apps/parent-web/src apps/parent-web/package.json apps/parent-web/package-lock.json
 git add apps/pad-app/lib apps/pad-app/assets apps/pad-app/test apps/pad-app/pubspec.yaml apps/pad-app/pubspec.lock apps/pad-app/README.md apps/pad-app/SC05_PAD_LIVE_CHECKLIST.md
-git add docs/06_RUNBOOK.md docs/13_RELEASE_CHECKLIST.md docs/16_FIRST_PHASE_DEMO_CHECKLIST.md docs/17_DELIVERY_READINESS.md docs/19_DELIVERY_UAT_CASES.md docs/20_RELEASE_SYNC_PLAYBOOK.md docs/USER_MANUAL_V0.3.4.md docs/PARENT_WEB_H5_MANUAL.md docs/27_RELEASE_NOTES_V0.3.4.md docs/28_PHASE_ONE_PAGER_V0.3.4.md
+git add docs/06_RUNBOOK.md docs/13_RELEASE_CHECKLIST.md docs/16_FIRST_PHASE_DEMO_CHECKLIST.md docs/17_DELIVERY_READINESS.md docs/19_DELIVERY_UAT_CASES.md docs/20_RELEASE_SYNC_PLAYBOOK.md docs/USER_MANUAL_V0.3.5.md docs/PARENT_WEB_H5_MANUAL.md docs/29_RELEASE_NOTES_V0.3.5.md docs/30_PHASE_ONE_PAGER_V0.3.5.md
 git add test/daily_homework.txt test/listen_image.jpg
 ```
 
@@ -93,10 +93,10 @@ bash scripts/demo_local_stack.sh
 示例：
 
 ```bash
-git commit -m "release: prepare v0.3.4"
-git tag v0.3.4
+git commit -m "release: prepare v0.3.5"
+git tag v0.3.5
 git push origin main
-git push origin v0.3.4
+git push origin v0.3.5
 ```
 
 ## 4. 本轮实际阻塞项
@@ -105,7 +105,7 @@ git push origin v0.3.4
 
 - 只提交本次 Pad 词单缺失等待态、成长鼓励语音播报、平板 TTS 补齐和文档同步相关改动
 - 仍然禁止把缓存、构建产物和运行时密钥带入 commit
-- 如果工作树里混入并行试验改动，必须先明确是否属于 `v0.3.4`
+- 如果工作树里混入并行试验改动，必须先明确是否属于 `v0.3.5`
 
 ## 5. 通过标准
 

@@ -1,21 +1,21 @@
 # StudyClaw 发布前检查清单
 
-本文档用于 `v0.3.4` 正式发版前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
+本文档用于 `v0.3.5` 正式发版前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
 
 ## 1. 版本与文档同步
 
 检查点：
 
-- [x] `README.md` 标注当前版本为 `v0.3.4`
-- [x] `apps/parent-web/package.json` 与 `apps/parent-web/package-lock.json` 版本为 `0.3.4`
-- [x] `apps/pad-app/pubspec.yaml` 版本为 `0.3.4+1`
-- [x] `CHANGELOG.md` 已记录 `v0.3.4` 的词单缺失等待态、成长鼓励语音播报、平板 TTS 补齐及验证结果
+- [x] `README.md` 标注当前版本为 `v0.3.5`
+- [x] `apps/parent-web/package.json` 与 `apps/parent-web/package-lock.json` 版本为 `0.3.5`
+- [x] `apps/pad-app/pubspec.yaml` 版本为 `0.3.5+2`
+- [x] `CHANGELOG.md` 已记录 `v0.3.5` 的 release scope 脚本硬化、联调复核与版本同步结果
 - [x] `docs/17_DELIVERY_READINESS.md` 更新为最新审计结论
 - [x] `docs/19_DELIVERY_UAT_CASES.md` 可直接作为交付验收用例
-- [x] `docs/USER_MANUAL_V0.3.4.md` 可直接交给家长 / 演示同事使用
+- [x] `docs/USER_MANUAL_V0.3.5.md` 可直接交给家长 / 演示同事使用
 - [x] `docs/PARENT_WEB_H5_MANUAL.md` 已同步到正式版使用口径
-- [x] `docs/27_RELEASE_NOTES_V0.3.4.md` 已补齐发布说明
-- [x] `docs/28_PHASE_ONE_PAGER_V0.3.4.md` 已补齐对家长 / 团队 / GitHub 可复用的一页摘要
+- [x] `docs/29_RELEASE_NOTES_V0.3.5.md` 已补齐发布说明
+- [x] `docs/30_PHASE_ONE_PAGER_V0.3.5.md` 已补齐对家长 / 团队 / GitHub 可复用的一页摘要
 
 ## 2. 密钥与运行时配置
 
@@ -76,7 +76,7 @@ bash scripts/demo_local_stack.sh
 
 说明：
 
-- 本轮 `v0.3.4` 的源码改动集中在 Pad 和文档层，API / Parent 自动化与 Pad 自动化均已重跑通过。
+- 本轮 `v0.3.5` 的源码改动集中在 release 工具脚本、版本文件和文档层，API / Parent 自动化与 Pad 自动化均已重跑通过。
 - `2026-03-14` 已使用 `API=http://127.0.0.1:38080`、`Parent=http://127.0.0.1:5173` 重新执行 `smoke/demo`，两者均通过。
 - Parent Web 与 Pad Web 入口页面已分别通过 `curl http://127.0.0.1:5173/` 与 `curl http://127.0.0.1:55771/` 返回有效 HTML。
 
@@ -87,10 +87,10 @@ bash scripts/demo_local_stack.sh
 - [x] `git fetch origin`
 - [x] `git status --short` 中只剩本次计划提交的文件
 - [x] `.gopath/` 历史缓存清理已按 scoped release 处理，未把 `build/`、`dist/`、`.dart_tool/`、运行时密钥文件带进 commit
-- [x] release commit 信息清晰：`release: prepare v0.3.4`
-- [x] 版本标签与交付版本一致：`v0.3.4`
+- [x] release commit 信息清晰：`release: prepare v0.3.5`
+- [x] 版本标签与交付版本一致：`v0.3.5`
 - [x] push 后已再次核对 `origin/main` 与标签状态
 
 ## 7. 发布结论
 
-`v0.3.4` 已完成源码、文档、自动化验证、三端联调脚本复核与 GitHub 同步，可作为当前阶段的正式版本。
+`v0.3.5` 已完成源码、文档、自动化验证、三端联调脚本复核与 GitHub 同步，可作为当前阶段的正式版本。

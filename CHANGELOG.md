@@ -2,15 +2,34 @@
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-03-14
+
 ### Fixed
 
 - **Release scope 脚本空工作区误报**
   - `scripts/check_release_scope.sh` 在工作区干净时不再因为 `status_lines[@]` 未绑定而失败。
   - 现在会直接输出 `Release scope check: clean worktree` 并返回成功，适合正式发版前重复执行。
 
+### Changed
+
+- **发布资产与版本号同步**
+  - 根 README、运行手册、发布清单、交付就绪审计、UAT、Release Sync Playbook、家长端 H5 手册、Pad README、用户手册、发布说明和一页摘要统一刷新到 `v0.3.5`。
+  - `apps/parent-web/package.json`、`apps/parent-web/package-lock.json`、`apps/pad-app/pubspec.yaml` 版本号同步到 `v0.3.5`，Pad build number 提升到 `+2`。
+- **三端联调证据回填**
+  - 正式文档现在明确记录 `smoke/demo` 已在 `2026-03-14` 使用 `API=http://127.0.0.1:38080`、`Parent=http://127.0.0.1:5173` 重新执行并通过。
+  - Parent Web 与 Pad Web 入口页存活检查结果已同步回发布文档和 GitHub release 说明。
+
 ### Verified
 
+- `bash scripts/check_no_tracked_runtime_env.sh`
+- `bash scripts/preflight_local_env.sh`
 - `bash scripts/check_release_scope.sh`
+- `cd apps/api-server && go test ./... -count=1`
+- `cd apps/parent-web && npm test -- --run`
+- `cd apps/parent-web && npm run build`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test --no-pub`
+- `cd apps/pad-app && flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
 - `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
 - `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
 - `curl http://127.0.0.1:5173/`
