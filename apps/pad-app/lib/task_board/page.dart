@@ -250,10 +250,164 @@ bool _containsCjk(String value) {
   return RegExp(r'[\u3400-\u9FFF]').hasMatch(value);
 }
 
+bool _isComparableSpeechChar(String value) {
+  return RegExp(r'[\u3400-\u9FFFA-Za-z0-9]').hasMatch(value);
+}
+
+String _compactComparableSpeechText(String value) {
+  final buffer = StringBuffer();
+  for (var index = 0; index < value.length; index += 1) {
+    final char = value[index];
+    if (_isComparableSpeechChar(char)) {
+      buffer.write(char);
+    }
+  }
+  return buffer.toString();
+}
+
+List<int> _buildComparableSpeechIndexMap(String value) {
+  final indices = <int>[];
+  for (var index = 0; index < value.length; index += 1) {
+    final char = value[index];
+    if (_isComparableSpeechChar(char)) {
+      indices.add(index + 1);
+    }
+  }
+  return indices;
+}
+
+List<String> _extractReferenceGuidanceUnits(
+  String referenceText, {
+  required _LearningScene scene,
+}) {
+  final normalizedLines = referenceText
+      .replaceAll('\r\n', '\n')
+      .split('\n')
+      .map(_normalizeVoiceTranscript)
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+  if (normalizedLines.isEmpty) {
+    return const <String>[];
+  }
+
+  if (scene != _LearningScene.reading) {
+    return normalizedLines;
+  }
+
+  final sentenceUnits = <String>[];
+  const breakChars = '。！？!?；;';
+  for (final line in normalizedLines) {
+    final buffer = StringBuffer();
+    for (var index = 0; index < line.length; index += 1) {
+      final char = line[index];
+      buffer.write(char);
+      if (breakChars.contains(char)) {
+        final segment = _normalizeVoiceTranscript(buffer.toString());
+        if (segment.isNotEmpty) {
+          sentenceUnits.add(segment);
+        }
+        buffer.clear();
+      }
+    }
+    final tail = _normalizeVoiceTranscript(buffer.toString());
+    if (tail.isNotEmpty) {
+      sentenceUnits.add(tail);
+    }
+  }
+
+  return sentenceUnits.isNotEmpty ? sentenceUnits : normalizedLines;
+}
+
+List<String> _splitSpeechChunksByReferenceShape(
+  String transcript, {
+  required _LearningScene scene,
+  required String referenceText,
+}) {
+  final normalizedTranscript = _normalizeVoiceTranscript(transcript);
+  if (normalizedTranscript.isEmpty ||
+      !_containsCjk(normalizedTranscript) ||
+      RegExp(r'[。！？!?；;]').hasMatch(normalizedTranscript)) {
+    return const <String>[];
+  }
+
+  final referenceUnits = _extractReferenceGuidanceUnits(
+    referenceText,
+    scene: scene,
+  )
+      .map(_compactComparableSpeechText)
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+  if (referenceUnits.length < 2) {
+    return const <String>[];
+  }
+
+  final compactTranscript = _compactComparableSpeechText(normalizedTranscript);
+  final indexMap = _buildComparableSpeechIndexMap(normalizedTranscript);
+  if (compactTranscript.isEmpty ||
+      compactTranscript.length != indexMap.length ||
+      compactTranscript.length < referenceUnits.length * 2) {
+    return const <String>[];
+  }
+
+  final totalExpectedLength = referenceUnits.fold<int>(
+    0,
+    (sum, item) => sum + item.length,
+  );
+  if (totalExpectedLength == 0) {
+    return const <String>[];
+  }
+
+  final segments = <String>[];
+  var compactStart = 0;
+  var originalStart = 0;
+  var consumedExpectedLength = 0;
+
+  for (var unitIndex = 0; unitIndex < referenceUnits.length; unitIndex += 1) {
+    final unitLength = referenceUnits[unitIndex].length;
+    final isLastUnit = unitIndex == referenceUnits.length - 1;
+    final compactEnd = isLastUnit
+        ? compactTranscript.length
+        : () {
+            final remainingUnits = referenceUnits.length - unitIndex - 1;
+            final remainingComparableChars =
+                compactTranscript.length - compactStart;
+            final remainingExpectedLength =
+                totalExpectedLength - consumedExpectedLength;
+            final suggestedLength = (remainingComparableChars *
+                    unitLength /
+                    remainingExpectedLength)
+                .round();
+            final maxCurrentLength = remainingComparableChars - remainingUnits;
+            final boundedLength = suggestedLength.clamp(1, maxCurrentLength);
+            return compactStart + boundedLength;
+          }();
+
+    if (compactEnd <= compactStart || compactEnd > indexMap.length) {
+      return const <String>[];
+    }
+
+    final originalEnd = indexMap[compactEnd - 1];
+    final segment = _normalizeVoiceTranscript(
+      normalizedTranscript.substring(originalStart, originalEnd),
+    );
+    if (segment.isEmpty) {
+      return const <String>[];
+    }
+
+    segments.add(segment);
+    compactStart = compactEnd;
+    originalStart = originalEnd;
+    consumedExpectedLength += unitLength;
+  }
+
+  return segments;
+}
+
 List<String> _splitSpeechChunks(
   String transcript, {
   required _SpeechWorkbenchMode mode,
   required _LearningScene scene,
+  String? referenceText,
 }) {
   final normalized = _normalizeVoiceTranscript(transcript);
   if (normalized.isEmpty) {
@@ -262,6 +416,18 @@ List<String> _splitSpeechChunks(
 
   if (mode == _SpeechWorkbenchMode.command) {
     return <String>[normalized];
+  }
+
+  final rawReferenceText = (referenceText ?? '').trim();
+  if (rawReferenceText.isNotEmpty) {
+    final referenceGuided = _splitSpeechChunksByReferenceShape(
+      normalized,
+      scene: scene,
+      referenceText: rawReferenceText,
+    );
+    if (referenceGuided.isNotEmpty) {
+      return referenceGuided;
+    }
   }
 
   final punctuationSegments = <String>[];
@@ -373,13 +539,43 @@ List<_SpeechSegment> _buildSpeechSegmentsFromRecognizer(
   required DateTime fallbackTime,
   required _SpeechWorkbenchMode mode,
   required _LearningScene scene,
+  String? referenceText,
 }) {
+  if (!isListening) {
+    final normalizedPreview = _normalizeVoiceTranscript(previewTranscript);
+    final refinedChunks = _splitSpeechChunks(
+      normalizedPreview,
+      mode: mode,
+      scene: scene,
+      referenceText: referenceText,
+    );
+    if (refinedChunks.length > 1) {
+      return List<_SpeechSegment>.generate(refinedChunks.length, (index) {
+        final sourceSegments = committedSegments.where((item) => !item.isLive);
+        final sourceList = sourceSegments.toList(growable: false);
+        final capturedAt = sourceList.isEmpty
+            ? fallbackTime.add(Duration(seconds: index * 8))
+            : sourceList[((index * sourceList.length) / refinedChunks.length)
+                    .floor()
+                    .clamp(0, sourceList.length - 1)]
+                .capturedAt;
+        return _SpeechSegment(
+          index: index + 1,
+          text: refinedChunks[index],
+          capturedAt: capturedAt,
+          isLive: false,
+        );
+      });
+    }
+  }
+
   final result = <_SpeechSegment>[];
   for (final item in committedSegments) {
     final chunks = _splitSpeechChunks(
       item.text,
       mode: mode,
       scene: scene,
+      referenceText: null,
     );
     if (chunks.isEmpty) {
       continue;
@@ -416,6 +612,7 @@ List<_SpeechSegment> _buildSpeechSegmentsFromRecognizer(
       scene: scene,
       baseTime: fallbackTime,
       isListening: isListening,
+      referenceText: referenceText,
     );
   }
   return result;
@@ -427,11 +624,13 @@ List<_SpeechSegment> _buildSpeechSegments(
   required _LearningScene scene,
   required DateTime baseTime,
   required bool isListening,
+  String? referenceText,
 }) {
   final chunks = _splitSpeechChunks(
     transcript,
     mode: mode,
     scene: scene,
+    referenceText: !isListening ? referenceText : null,
   );
   return List<_SpeechSegment>.generate(chunks.length, (index) {
     return _SpeechSegment(
@@ -1505,6 +1704,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
           final committedSegments = _voiceAssistantState.segments
               .where((item) => !item.isLive)
               .toList(growable: false);
+          final referenceText = _effectiveReferenceText(_voiceAssistantState);
           final segments = _buildSpeechSegmentsFromRecognizer(
             committedSegments,
             previewTranscript: normalized,
@@ -1512,6 +1712,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
             scene: _voiceAssistantState.scene,
             isListening: true,
             fallbackTime: startedAt,
+            referenceText: referenceText,
           );
           setState(() {
             _voiceAssistantState = _voiceAssistantState.copyWith(
@@ -1628,6 +1829,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
         scene: scene,
         isListening: false,
         fallbackTime: finishedAt,
+        referenceText: _effectiveReferenceText(_voiceAssistantState),
       );
       if (segments.isEmpty && normalized.isNotEmpty) {
         segments = _buildSpeechSegments(
@@ -1636,6 +1838,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
           scene: scene,
           baseTime: startedAt,
           isListening: false,
+          referenceText: _effectiveReferenceText(_voiceAssistantState),
         );
       }
       if (!mounted) {

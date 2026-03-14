@@ -184,4 +184,56 @@ void main() {
     expect(speech.stopCalled, isTrue);
     expect(recognizer.isListening, isFalse);
   });
+
+  test('keeps restarting through silent cycles before speech arrives',
+      () async {
+    final transcriptUpdates = <String>[];
+    final segmentCommits = <String>[];
+    final speech = _FakeSpeechToText(
+      listenHandlers: [
+        (onResult, onStatus) async {
+          onStatus?.call('done');
+        },
+        (onResult, onStatus) async {
+          onStatus?.call('done');
+        },
+        (onResult, onStatus) async {
+          onResult?.call(
+            SpeechRecognitionResult(
+              const [
+                SpeechRecognitionWords('现在开始背诵', 0.95),
+              ],
+              false,
+            ),
+          );
+          onStatus?.call('done');
+        },
+      ],
+      onStop: (onStatus) async {
+        onStatus?.call('done');
+      },
+    );
+
+    final recognizer = SpeechToTextRecognizer(speech: speech);
+    await recognizer.startListening(
+      locale: 'zh-CN',
+      onTranscriptChanged: transcriptUpdates.add,
+      onSegmentCommitted: segmentCommits.add,
+    );
+
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(recognizer.isListening, isTrue);
+    expect(speech.listenCallCount, greaterThanOrEqualTo(3));
+    expect(transcriptUpdates, contains('现在开始背诵'));
+    expect(segmentCommits, <String>['现在开始背诵']);
+
+    final transcript = await recognizer.finishListening();
+    expect(transcript.transcript, '现在开始背诵');
+    expect(transcript.locale, 'zh-CN');
+    expect(speech.stopCalled, isTrue);
+  });
 }

@@ -597,6 +597,49 @@ void main() {
       expect(repository.recitationAnalysisCalls.first.metadata['task_id'], '1');
     });
 
+    testWidgets('realigns recitation transcript into reference-shaped segments',
+        (tester) async {
+      const referenceText = '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？';
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: _FakeTaskBoardRepository(
+            onFetch: (_) async => _boardWithTasks(),
+          ),
+          speechRecognizer: _FakeSpeechRecognizer(
+            transcript: const SpeechTranscript(
+              transcript: '江畔独步寻花糖杜甫黄思塔前江水东春光缆会以微风桃花一处开无主可爱深红爱浅红',
+              locale: 'zh-CN',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-mode-transcript')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('voice-reference-input')),
+        referenceText,
+      );
+      await tester.pump();
+      await tester.drag(find.byType(ListView).first, const Offset(0, 320));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('第 3 段'), findsOneWidget);
+      expect(find.text('江畔独步寻花糖杜甫'), findsOneWidget);
+      expect(find.text('黄思塔前江水东春光缆会以微风'), findsOneWidget);
+      expect(find.text('桃花一处开无主可爱深红爱浅红'), findsOneWidget);
+    });
+
     testWidgets('shows daily encouragement on the task board', (tester) async {
       final repository = _FakeTaskBoardRepository(
         onFetch: (_) async => _boardWithTasks(),
