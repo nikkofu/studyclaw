@@ -1295,6 +1295,9 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
       'scene': _voiceAssistantState.scene.name,
       'reference_source': referenceTask == null ? 'manual' : 'task',
       if (referenceTask != null) 'task_id': '${referenceTask.taskId}',
+      if (referenceTask != null &&
+          referenceTask.referenceSource.trim().isNotEmpty)
+        'reference_task_source': referenceTask.referenceSource.trim(),
       if (referenceTask != null && referenceTask.taskType.trim().isNotEmpty)
         'task_type': referenceTask.taskType.trim(),
       if (referenceTask != null && referenceTask.analysisMode.trim().isNotEmpty)

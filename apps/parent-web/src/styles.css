@@ -1581,6 +1581,21 @@ textarea {
   color: #17363c;
 }
 
+.manual-reference-pill {
+  background: rgba(30, 84, 106, 0.12);
+  color: #1f556a;
+}
+
+.extracted-pill {
+  background: rgba(54, 122, 58, 0.14);
+  color: #2d6a33;
+}
+
+.llm-pill {
+  background: rgba(195, 137, 36, 0.16);
+  color: #9a6511;
+}
+
 .inline-link {
   border: none;
   padding: 0;

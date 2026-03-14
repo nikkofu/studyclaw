@@ -106,6 +106,7 @@ class TaskItem {
     this.referenceTitle = '',
     this.referenceAuthor = '',
     this.referenceText = '',
+    this.referenceSource = '',
     this.hideReferenceFromChild = false,
     this.analysisMode = '',
   });
@@ -124,6 +125,7 @@ class TaskItem {
       referenceTitle: _readString(json['reference_title']),
       referenceAuthor: _readString(json['reference_author']),
       referenceText: _readString(json['reference_text']),
+      referenceSource: _readString(json['reference_source']),
       hideReferenceFromChild: json['hide_reference_from_child'] == true,
       analysisMode: _readString(json['analysis_mode']),
     );
@@ -139,6 +141,7 @@ class TaskItem {
   final String referenceTitle;
   final String referenceAuthor;
   final String referenceText;
+  final String referenceSource;
   final bool hideReferenceFromChild;
   final String analysisMode;
 

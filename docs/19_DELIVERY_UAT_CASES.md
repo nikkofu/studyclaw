@@ -50,6 +50,7 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 | `UAT-07D` | 学习素材 | 用包含古诗词正文的老师原文调用 `POST /api/v1/tasks/parse` | 解析结果里包含 `reference_title`、`reference_author`、`reference_text`、`hide_reference_from_child=true`、`analysis_mode=classical_poem` |
 | `UAT-07E` | 学习素材 | 发布草稿后检查 `daily_assignment_draft.task_items` | 草稿中仍保留学习素材元数据，不会在 parse -> draft 阶段丢失 |
 | `UAT-07F` | 学习素材 | 以解析结果直接调用 `POST /api/v1/tasks/confirm` | 任务板中仍保留学习素材元数据，不会在 confirm 阶段丢失 |
+| `UAT-07G` | 学习素材来源 | 在家长端审核卡分别测试手动录入、老师原文抽取、LLM 补全三种场景 | 审核卡显示 `手动录入 / 老师原文 / LLM 补全`；API / draft / task board 中 `reference_source` 分别为 `manual / extracted / llm` |
 | `UAT-08` | 孩子读取 | `GET /api/v1/tasks?family_id=306&user_id=1&date=2026-03-12` | 返回 4 条任务和正确 summary |
 | `UAT-09` | 孩子完成 | `PATCH /api/v1/tasks/status/item` | `updated_count=1`，summary 从 `0/4` 变为 `1/4` |
 | `UAT-09A` | 鼓励反馈 | 在 Pad 勾选一个包含“订正 / 默写 / 复习”等关键词的任务 | 页面出现即时鼓励，如“这一步不轻松，你还是认真拿下了。” |

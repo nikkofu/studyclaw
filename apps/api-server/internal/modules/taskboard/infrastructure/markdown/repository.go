@@ -29,6 +29,7 @@ type taskMetadata struct {
 	ReferenceTitle         string `json:"reference_title,omitempty"`
 	ReferenceAuthor        string `json:"reference_author,omitempty"`
 	ReferenceText          string `json:"reference_text,omitempty"`
+	ReferenceSource        string `json:"reference_source,omitempty"`
 	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
 	AnalysisMode           string `json:"analysis_mode,omitempty"`
 }
@@ -71,17 +72,35 @@ func normalizeStoredTask(subject, groupTitle, content string) (string, string, s
 	return normalizedSubject, normalizedGroupTitle, normalizedContent
 }
 
-func normalizeTaskMetadataFields(taskType, referenceTitle, referenceAuthor, referenceText string, hideReferenceFromChild bool, analysisMode string) taskMetadata {
+func normalizeReferenceSourceValue(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "manual", "extracted", "llm":
+		return normalized
+	default:
+		return normalized
+	}
+}
+
+func normalizeTaskMetadataFields(taskType, referenceTitle, referenceAuthor, referenceText, referenceSource string, hideReferenceFromChild bool, analysisMode string) taskMetadata {
 	metadata := taskMetadata{
 		TaskType:               strings.TrimSpace(taskType),
 		ReferenceTitle:         strings.TrimSpace(referenceTitle),
 		ReferenceAuthor:        strings.TrimSpace(referenceAuthor),
 		ReferenceText:          strings.TrimSpace(referenceText),
+		ReferenceSource:        normalizeReferenceSourceValue(referenceSource),
 		HideReferenceFromChild: hideReferenceFromChild,
 		AnalysisMode:           strings.TrimSpace(analysisMode),
 	}
 	if metadata.ReferenceText == "" {
 		metadata.HideReferenceFromChild = false
+	}
+	if metadata.ReferenceTitle == "" &&
+		metadata.ReferenceAuthor == "" &&
+		metadata.ReferenceText == "" &&
+		metadata.AnalysisMode == "" &&
+		!metadata.HideReferenceFromChild {
+		metadata.ReferenceSource = ""
 	}
 	return metadata
 }
@@ -92,6 +111,7 @@ func applyTaskMetadata(task domain.Task, metadata taskMetadata) domain.Task {
 		metadata.ReferenceTitle,
 		metadata.ReferenceAuthor,
 		metadata.ReferenceText,
+		metadata.ReferenceSource,
 		metadata.HideReferenceFromChild,
 		metadata.AnalysisMode,
 	)
@@ -99,6 +119,7 @@ func applyTaskMetadata(task domain.Task, metadata taskMetadata) domain.Task {
 	task.ReferenceTitle = normalized.ReferenceTitle
 	task.ReferenceAuthor = normalized.ReferenceAuthor
 	task.ReferenceText = normalized.ReferenceText
+	task.ReferenceSource = normalized.ReferenceSource
 	task.HideReferenceFromChild = normalized.HideReferenceFromChild
 	task.AnalysisMode = normalized.AnalysisMode
 	return task
@@ -110,6 +131,7 @@ func taskMetadataFromTask(task domain.Task) (taskMetadata, bool) {
 		task.ReferenceTitle,
 		task.ReferenceAuthor,
 		task.ReferenceText,
+		task.ReferenceSource,
 		task.HideReferenceFromChild,
 		task.AnalysisMode,
 	)
@@ -117,6 +139,7 @@ func taskMetadataFromTask(task domain.Task) (taskMetadata, bool) {
 		metadata.ReferenceTitle == "" &&
 		metadata.ReferenceAuthor == "" &&
 		metadata.ReferenceText == "" &&
+		metadata.ReferenceSource == "" &&
 		!metadata.HideReferenceFromChild &&
 		metadata.AnalysisMode == "" {
 		return taskMetadata{}, false
@@ -230,6 +253,7 @@ func renderMarkdownDocument(date time.Time, tasks []domain.Task) string {
 			ReferenceTitle:         task.ReferenceTitle,
 			ReferenceAuthor:        task.ReferenceAuthor,
 			ReferenceText:          task.ReferenceText,
+			ReferenceSource:        task.ReferenceSource,
 			HideReferenceFromChild: task.HideReferenceFromChild,
 			AnalysisMode:           task.AnalysisMode,
 		})
@@ -304,6 +328,7 @@ func (r *Repository) AddTask(input domain.CreateTaskInput, date time.Time) error
 		ReferenceTitle:         input.ReferenceTitle,
 		ReferenceAuthor:        input.ReferenceAuthor,
 		ReferenceText:          input.ReferenceText,
+		ReferenceSource:        input.ReferenceSource,
 		HideReferenceFromChild: input.HideReferenceFromChild,
 		AnalysisMode:           input.AnalysisMode,
 	})

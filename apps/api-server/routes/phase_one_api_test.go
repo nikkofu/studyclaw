@@ -22,6 +22,7 @@ type draftParseResponse struct {
 			ReferenceTitle         string `json:"reference_title"`
 			ReferenceAuthor        string `json:"reference_author"`
 			ReferenceText          string `json:"reference_text"`
+			ReferenceSource        string `json:"reference_source"`
 			HideReferenceFromChild bool   `json:"hide_reference_from_child"`
 			AnalysisMode           string `json:"analysis_mode"`
 		} `json:"task_items"`
@@ -487,6 +488,9 @@ func TestPhaseOneDraftParsePreservesLearningReferenceMetadata(t *testing.T) {
 	}
 	if task.ReferenceText == "" || task.AnalysisMode != "classical_poem" {
 		t.Fatalf("expected draft task item to preserve reference metadata, got %+v", task)
+	}
+	if task.ReferenceSource != "extracted" {
+		t.Fatalf("expected draft task item to preserve extracted reference source, got %+v", task)
 	}
 	if !task.HideReferenceFromChild {
 		t.Fatalf("expected draft task item to hide recitation text from child, got %+v", task)

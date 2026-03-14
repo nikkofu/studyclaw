@@ -79,6 +79,7 @@ type ParsedTask struct {
 	ReferenceTitle         string   `json:"reference_title,omitempty"`
 	ReferenceAuthor        string   `json:"reference_author,omitempty"`
 	ReferenceText          string   `json:"reference_text,omitempty"`
+	ReferenceSource        string   `json:"reference_source,omitempty"`
 	HideReferenceFromChild bool     `json:"hide_reference_from_child,omitempty"`
 	AnalysisMode           string   `json:"analysis_mode,omitempty"`
 }
@@ -239,6 +240,16 @@ func normalizeLearningTaskType(value string) string {
 		return "recitation"
 	case "reading", "read_aloud", "follow_reading", "english_reading":
 		return "reading"
+	default:
+		return normalized
+	}
+}
+
+func normalizeReferenceSource(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "manual", "extracted", "llm":
+		return normalized
 	default:
 		return normalized
 	}
@@ -572,9 +583,11 @@ func finalizeLearningReferenceFields(task ParsedTask) ParsedTask {
 	task.ReferenceTitle = strings.TrimSpace(task.ReferenceTitle)
 	task.ReferenceAuthor = strings.TrimSpace(task.ReferenceAuthor)
 	task.ReferenceText = strings.TrimSpace(strings.ReplaceAll(task.ReferenceText, "\r\n", "\n"))
+	task.ReferenceSource = normalizeReferenceSource(task.ReferenceSource)
 	task.AnalysisMode = strings.TrimSpace(task.AnalysisMode)
 
 	if !usesReferenceMaterial(task.Type) {
+		task.ReferenceSource = ""
 		return task
 	}
 
@@ -603,6 +616,14 @@ func finalizeLearningReferenceFields(task ParsedTask) ParsedTask {
 		}
 	}
 
+	if task.ReferenceTitle == "" &&
+		task.ReferenceAuthor == "" &&
+		task.ReferenceText == "" &&
+		task.AnalysisMode == "" &&
+		!task.HideReferenceFromChild {
+		task.ReferenceSource = ""
+	}
+
 	return task
 }
 
@@ -627,6 +648,9 @@ func enrichTasksWithLearningReferences(rawText string, tasks []ParsedTask) []Par
 		if usesReferenceMaterial(task.Type) && strings.TrimSpace(task.ReferenceText) == "" {
 			if block := findReferenceBlockForTask(lines, task, fallbackTitle); len(block) > 0 {
 				task.ReferenceText = strings.Join(block, "\n")
+				if normalizeReferenceSource(task.ReferenceSource) == "" {
+					task.ReferenceSource = "extracted"
+				}
 				task.Notes = mergeNotes(task.Notes, "已从老师原文自动带出参考内容。")
 			}
 		}
@@ -1127,6 +1151,7 @@ func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
 		ReferenceTitle:         item.ReferenceTitle,
 		ReferenceAuthor:        item.ReferenceAuthor,
 		ReferenceText:          item.ReferenceText,
+		ReferenceSource:        item.ReferenceSource,
 		HideReferenceFromChild: item.HideReferenceFromChild,
 		AnalysisMode:           item.AnalysisMode,
 	})
@@ -1463,6 +1488,9 @@ func (s *Service) enrichMissingLearningReferencesWithLLM(ctx context.Context, ra
 		if row.HideReferenceFromChild != nil && *row.HideReferenceFromChild && !task.HideReferenceFromChild {
 			task.HideReferenceFromChild = true
 			changed = true
+		}
+		if changed && normalizeReferenceSource(task.ReferenceSource) == "" {
+			task.ReferenceSource = "llm"
 		}
 
 		task = finalizeLearningReferenceFields(task)

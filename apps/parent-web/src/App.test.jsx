@@ -182,6 +182,7 @@ function createParsedTask({
   reference_title = "",
   reference_author = "",
   reference_text = "",
+  reference_source = "",
   hide_reference_from_child = false,
   analysis_mode = "",
 } = {}) {
@@ -196,6 +197,7 @@ function createParsedTask({
     reference_title,
     reference_author,
     reference_text,
+    reference_source,
     hide_reference_from_child,
     analysis_mode,
   }
@@ -523,6 +525,7 @@ describe("App", () => {
       "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
     )
     await user.click(within(draftCard).getByRole("checkbox", { name: "对孩子隐藏正文" }))
+    expect(within(draftCard).getByText("手动录入")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "确认发布选中任务 (1)" }))
     await screen.findByText("任务已发布")
@@ -536,6 +539,7 @@ describe("App", () => {
       task_type: "recitation",
       reference_title: "江畔独步寻花",
       reference_author: "杜甫",
+      reference_source: "manual",
       hide_reference_from_child: true,
       analysis_mode: "classical_poem",
     })
@@ -592,6 +596,7 @@ describe("App", () => {
 
     const draftCard = screen.getAllByTestId("draft-card")[0]
     expect(within(draftCard).getByLabelText("任务类型")).toHaveValue("recitation")
+    expect(within(draftCard).getByText("老师原文")).toBeInTheDocument()
     expect(within(draftCard).getByLabelText("参考标题")).toHaveValue("江畔独步寻花")
     expect(within(draftCard).getByLabelText("参考作者 / 来源")).toHaveValue("杜甫")
     expect(within(draftCard).getByLabelText("背诵标准原文")).toHaveValue(
@@ -606,10 +611,65 @@ describe("App", () => {
       task_type: "recitation",
       reference_title: "江畔独步寻花",
       reference_author: "杜甫",
+      reference_source: "extracted",
       hide_reference_from_child: true,
       analysis_mode: "classical_poem",
     })
     expect(confirmBody.tasks[0].reference_text).toContain("桃花一簇开无主")
+  })
+
+  it("preserves llm reference provenance from parser results", async () => {
+    let confirmBody
+    const fetchMock = createFetchMock({
+      parseHandlers: [
+        createParseSuccess([
+          createParsedTask({
+            subject: "语文",
+            group_title: "古诗背诵",
+            title: "背诵《江畔独步寻花》",
+            type: "recitation",
+            reference_title: "江畔独步寻花",
+            reference_author: "杜甫",
+            reference_text: "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。",
+            reference_source: "llm",
+            hide_reference_from_child: true,
+            analysis_mode: "classical_poem",
+          }),
+        ]),
+      ],
+      confirmHandlers: [
+        (_, init) => {
+          confirmBody = JSON.parse(init.body)
+          return createSuccessResponse({
+            tasks: [
+              {
+                subject: "语文",
+                content: "背诵《江畔独步寻花》",
+                task_type: "recitation",
+                reference_source: "llm",
+              },
+            ],
+            created_count: 1,
+          })
+        },
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText("AI 草稿已生成")
+
+    const draftCard = screen.getAllByTestId("draft-card")[0]
+    expect(within(draftCard).getByText("LLM 补全")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "确认发布选中任务 (1)" }))
+    await screen.findByText("任务已发布")
+
+    expect(confirmBody.tasks[0].reference_source).toBe("llm")
   })
 
   it("shows the raw text composer after tapping 去录入原文 from scope", async () => {

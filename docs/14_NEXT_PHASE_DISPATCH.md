@@ -12,6 +12,7 @@
 - 当前正式基线：`v0.3.5`
 - 当前目标版本：`v0.4.0`
 - 当前结论：`第一阶段已交付，进入第二阶段 Agentic 学习助手建设`
+- 当前已落地切片：`reference_source` 已在 parse / draft / confirm / task board / Pad metadata 端到端打通
 
 必须先阅读的主文档：
 

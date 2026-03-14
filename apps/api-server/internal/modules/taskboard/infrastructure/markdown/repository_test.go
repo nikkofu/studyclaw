@@ -246,6 +246,7 @@ func TestTaskMetadataRoundTrip(t *testing.T) {
 		ReferenceTitle:         "江畔独步寻花",
 		ReferenceAuthor:        "杜甫",
 		ReferenceText:          "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+		ReferenceSource:        "manual",
 		HideReferenceFromChild: true,
 		AnalysisMode:           "classical_poem",
 	}, date)
@@ -270,6 +271,9 @@ func TestTaskMetadataRoundTrip(t *testing.T) {
 	}
 	if task.ReferenceText == "" {
 		t.Fatalf("expected reference text to round-trip, got %+v", task)
+	}
+	if task.ReferenceSource != "manual" {
+		t.Fatalf("expected reference_source manual, got %+v", task)
 	}
 	if !task.HideReferenceFromChild {
 		t.Fatalf("expected hide_reference_from_child true, got %+v", task)

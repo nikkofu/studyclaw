@@ -326,6 +326,7 @@ func TestTaskBoardPreservesReferenceMetadata(t *testing.T) {
 		"reference_title":           "江畔独步寻花",
 		"reference_author":          "杜甫",
 		"reference_text":            "江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？",
+		"reference_source":          "manual",
 		"hide_reference_from_child": true,
 		"analysis_mode":             "classical_poem",
 	})
@@ -352,6 +353,9 @@ func TestTaskBoardPreservesReferenceMetadata(t *testing.T) {
 	}
 	if task.ReferenceText == "" {
 		t.Fatalf("expected reference text to be present, got %+v", task)
+	}
+	if task.ReferenceSource != "manual" {
+		t.Fatalf("expected reference_source manual, got %+v", task)
 	}
 	if !task.HideReferenceFromChild {
 		t.Fatalf("expected hide_reference_from_child true, got %+v", task)

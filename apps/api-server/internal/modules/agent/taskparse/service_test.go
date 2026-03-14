@@ -390,6 +390,9 @@ func TestParseFallbackExtractsReferenceMaterialFromTeacherRawText(t *testing.T) 
 	if task.ReferenceText == "" || !strings.Contains(task.ReferenceText, "黄师塔前江水东") {
 		t.Fatalf("expected extracted reference text, got %+v", task)
 	}
+	if task.ReferenceSource != "extracted" {
+		t.Fatalf("expected extracted reference source, got %+v", task)
+	}
 	if !task.HideReferenceFromChild {
 		t.Fatalf("expected recitation reference to be hidden from child, got %+v", task)
 	}
@@ -423,6 +426,9 @@ func TestParseUsesLLMToFillMissingReferenceMaterialWhenTeacherDidNotProvideBody(
 	}
 	if task.ReferenceText == "" || !strings.Contains(task.ReferenceText, "可爱深红爱浅红") {
 		t.Fatalf("expected LLM completed reference text, got %+v", task)
+	}
+	if task.ReferenceSource != "llm" {
+		t.Fatalf("expected llm reference source, got %+v", task)
 	}
 	if !task.HideReferenceFromChild {
 		t.Fatalf("expected hide_reference_from_child to remain true, got %+v", task)

@@ -1077,6 +1077,7 @@ func normalizeTaskItems(items []taskboarddomain.TaskItem) []taskboarddomain.Task
 			ReferenceTitle:         strings.TrimSpace(item.ReferenceTitle),
 			ReferenceAuthor:        strings.TrimSpace(item.ReferenceAuthor),
 			ReferenceText:          strings.TrimSpace(item.ReferenceText),
+			ReferenceSource:        strings.ToLower(strings.TrimSpace(item.ReferenceSource)),
 			HideReferenceFromChild: item.HideReferenceFromChild && strings.TrimSpace(item.ReferenceText) != "",
 			AnalysisMode:           strings.TrimSpace(item.AnalysisMode),
 		})
@@ -1106,6 +1107,7 @@ func boardTasksFromTaskItems(items []taskboarddomain.TaskItem) []taskboarddomain
 			ReferenceTitle:         item.ReferenceTitle,
 			ReferenceAuthor:        item.ReferenceAuthor,
 			ReferenceText:          item.ReferenceText,
+			ReferenceSource:        item.ReferenceSource,
 			HideReferenceFromChild: item.HideReferenceFromChild,
 			AnalysisMode:           item.AnalysisMode,
 		})
@@ -1129,6 +1131,7 @@ func mergeTaskItemsWithBoard(existing []taskboarddomain.TaskItem, boardTasks []t
 			ReferenceTitle:         task.ReferenceTitle,
 			ReferenceAuthor:        task.ReferenceAuthor,
 			ReferenceText:          task.ReferenceText,
+			ReferenceSource:        task.ReferenceSource,
 			HideReferenceFromChild: task.HideReferenceFromChild,
 			AnalysisMode:           task.AnalysisMode,
 		})
@@ -1148,6 +1151,7 @@ func mergeTaskItemsWithBoard(existing []taskboarddomain.TaskItem, boardTasks []t
 		item.ReferenceTitle = stored.ReferenceTitle
 		item.ReferenceAuthor = stored.ReferenceAuthor
 		item.ReferenceText = stored.ReferenceText
+		item.ReferenceSource = stored.ReferenceSource
 		item.HideReferenceFromChild = stored.HideReferenceFromChild
 		item.AnalysisMode = stored.AnalysisMode
 		if strings.TrimSpace(stored.Title) != "" {

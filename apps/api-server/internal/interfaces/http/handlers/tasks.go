@@ -31,6 +31,7 @@ type CreateTaskReq struct {
 	ReferenceTitle         string `json:"reference_title,omitempty"`
 	ReferenceAuthor        string `json:"reference_author,omitempty"`
 	ReferenceText          string `json:"reference_text,omitempty"`
+	ReferenceSource        string `json:"reference_source,omitempty"`
 	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
 	AnalysisMode           string `json:"analysis_mode,omitempty"`
 }
@@ -55,6 +56,7 @@ type ConfirmTaskItem struct {
 	ReferenceTitle         string   `json:"reference_title,omitempty"`
 	ReferenceAuthor        string   `json:"reference_author,omitempty"`
 	ReferenceText          string   `json:"reference_text,omitempty"`
+	ReferenceSource        string   `json:"reference_source,omitempty"`
 	HideReferenceFromChild bool     `json:"hide_reference_from_child,omitempty"`
 	AnalysisMode           string   `json:"analysis_mode,omitempty"`
 }
@@ -114,6 +116,7 @@ func mapParsedTasksToCreateReqs(familyID, assigneeID uint, assignedDate string, 
 			ReferenceTitle:         task.ReferenceTitle,
 			ReferenceAuthor:        task.ReferenceAuthor,
 			ReferenceText:          task.ReferenceText,
+			ReferenceSource:        task.ReferenceSource,
 			HideReferenceFromChild: task.HideReferenceFromChild,
 			AnalysisMode:           task.AnalysisMode,
 		})
@@ -145,6 +148,7 @@ func mapParsedTasksToTaskItems(parsedTasks []taskparse.ParsedTask) []taskboarddo
 			ReferenceTitle:         task.ReferenceTitle,
 			ReferenceAuthor:        task.ReferenceAuthor,
 			ReferenceText:          task.ReferenceText,
+			ReferenceSource:        task.ReferenceSource,
 			HideReferenceFromChild: task.HideReferenceFromChild,
 			AnalysisMode:           task.AnalysisMode,
 		})
@@ -203,6 +207,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		ReferenceTitle:         req.ReferenceTitle,
 		ReferenceAuthor:        req.ReferenceAuthor,
 		ReferenceText:          req.ReferenceText,
+		ReferenceSource:        req.ReferenceSource,
 		HideReferenceFromChild: req.HideReferenceFromChild,
 		AnalysisMode:           req.AnalysisMode,
 	})
@@ -346,6 +351,7 @@ func (h *TaskHandler) ConfirmTasks(c *gin.Context) {
 			ReferenceTitle:         task.ReferenceTitle,
 			ReferenceAuthor:        task.ReferenceAuthor,
 			ReferenceText:          task.ReferenceText,
+			ReferenceSource:        task.ReferenceSource,
 			HideReferenceFromChild: task.HideReferenceFromChild,
 			AnalysisMode:           task.AnalysisMode,
 		})

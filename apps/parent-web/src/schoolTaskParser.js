@@ -88,6 +88,19 @@ function usesReferenceMaterial(taskType) {
   return normalized === "recitation" || normalized === "reading"
 }
 
+function normalizeReferenceSource(value) {
+  const normalized = String(value || "").trim().toLowerCase()
+  switch (normalized) {
+    case "":
+    case "manual":
+    case "extracted":
+    case "llm":
+      return normalized
+    default:
+      return normalized
+  }
+}
+
 function inferLearningTaskType(task = {}) {
   const explicitType = normalizeTaskType(task.task_type || task.type || task.taskType)
   if (explicitType !== "homework") {
@@ -361,12 +374,16 @@ export function enrichTasksWithLearningReferences(rawText, tasks) {
     let referenceText = String(task.reference_text || task.referenceText || "").trim()
     let referenceTitle = String(task.reference_title || task.referenceTitle || "").trim()
     let referenceAuthor = String(task.reference_author || task.referenceAuthor || "").trim()
+    let referenceSource = normalizeReferenceSource(task.reference_source || task.referenceSource)
     let notes = Array.isArray(task.notes) ? [...task.notes] : []
 
     if (usesReferenceMaterial(taskType) && !referenceText) {
       const blockLines = findReferenceBlockForTask(lines, task, fallbackTitle)
       if (blockLines.length > 0) {
         referenceText = blockLines.join("\n")
+        if (!referenceSource) {
+          referenceSource = "extracted"
+        }
         notes = appendUniqueNote(notes, "已从老师原文自动带出参考内容。")
       }
     }
@@ -392,6 +409,9 @@ export function enrichTasksWithLearningReferences(rawText, tasks) {
       (usesReferenceMaterial(taskType) && referenceText
         ? inferAnalysisMode(taskType, referenceText, referenceTitle, referenceAuthor)
         : "")
+    const hasReferenceMetadata =
+      Boolean(referenceTitle || referenceAuthor || referenceText || analysisMode) ||
+      (usesReferenceMaterial(taskType) && Boolean(task.hide_reference_from_child) && Boolean(referenceText))
 
     return {
       ...task,
@@ -400,6 +420,7 @@ export function enrichTasksWithLearningReferences(rawText, tasks) {
       reference_title: referenceTitle,
       reference_author: referenceAuthor,
       reference_text: referenceText,
+      reference_source: usesReferenceMaterial(taskType) && hasReferenceMetadata ? referenceSource : "",
       hide_reference_from_child: usesReferenceMaterial(taskType) && referenceText ? (taskType === "recitation" ? true : Boolean(task.hide_reference_from_child)) : false,
       analysis_mode: analysisMode,
       notes,

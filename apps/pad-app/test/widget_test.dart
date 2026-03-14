@@ -525,6 +525,7 @@ void main() {
           referenceTitle: '江畔独步寻花',
           referenceAuthor: '杜甫',
           referenceText: referenceText,
+          referenceSource: 'extracted',
           hideReferenceFromChild: true,
           analysisMode: 'classical_poem',
         ),
@@ -589,6 +590,10 @@ void main() {
       expect(
           repository.recitationAnalysisCalls.first.metadata['reference_source'],
           'task');
+      expect(
+          repository
+              .recitationAnalysisCalls.first.metadata['reference_task_source'],
+          'extracted');
       expect(repository.recitationAnalysisCalls.first.metadata['task_id'], '1');
     });
 
@@ -1092,6 +1097,7 @@ TaskBoard _buildBoard({required List<_TaskSeed> tasks}) {
               referenceTitle: t.referenceTitle,
               referenceAuthor: t.referenceAuthor,
               referenceText: t.referenceText,
+              referenceSource: t.referenceSource,
               hideReferenceFromChild: t.hideReferenceFromChild,
               analysisMode: t.analysisMode))
           .toList(),
@@ -1192,6 +1198,7 @@ class _TaskSeed {
       this.referenceTitle = '',
       this.referenceAuthor = '',
       this.referenceText = '',
+      this.referenceSource = '',
       this.hideReferenceFromChild = false,
       this.analysisMode = ''});
   final int taskId;
@@ -1203,6 +1210,7 @@ class _TaskSeed {
   final String referenceTitle;
   final String referenceAuthor;
   final String referenceText;
+  final String referenceSource;
   final bool hideReferenceFromChild;
   final String analysisMode;
 }

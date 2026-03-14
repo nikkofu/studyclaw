@@ -71,9 +71,17 @@ func normalizeTaskLearningFields(input domain.CreateTaskInput) domain.CreateTask
 	input.ReferenceTitle = strings.TrimSpace(input.ReferenceTitle)
 	input.ReferenceAuthor = strings.TrimSpace(input.ReferenceAuthor)
 	input.ReferenceText = strings.TrimSpace(input.ReferenceText)
+	input.ReferenceSource = strings.ToLower(strings.TrimSpace(input.ReferenceSource))
 	input.AnalysisMode = strings.TrimSpace(input.AnalysisMode)
 	if input.ReferenceText == "" {
 		input.HideReferenceFromChild = false
+	}
+	if input.ReferenceTitle == "" &&
+		input.ReferenceAuthor == "" &&
+		input.ReferenceText == "" &&
+		input.AnalysisMode == "" &&
+		!input.HideReferenceFromChild {
+		input.ReferenceSource = ""
 	}
 	return input
 }

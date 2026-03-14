@@ -12,6 +12,7 @@ type Task struct {
 	ReferenceTitle         string `json:"reference_title,omitempty"`
 	ReferenceAuthor        string `json:"reference_author,omitempty"`
 	ReferenceText          string `json:"reference_text,omitempty"`
+	ReferenceSource        string `json:"reference_source,omitempty"`
 	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
 	AnalysisMode           string `json:"analysis_mode,omitempty"`
 }
@@ -59,6 +60,7 @@ type CreateTaskInput struct {
 	ReferenceTitle         string `json:"reference_title,omitempty"`
 	ReferenceAuthor        string `json:"reference_author,omitempty"`
 	ReferenceText          string `json:"reference_text,omitempty"`
+	ReferenceSource        string `json:"reference_source,omitempty"`
 	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
 	AnalysisMode           string `json:"analysis_mode,omitempty"`
 }

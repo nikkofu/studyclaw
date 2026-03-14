@@ -195,6 +195,32 @@ function usesReferenceMaterial(taskType) {
   return normalized === "recitation" || normalized === "reading"
 }
 
+function normalizeReferenceSource(value) {
+  const normalized = String(value || "").trim().toLowerCase()
+  switch (normalized) {
+    case "":
+    case "manual":
+    case "extracted":
+    case "llm":
+      return normalized
+    default:
+      return normalized
+  }
+}
+
+function getReferenceSourceMeta(value) {
+  switch (normalizeReferenceSource(value)) {
+    case "manual":
+      return { label: "手动录入", className: "manual-reference-pill" }
+    case "extracted":
+      return { label: "老师原文", className: "extracted-pill" }
+    case "llm":
+      return { label: "LLM 补全", className: "llm-pill" }
+    default:
+      return null
+  }
+}
+
 function getTaskTypeLabel(taskType) {
   switch (normalizeDraftTaskType(taskType)) {
     case "recitation":
@@ -1302,6 +1328,7 @@ function createDraftTask(task = {}) {
   const rawTaskType = String(task.task_type || task.type || task.taskType || "").trim()
   const taskType = normalizeDraftTaskType(rawTaskType)
   const referenceText = String(task.reference_text || task.referenceText || "").trim()
+  const referenceSource = normalizeReferenceSource(task.reference_source || task.referenceSource)
   const hasHideReferenceFlag =
     Object.prototype.hasOwnProperty.call(task, "hide_reference_from_child") ||
     Object.prototype.hasOwnProperty.call(task, "hideReferenceFromChild")
@@ -1318,6 +1345,7 @@ function createDraftTask(task = {}) {
     reference_title: String(task.reference_title || task.referenceTitle || "").trim(),
     reference_author: String(task.reference_author || task.referenceAuthor || "").trim(),
     reference_text: referenceText,
+    reference_source: referenceSource,
     hide_reference_from_child: hasHideReferenceFlag
       ? Boolean(task.hide_reference_from_child || task.hideReferenceFromChild) && Boolean(referenceText)
       : undefined,
@@ -1874,6 +1902,7 @@ function DraftTaskList({
               const usesReference = usesReferenceMaterial(taskType)
               const analysisModeOptions = ANALYSIS_MODE_OPTIONS[taskType] || [{ value: "", label: "自动判断" }]
               const hasReferenceText = Boolean(String(task.reference_text || "").trim())
+              const referenceSourceMeta = getReferenceSourceMeta(task.reference_source)
 
               return (
                 <article
@@ -1895,6 +1924,9 @@ function DraftTaskList({
                     <span className={`confidence-pill confidence-${confidenceMeta.tone}`}>{confidenceMeta.label}</span>
                     <span className={`risk-badge badge-${riskMeta.tone}`}>{riskMeta.label}</span>
                     {task.source === "manual" ? <span className="review-pill manual-pill">手动补充</span> : null}
+                    {referenceSourceMeta ? (
+                      <span className={`review-pill ${referenceSourceMeta.className}`}>{referenceSourceMeta.label}</span>
+                    ) : null}
                     <button className="inline-link danger" type="button" onClick={() => onRemove(task.id)}>
                       删除
                     </button>
@@ -3913,6 +3945,10 @@ export default function App() {
           return enrichTasksWithLearningReferences(rawText, [nextTask])[0]
         }
 
+        if (["reference_title", "reference_author", "reference_text", "hide_reference_from_child", "analysis_mode"].includes(field)) {
+          nextTask.reference_source = "manual"
+        }
+
         return nextTask
       }),
     )
@@ -4102,6 +4138,7 @@ export default function App() {
           reference_title: shouldUseReference ? String(task.reference_title || "").trim() : "",
           reference_author: shouldUseReference ? String(task.reference_author || "").trim() : "",
           reference_text: referenceText,
+          reference_source: shouldUseReference ? normalizeReferenceSource(task.reference_source) : "",
           hide_reference_from_child: shouldUseReference ? Boolean(task.hide_reference_from_child) && Boolean(referenceText) : false,
           analysis_mode: shouldUseReference ? String(task.analysis_mode || "").trim() : "",
         }

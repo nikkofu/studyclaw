@@ -46,6 +46,7 @@ type parseTaskResponse struct {
 		ReferenceTitle         string   `json:"reference_title"`
 		ReferenceAuthor        string   `json:"reference_author"`
 		ReferenceText          string   `json:"reference_text"`
+		ReferenceSource        string   `json:"reference_source"`
 		HideReferenceFromChild bool     `json:"hide_reference_from_child"`
 		AnalysisMode           string   `json:"analysis_mode"`
 	} `json:"tasks"`
@@ -229,6 +230,9 @@ func TestParseAndConfirmCarriesLearningReferenceMetadata(t *testing.T) {
 	if task.ReferenceText == "" || task.AnalysisMode != "classical_poem" {
 		t.Fatalf("expected parse response to include reference metadata, got %+v", task)
 	}
+	if task.ReferenceSource != "extracted" {
+		t.Fatalf("expected parse response to include extracted reference source, got %+v", task)
+	}
 	if !task.HideReferenceFromChild {
 		t.Fatalf("expected parse response to hide recitation text from child, got %+v", task)
 	}
@@ -257,6 +261,9 @@ func TestParseAndConfirmCarriesLearningReferenceMetadata(t *testing.T) {
 	}
 	if board.Tasks[0].ReferenceText == "" || board.Tasks[0].AnalysisMode != "classical_poem" {
 		t.Fatalf("expected stored task to preserve reference metadata, got %+v", board.Tasks[0])
+	}
+	if board.Tasks[0].ReferenceSource != "extracted" {
+		t.Fatalf("expected stored task to preserve extracted reference source, got %+v", board.Tasks[0])
 	}
 	if !board.Tasks[0].HideReferenceFromChild {
 		t.Fatalf("expected stored task to keep hide_reference_from_child, got %+v", board.Tasks[0])
