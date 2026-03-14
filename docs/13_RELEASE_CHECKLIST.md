@@ -55,6 +55,7 @@ bash scripts/check_release_scope.sh
 说明：
 
 - `flutter build web` 当前会输出 `flutter_tts` 的 wasm dry-run warning，但产物构建成功，现阶段不阻塞发布。
+- `bash scripts/check_release_scope.sh` 在干净工作区下应直接输出 `Release scope check: clean worktree` 并返回成功。
 
 ## 5. 三端联调与演示
 
@@ -69,14 +70,15 @@ bash scripts/demo_local_stack.sh
 
 同时建议完成：
 
-- [ ] `curl http://127.0.0.1:5173/`
-- [ ] `curl http://127.0.0.1:55771/`
+- [x] `curl http://127.0.0.1:5173/`
+- [x] `curl http://127.0.0.1:55771/`
 - [x] `docs/19_DELIVERY_UAT_CASES.md` 中的主线用例已按 widget / API / build 回归方式覆盖当前主链路
 
 说明：
 
 - 本轮 `v0.3.4` 的源码改动集中在 Pad 和文档层，API / Parent 自动化与 Pad 自动化均已重跑通过。
-- `smoke/demo` 在当前 Codex 终端环境下无法复用临时启动的本地 API 端口，属于执行环境限制，不是仓库内脚本错误；正式发版前可在本机常规终端再补跑一次。
+- `2026-03-14` 已使用 `API=http://127.0.0.1:38080`、`Parent=http://127.0.0.1:5173` 重新执行 `smoke/demo`，两者均通过。
+- Parent Web 与 Pad Web 入口页面已分别通过 `curl http://127.0.0.1:5173/` 与 `curl http://127.0.0.1:55771/` 返回有效 HTML。
 
 ## 6. GitHub 同步复核
 
@@ -91,4 +93,4 @@ bash scripts/demo_local_stack.sh
 
 ## 7. 发布结论
 
-`v0.3.4` 已完成源码、文档、自动化验证与 GitHub 同步，可作为当前阶段的正式版本。`smoke/demo` 仍建议在本机常规终端补跑一次，用于演示环境复核。
+`v0.3.4` 已完成源码、文档、自动化验证、三端联调脚本复核与 GitHub 同步，可作为当前阶段的正式版本。

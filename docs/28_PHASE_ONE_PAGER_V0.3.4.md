@@ -59,6 +59,10 @@
 - Pad 端源码与文档同步
 - `flutter analyze`
 - `flutter test --no-pub`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
+- `curl http://127.0.0.1:5173/`
+- `curl http://127.0.0.1:55771/`
 
 ## 一句话结论
 

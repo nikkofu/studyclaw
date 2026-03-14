@@ -31,6 +31,10 @@
 - `flutter analyze`
 - `flutter test --no-pub`
 - `flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
+- `curl http://127.0.0.1:5173/`
+- `curl http://127.0.0.1:55771/`
 
 本轮自动化基线：
 
@@ -38,9 +42,11 @@
 - Parent Web：Vitest 与生产构建通过
 - Pad：`flutter analyze`、`flutter test`、`flutter build web` 全部通过
 
-本轮未完成项：
+本轮补充联调结论：
 
-- `smoke_local_stack.sh` / `demo_local_stack.sh` 在当前 Codex 终端环境下无法复用临时启动的本地 API 端口，属于执行环境限制，需在常规终端补跑一次
+- `smoke_local_stack.sh` 已在 `API=http://127.0.0.1:38080` 下重新执行并通过
+- `demo_local_stack.sh` 已在 `Parent=http://127.0.0.1:5173` 下重新执行并通过
+- Parent Web 与 Pad Web 入口页面均已返回有效 HTML，可直接作为三端演示起点
 
 真实业务链路验证：
 

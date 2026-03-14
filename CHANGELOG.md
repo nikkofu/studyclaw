@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release scope 脚本空工作区误报**
+  - `scripts/check_release_scope.sh` 在工作区干净时不再因为 `status_lines[@]` 未绑定而失败。
+  - 现在会直接输出 `Release scope check: clean worktree` 并返回成功，适合正式发版前重复执行。
+
+### Verified
+
+- `bash scripts/check_release_scope.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
+- `curl http://127.0.0.1:5173/`
+- `curl http://127.0.0.1:55771/`
+
 ## [0.3.4] - 2026-03-14
 
 ### Fixed

@@ -94,6 +94,8 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 
 `2026-03-14` 已执行并通过的结果摘要：
 
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh` 已通过。
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh` 已通过。
 - Parent Web 与 Pad Web 页面都能正常返回 HTML。
 - Parent Web 点击“去录入原文”后可直接进入 `原文` 子页面并看到输入框。
 - 背诵类任务在解析、草稿和确认发布后都能保留学习素材元数据。

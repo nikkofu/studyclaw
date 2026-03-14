@@ -4,16 +4,16 @@
 
 适用目标：
 
-- 版本目标：`v0.3.1`
-- 目标日期：`2026-03-12`
+- 版本目标：`v0.3.4`
+- 目标日期：`2026-03-14`
 
 推荐先完成基础检查：
 
 1. `bash scripts/check_no_tracked_runtime_env.sh`
 2. `bash scripts/preflight_local_env.sh`
 3. 启动 API / Parent Web / Pad 三端
-4. `bash scripts/smoke_local_stack.sh`
-5. `bash scripts/demo_local_stack.sh`
+4. `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+5. `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
 
 如果本次目标是“第一阶段正式签收”，必须确保以下验证通过：
 
@@ -89,6 +89,10 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 - **动作**：在听写页签说“好了”“下一个”。
 - **签收点**：Pad 切到下一词，并在推进、交卷、批改完成等节点给出正向反馈。
 
+### 2.5B 缺词单等待态与鼓励播报
+- **动作**：在后台未录入当天词单时切到 Pad 默写区；完成任一任务后观察“成长小鼓励”卡片。
+- **签收点**：Pad 显示“等家长补充词单后再来默写”的等待态，不暴露原始异常；鼓励卡支持自动播报、手动重播和自动播报开关。
+
 ### 2.6 积分变化
 - **动作**：Pad 完成任务产生自动积分 -> 家长端手工奖惩。
 - **签收点**：双端展示的余额统一，最近明细由 `/api/v1/points/ledger` 提供。
@@ -113,8 +117,8 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 
 ## 5. 验收确认模板
 ```text
-Date: 2026-03-12
-Version: v0.3.1
+Date: 2026-03-14
+Version: v0.3.4
 Sign-off Status: [PASS / FAIL]
 Verified By:
 Notes:

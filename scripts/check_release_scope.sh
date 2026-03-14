@@ -4,20 +4,21 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+status_output="$(git status --short --untracked-files=all)"
+if [[ -z "$status_output" ]]; then
+  printf 'Release scope check: clean worktree\n'
+  exit 0
+fi
+
 status_lines=()
 while IFS= read -r line; do
   status_lines+=("$line")
-done < <(git status --short --untracked-files=all)
+done <<< "$status_output"
 
 changed_paths=()
 for entry in "${status_lines[@]}"; do
   changed_paths+=("${entry#?? }")
 done
-
-if (( ${#changed_paths[@]} == 0 )); then
-  printf 'Release scope check: clean worktree\n'
-  exit 0
-fi
 
 forbidden_hits=()
 cleanup_hits=()

@@ -58,6 +58,21 @@
 - `cd apps/pad-app && flutter analyze`
 - `cd apps/pad-app && flutter test --no-pub`
 
+## 2026-03-14 补充验证
+
+发布后的联调补充复核已完成：
+
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
+- `curl http://127.0.0.1:5173/`
+- `curl http://127.0.0.1:55771/`
+
+补充结果说明：
+
+- 三端入口可直接返回有效页面
+- `smoke/demo` 已在当前环境复核通过
+- `flutter_tts` 的 wasm dry-run warning 仍存在，但不影响本阶段 HTML/Web 交付
+
 ## 相关文档
 
 - [README.md](/Users/admin/Documents/WORK/ai/studyclaw/README.md)

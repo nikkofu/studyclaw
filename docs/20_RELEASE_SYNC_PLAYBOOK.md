@@ -15,6 +15,7 @@ bash scripts/check_release_scope.sh
 说明：
 
 - `check_release_scope.sh` 会把 `.claude/`、`build/`、`dist/`、`.dart_tool/`、`.env`、`runtime.env` 视为禁止进入 release 的噪音路径。
+- 在工作区干净时，`check_release_scope.sh` 应直接输出 `Release scope check: clean worktree` 并成功退出。
 - 它会单独列出 `apps/api-server/.gopath/` 这类“已被误跟踪的缓存目录”作为一次性仓库清洁候选项。
 - 如果脚本失败，先清理或隔离禁止路径，再继续。
 

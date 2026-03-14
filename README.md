@@ -54,18 +54,20 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 - 积分流水 / 余额
 - 词单解析、词单持久化、听写会话、日周月统计
 
-## 2026-03-13 交付验证基线
+## 2026-03-14 交付验证基线
 
 以下验证已在本地仓库状态下执行：
 
 - `cd apps/api-server && go test ./... -count=1`
-- `npm test`
-- `npm run build`
-- `flutter analyze`
-- `flutter test`
-- `flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
-- `bash scripts/smoke_local_stack.sh`
-- `bash scripts/demo_local_stack.sh`
+- `cd apps/parent-web && npm test -- --run`
+- `cd apps/parent-web && npm run build`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test --no-pub`
+- `cd apps/pad-app && flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
+- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
+- `curl http://127.0.0.1:5173/`
+- `curl http://127.0.0.1:55771/`
 
 三端联调基线端口：
 
@@ -134,6 +136,7 @@ bash scripts/demo_local_stack.sh
 - `v0.3.3` 已作为上一版正式标签和 GitHub release 基线同步
 - `v0.3.4` 已作为当前正式标签和 GitHub release 基线同步
 - 当前正式发版范围包括 Pad 端词单缺失友好等待态、成长鼓励语音播报、平板 TTS 补齐，以及版本文档同步
+- `2026-03-14` 已重新通过 `smoke/demo`，并修复 `scripts/check_release_scope.sh` 在干净工作区下的误报
 
 ## 许可
 
