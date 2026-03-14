@@ -128,6 +128,11 @@ bash scripts/demo_local_stack.sh
 - 发布前检查：[docs/13_RELEASE_CHECKLIST.md](docs/13_RELEASE_CHECKLIST.md)
 - 第一阶段演示清单：[docs/16_FIRST_PHASE_DEMO_CHECKLIST.md](docs/16_FIRST_PHASE_DEMO_CHECKLIST.md)
 
+## 下一阶段入口
+
+- 下一阶段路线图：[docs/03_ROADMAP.md](docs/03_ROADMAP.md)
+- 下一阶段正式派单：[docs/14_NEXT_PHASE_DISPATCH.md](docs/14_NEXT_PHASE_DISPATCH.md)
+
 ## 当前仓库同步提示
 
 - `v0.3.0` 已作为历史正式版本保留
