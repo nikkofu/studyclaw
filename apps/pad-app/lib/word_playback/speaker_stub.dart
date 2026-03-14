@@ -15,6 +15,8 @@ class UnsupportedWordSpeaker implements WordSpeaker {
   Future<void> speak(
     String text, {
     required WordPlaybackLanguage language,
+    double? speechRate,
+    double? pitch,
   }) async {}
 
   @override

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:pad_app/task_board/api_client.dart';
+import 'package:pad_app/task_board/feedback.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
 import 'package:pad_app/word_playback/models.dart';
@@ -17,6 +19,7 @@ class WordPlaybackState {
     this.isSpeaking = false,
     this.isBusy = false,
     this.isPeeking = false,
+    this.waitingForParentWordList = false,
     this.errorMessage,
     this.noticeMessage,
     this.wordList,
@@ -37,13 +40,16 @@ class WordPlaybackState {
   final bool isSpeaking;
   final bool isBusy;
   final bool isPeeking;
+  final bool waitingForParentWordList;
   final String? errorMessage;
   final String? noticeMessage;
   final WordList? wordList;
   final DictationSession? session;
   final DictationSubmissionSnapshot? lastSubmission;
 
-  bool get hasWords => words.isNotEmpty || session?.currentItem != null;
+  bool get hasWords =>
+      !waitingForParentWordList &&
+      (words.isNotEmpty || session?.currentItem != null);
 
   String get currentWord {
     if (session?.currentItem != null) {
@@ -99,6 +105,7 @@ class WordPlaybackState {
     bool? isSpeaking,
     bool? isBusy,
     bool? isPeeking,
+    bool? waitingForParentWordList,
     Object? errorMessage = _missing,
     Object? noticeMessage = _missing,
     Object? wordList = _missing,
@@ -113,6 +120,8 @@ class WordPlaybackState {
       isSpeaking: isSpeaking ?? this.isSpeaking,
       isBusy: isBusy ?? this.isBusy,
       isPeeking: isPeeking ?? this.isPeeking,
+      waitingForParentWordList:
+          waitingForParentWordList ?? this.waitingForParentWordList,
       errorMessage: errorMessage == _missing
           ? this.errorMessage
           : errorMessage as String?,
@@ -197,6 +206,7 @@ class WordPlaybackController extends ChangeNotifier {
         wordList: wordList,
         words: words,
         currentIndex: 0,
+        waitingForParentWordList: false,
         session: null,
         lastSubmission: null,
         language: wordList.language,
@@ -204,7 +214,10 @@ class WordPlaybackController extends ChangeNotifier {
       );
       notifyListeners();
     } catch (error) {
-      _state = _state.copyWith(isBusy: false, errorMessage: '同步词单失败：$error');
+      _applyRepositoryFailure(
+        error,
+        clearWordStateOnMissingWordList: true,
+      );
     }
     notifyListeners();
   }
@@ -218,12 +231,16 @@ class WordPlaybackController extends ChangeNotifier {
       final session = await _repository.startDictationSession(request);
       _state = _state.copyWith(
           isBusy: false,
+          waitingForParentWordList: false,
           session: session,
           lastSubmission: null,
           noticeMessage: _buildDictationStartedNotice(session));
       if (session.currentItem != null) await playCurrent();
     } catch (error) {
-      _state = _state.copyWith(isBusy: false, errorMessage: '开启听写失败：$error');
+      _applyRepositoryFailure(
+        error,
+        clearWordStateOnMissingWordList: true,
+      );
     }
     notifyListeners();
   }
@@ -268,7 +285,7 @@ class WordPlaybackController extends ChangeNotifier {
             _state.session!.sessionId, apiBaseUrl);
         _state = _state.copyWith(isBusy: false, session: session);
       } catch (error) {
-        _state = _state.copyWith(isBusy: false, errorMessage: '重播请求失败：$error');
+        _applyRepositoryFailure(error);
       }
       notifyListeners();
     }
@@ -286,12 +303,13 @@ class WordPlaybackController extends ChangeNotifier {
             isBusy: false,
             session: session,
             isSpeaking: false,
+            waitingForParentWordList: false,
             noticeMessage: _buildNextWordNotice(session));
         notifyListeners();
         if (!session.isCompleted) await playCurrent();
         return;
       } catch (error) {
-        _state = _state.copyWith(isBusy: false, errorMessage: '切换下一词失败：$error');
+        _applyRepositoryFailure(error);
         notifyListeners();
         return;
       }
@@ -315,12 +333,13 @@ class WordPlaybackController extends ChangeNotifier {
             isBusy: false,
             session: session,
             isSpeaking: false,
+            waitingForParentWordList: false,
             noticeMessage: '已返回上一词');
         notifyListeners();
         await playCurrent();
         return;
       } catch (error) {
-        _state = _state.copyWith(isBusy: false, errorMessage: '切换上一词失败：$error');
+        _applyRepositoryFailure(error);
         notifyListeners();
         return;
       }
@@ -372,14 +391,42 @@ class WordPlaybackController extends ChangeNotifier {
       _state = _state.copyWith(
         isBusy: false,
         session: queuedSession,
+        waitingForParentWordList: false,
         lastSubmission: submissionSnapshot,
         noticeMessage: _buildPendingNotice(queuedSession),
       );
       notifyListeners();
       unawaited(_pollGradingStatus(apiBaseUrl, sessionId, pollToken));
     } catch (error) {
-      _state = _state.copyWith(isBusy: false, errorMessage: '批改失败：$error');
+      _applyRepositoryFailure(error);
       notifyListeners();
+    }
+  }
+
+  Future<void> speakCoachMessage(
+    String message, {
+    double speechRate = 0.44,
+    double pitch = 1.08,
+  }) async {
+    if (!_speaker.supportsPlayback) {
+      return;
+    }
+
+    final normalized = message.replaceAll('\n', ' ').trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    final coachSpeech = '宝贝，$normalized。你已经很认真了，我会继续陪着你，我们慢慢来。';
+    try {
+      await _speaker.speak(
+        coachSpeech,
+        language: WordPlaybackLanguage.chinese,
+        speechRate: speechRate,
+        pitch: pitch,
+      );
+    } catch (_) {
+      // Coach voice is additive UX. It should never break the main flow.
     }
   }
 
@@ -447,8 +494,9 @@ class WordPlaybackController extends ChangeNotifier {
         return;
       } catch (error) {
         if (attempt == maxAttempts - 1) {
+          final feedback = describePadApiFeedback(error);
           _state = _state.copyWith(
-            errorMessage: '已提交到后台，但轮询结果失败：$error',
+            errorMessage: feedback.isNotice ? null : feedback.message,
             noticeMessage: '可稍后重新进入页面查看批改结果。',
           );
           notifyListeners();
@@ -465,6 +513,40 @@ class WordPlaybackController extends ChangeNotifier {
       noticeMessage: '后台批改仍在继续，可稍后刷新查看结果。',
     );
     notifyListeners();
+  }
+
+  void _applyRepositoryFailure(
+    Object error, {
+    bool clearWordStateOnMissingWordList = false,
+  }) {
+    final feedback = describePadApiFeedback(error);
+    final isMissingWordList = error is TaskApiException &&
+        error.errorCode == 'word_list_not_found' &&
+        clearWordStateOnMissingWordList;
+
+    if (isMissingWordList) {
+      _state = _state.copyWith(
+        isBusy: false,
+        isSpeaking: false,
+        waitingForParentWordList: true,
+        words: <String>[],
+        currentIndex: 0,
+        wordList: null,
+        session: null,
+        lastSubmission: null,
+        errorMessage: null,
+        noticeMessage: feedback.message,
+      );
+      return;
+    }
+
+    _state = _state.copyWith(
+      isBusy: false,
+      isSpeaking: false,
+      waitingForParentWordList: false,
+      errorMessage: feedback.isNotice ? null : feedback.message,
+      noticeMessage: feedback.isNotice ? feedback.message : null,
+    );
   }
 }
 

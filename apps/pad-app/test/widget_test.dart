@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pad_app/app.dart';
+import 'package:pad_app/task_board/api_client.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/recitation_analysis.dart';
@@ -105,7 +106,7 @@ void main() {
         onGetDictationSession: (_, __) async => completedSession,
       );
       final controller = WordPlaybackController(
-        speaker: const _FakeWordSpeaker(),
+        speaker: _FakeWordSpeaker(),
         repository: repository,
       );
       final previewBytes = base64Decode(
@@ -189,7 +190,7 @@ void main() {
         ),
       );
       final controller = WordPlaybackController(
-        speaker: const _FakeWordSpeaker(),
+        speaker: _FakeWordSpeaker(),
         repository: repository,
       );
       const request = TaskBoardRequest(
@@ -228,6 +229,54 @@ void main() {
       expect(
         find.textContaining('已根据“好了”切到下一词'),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('shows a friendly waiting state when the word list is missing',
+        (tester) async {
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => _boardWithTasks(),
+        onFetchWordList: (_) async => throw TaskApiException(
+          message: 'word list not found',
+          errorCode: 'word_list_not_found',
+          details: const <String, dynamic>{'date': '2026-03-13'},
+          uri: Uri.parse('http://localhost:8080/api/v1/word-lists'),
+          statusCode: 404,
+        ),
+      );
+      final controller = WordPlaybackController(
+        speaker: _FakeWordSpeaker(),
+        repository: repository,
+      );
+      const request = TaskBoardRequest(
+        apiBaseUrl: 'http://localhost:8080',
+        familyId: 306,
+        userId: 1,
+        date: '2026-03-13',
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: false,
+          repository: repository,
+          wordPlaybackController: controller,
+        ),
+      );
+      await tester.tap(find.text('听写练词'));
+      await tester.pumpAndSettle();
+
+      await controller.syncWordList(request);
+      await tester.pumpAndSettle();
+
+      expect(controller.state.waitingForParentWordList, isTrue);
+      expect(controller.state.errorMessage, isNull);
+      expect(
+        controller.state.noticeMessage,
+        contains('默写词单还没准备好'),
+      );
+      expect(
+        controller.state.noticeMessage,
+        isNot(contains('TaskApiException')),
       );
     });
 
@@ -573,6 +622,53 @@ void main() {
       expect(find.text('已完成 1/3'), findsOneWidget);
     });
 
+    testWidgets('auto-speaks task encouragement and supports replay',
+        (tester) async {
+      final speaker = _FakeWordSpeaker();
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => _boardWithTasks(),
+        onFetchDailyStats: (_) async => _dailyStats(
+          completedTasks: 1,
+          totalTasks: 3,
+          encouragement: '今天已经迈出了第一步，继续一点点往前推进。',
+        ),
+      );
+      final controller = WordPlaybackController(
+        speaker: speaker,
+        repository: repository,
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: repository,
+          wordPlaybackController: controller,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('task-encouragement-card')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(speaker.spokenCalls.length, 1);
+      expect(
+        speaker.spokenCalls.single.text,
+        contains('今天已经迈出了第一步，继续一点点往前推进。'),
+      );
+
+      await tester.tap(find.byKey(const Key('task-encouragement-replay')));
+      await tester.pumpAndSettle();
+
+      expect(speaker.spokenCalls.length, 2);
+      expect(
+        speaker.spokenCalls.last.text,
+        contains('今天已经迈出了第一步，继续一点点往前推进。'),
+      );
+    });
+
     testWidgets('shows encouragement after completing a task', (tester) async {
       final initialBoard = _buildBoard(tasks: const [
         _TaskSeed(
@@ -647,6 +743,27 @@ void main() {
   });
 
   group('WordPlayback encouragement', () {
+    test('speaks coach message with a warmer voice tone', () async {
+      final speaker = _FakeWordSpeaker();
+      final controller = WordPlaybackController(
+        speaker: speaker,
+        repository: _FakeTaskBoardRepository(
+          onFetch: (_) async => _boardWithTasks(),
+        ),
+      );
+
+      await controller.speakCoachMessage('这一步完成啦，继续保持。');
+
+      expect(speaker.spokenCalls.length, 1);
+      expect(speaker.spokenCalls.single.language, WordPlaybackLanguage.chinese);
+      expect(speaker.spokenCalls.single.speechRate, 0.44);
+      expect(speaker.spokenCalls.single.pitch, 1.08);
+      expect(
+        speaker.spokenCalls.single.text,
+        contains('我会继续陪着你，我们慢慢来。'),
+      );
+    });
+
     test('shows encouragement when dictation reaches the end', () async {
       const startSession = DictationSession(
         sessionId: 'session_finish_001',
@@ -675,7 +792,7 @@ void main() {
         onNextDictationSession: (_, __) async => completedSession,
       );
       final controller = WordPlaybackController(
-        speaker: const _FakeWordSpeaker(),
+        speaker: _FakeWordSpeaker(),
         repository: repository,
       );
       const request = TaskBoardRequest(
@@ -698,6 +815,7 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
       {required this.onFetch,
       this.onFetchDailyStats,
       this.onUpdateSingleTask,
+      this.onFetchWordList,
       this.onStartDictation,
       this.onNextDictationSession,
       this.onGetDictationSession,
@@ -715,6 +833,7 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
     int taskId,
     bool completed,
   )? onUpdateSingleTask;
+  final Future<WordList> Function(TaskBoardRequest request)? onFetchWordList;
   final Future<DictationSession> Function(TaskBoardRequest request)?
       onStartDictation;
   final Future<DictationSession> Function(String sessionId, String apiBaseUrl)?
@@ -789,15 +908,16 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
       _lastBoard;
   @override
   Future<WordList> fetchWordList(TaskBoardRequest request) async =>
-      Future.value(const WordList(
-          wordListId: '0',
-          familyId: 0,
-          childId: 0,
-          assignedDate: '',
-          title: '',
-          language: WordPlaybackLanguage.english,
-          items: [],
-          totalItems: 0));
+      await (onFetchWordList?.call(request) ??
+          Future.value(const WordList(
+              wordListId: '0',
+              familyId: 0,
+              childId: 0,
+              assignedDate: '',
+              title: '',
+              language: WordPlaybackLanguage.english,
+              items: [],
+              totalItems: 0)));
   @override
   Future<DictationSession> startDictationSession(
           TaskBoardRequest request) async =>
@@ -1088,17 +1208,43 @@ class _TaskSeed {
 }
 
 class _FakeWordSpeaker implements WordSpeaker {
-  const _FakeWordSpeaker();
+  _FakeWordSpeaker();
+  final List<_FakeSpokenCall> spokenCalls = [];
 
   @override
   bool get supportsPlayback => true;
 
   @override
-  Future<void> speak(String text,
-      {required WordPlaybackLanguage language}) async {}
+  Future<void> speak(
+    String text, {
+    required WordPlaybackLanguage language,
+    double? speechRate,
+    double? pitch,
+  }) async {
+    spokenCalls.add(_FakeSpokenCall(
+      text: text,
+      language: language,
+      speechRate: speechRate,
+      pitch: pitch,
+    ));
+  }
 
   @override
   Future<void> stop() async {}
+}
+
+class _FakeSpokenCall {
+  const _FakeSpokenCall({
+    required this.text,
+    required this.language,
+    this.speechRate,
+    this.pitch,
+  });
+
+  final String text;
+  final WordPlaybackLanguage language;
+  final double? speechRate;
+  final double? pitch;
 }
 
 class _FakeSpeechRecognizer implements SpeechRecognizer {

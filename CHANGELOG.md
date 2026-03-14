@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-03-14
+
+### Fixed
+
+- **词单缺失的孩子端反馈**
+  - Pad 在后台未准备默写词单时，不再把 `TaskApiException(statusCode: 404...)` 直接展示给孩子。
+  - `word_list_not_found` 现在会进入“等待家长补充词单”的友好状态，并清空当前听写会话残留数据，避免孩子误以为系统坏了。
+- **平板 / 非 Web 语音播报能力**
+  - `WordSpeaker` 默认实现不再在 `dart:io` 平台退回空的 `stub`，Pad 真机和平板现在也能走统一 TTS。
+  - 为 `flutter_tts` 增加缺插件保护，避免某些环境下因为 `MissingPluginException` 直接打断主流程。
+
+### Added
+
+- **成长鼓励语音播报**
+  - Pad 端“成长小鼓励”和语音工作台“成长鼓励”支持自动播报、手动重播和自动播报开关。
+  - 鼓励播报统一走更温和的陪伴式话术，并带更适合儿童提示的语速和语调参数。
+
+### Changed
+
+- **听写舞台等待态**
+  - 听写页签新增“待补充 / 重新同步 / 等家长补充词单后再来默写”这组等待态提示，不再把缺词单归类成普通失败。
+- **文档与版本同步**
+  - 根 README、Pad README、运行手册、发布清单、交付就绪审计、UAT、Release Sync Playbook、家长端 H5 手册、用户手册、发布说明和一页摘要统一刷新到 `v0.3.4`。
+  - `apps/parent-web/package.json`、`apps/parent-web/package-lock.json`、`apps/pad-app/pubspec.yaml` 版本号同步到 `v0.3.4`。
+
+### Verified
+
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test --no-pub`
+
 ## [0.3.3] - 2026-03-13
 
 ### Added

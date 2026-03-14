@@ -1,11 +1,11 @@
-# StudyClaw v0.3.3 交付验收用例
+# StudyClaw v0.3.4 交付验收用例
 
 本文档把当前阶段的交付验收步骤固定下来，作为 API、Parent Web、Pad 三端一起跑的正式基线。
 
 ## 1. 验收基线
 
-- 验收日期：`2026-03-13`
-- 版本：`v0.3.3`
+- 验收日期：`2026-03-14`
+- 版本：`v0.3.4`
 - 固定数据：
   - `family_id=306`
   - `user_id / child_id=1`
@@ -63,8 +63,11 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 | `UAT-14` | 词单 | `POST /api/v1/word-lists/parse` | 返回结构化词项 |
 | `UAT-15` | 词单 | `POST /api/v1/word-lists` | 成功保存 `wordlist_...` |
 | `UAT-16` | 听写会话 | `POST /api/v1/dictation-sessions/start` | 返回 `session_...` 和当前单词 |
+| `UAT-16A` | 听写等待态 | 在后台不提供当天词单时触发 Pad 同步 | 不展示 `404 / TaskApiException`，而是显示“默写词单还没准备好 / 等家长补充词单后再来默写” |
 | `UAT-17` | 听写语音推进 | 在 Pad 听写页签说“好了”或“Next” | Pad 调用 `/api/v1/voice-commands/resolve` 并切到下一词 |
 | `UAT-18` | 听写反馈 | 在 Pad 完成交卷并等待 AI 批改 | 页面出现正向鼓励式提示，不是纯技术型系统消息 |
+| `UAT-18A` | 鼓励播报 | 在 Pad 完成任务并出现“成长小鼓励”卡片 | 鼓励支持自动播报，且可点击“重播鼓励”再次播报 |
+| `UAT-18B` | 鼓励开关 | 在 Pad 点击“自动播报开 / 关” | 自动播报状态可切换；关闭后保留文字，不再自动出声 |
 | `UAT-19` | 月统计 | `GET /api/v1/stats/monthly?family_id=306&user_id=1&month=2026-03` | 返回任务、积分、词单、会话的月聚合 |
 | `UAT-20` | 自动化 | `go test ./... -count=1` | 全部通过 |
 | `UAT-21` | 自动化 | `npm test`、`npm run build` | 全部通过 |
@@ -89,7 +92,7 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 
 ## 5. 当前已验证结果
 
-`2026-03-13` 已执行并通过的结果摘要：
+`2026-03-14` 已执行并通过的结果摘要：
 
 - Parent Web 与 Pad Web 页面都能正常返回 HTML。
 - Parent Web 点击“去录入原文”后可直接进入 `原文` 子页面并看到输入框。
@@ -99,7 +102,8 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 - 任务完成后自动积分 `+1`，家长人工奖励 `+2`，余额正确汇总为 `3`。
 - 词单 `wordlist_000001` 保存成功。
 - 听写会话 `session_000002` 成功执行 `start -> next -> replay`。
-- `smoke_local_stack.sh` 与 `demo_local_stack.sh` 均通过。
+- Pad 在缺少当天词单时会进入等待家长补充的友好状态，不再直接暴露原始异常文本。
+- 成长小鼓励支持自动播报、手动重播和自动播报开关，相关 widget / controller 回归通过。
 
 ## 6. GitHub 同步门槛
 
@@ -109,5 +113,5 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 2. `git status --short` 中只剩计划提交的文件。
 3. 不把 `.gopath/`、`build/`、`dist/`、`.dart_tool/`、运行时密钥文件带进 commit。
 4. 根 README、运行手册、用户手册、release checklist、delivery readiness、UAT cases 已同步。
-5. 版本声明已经对齐到 `v0.3.3`。
+5. 版本声明已经对齐到 `v0.3.4`。
 6. 自动化验证和三端联调结果已附在 release commit 或 PR 描述中。

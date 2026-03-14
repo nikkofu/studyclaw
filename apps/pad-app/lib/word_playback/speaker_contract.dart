@@ -6,6 +6,8 @@ abstract interface class WordSpeaker {
   Future<void> speak(
     String text, {
     required WordPlaybackLanguage language,
+    double? speechRate,
+    double? pitch,
   });
 
   Future<void> stop();

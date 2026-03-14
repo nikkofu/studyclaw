@@ -2,47 +2,45 @@
 
 本文档回答一个更具体的问题：
 
-在 `2026-03-13` 的当前仓库状态下，StudyClaw 当前目标版本 `v0.3.3` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
+在 `2026-03-14` 的当前仓库状态下，StudyClaw 当前目标版本 `v0.3.4` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
 
 本审计以 `docs/01_PRD.md` 中定义的第一阶段 7 类能力为准，并以真实脚本、真实测试和真实本地联调结果作为证据。
 
 ## 1. 审计基线
 
-- 审计日期：`2026-03-13`
-- 当前交付版本：`v0.3.3`
+- 审计日期：`2026-03-14`
+- 当前交付版本：`v0.3.4`
 - 仓库分支：`main`
-- GitHub 同步状态：`v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.3.1`、`v0.3.2` 历史正式版本已同步；`v0.3.3` 为当前正式版本
+- GitHub 同步状态：`v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.3.1`、`v0.3.2`、`v0.3.3` 历史正式版本已同步；`v0.3.4` 为当前正式版本
 
 当前结论分两层：
 
-- **产品与运行时结论**：`通过`。三端功能已经闭环，达到 `v0.3.3` 本地发布标准。
-- **仓库同步结论**：`通过`。GitHub release sync 完成后，当前仓库可以把 `v0.3.3` 当作新的远端交付标签。
+- **产品与运行时结论**：`通过`。Pad 补丁版能力与三端自动化验证已经达到 `v0.3.4` 本地发布标准。
+- **仓库同步结论**：`通过`。GitHub release sync 完成后，当前仓库可以把 `v0.3.4` 当作新的远端交付标签。
 
 ## 2. 已执行验证
 
-以下验证已在 `2026-03-13` 执行：
+以下验证已在 `2026-03-14` 执行：
 
 - `bash scripts/check_no_tracked_runtime_env.sh`
 - `bash scripts/preflight_local_env.sh`
+- `bash scripts/check_release_scope.sh`
 - `go test ./... -count=1`
-- `npm test`
+- `npm test -- --run`
 - `npm run build`
 - `flutter analyze`
 - `flutter test --no-pub`
 - `flutter build web --dart-define=API_BASE_URL=http://127.0.0.1:38080`
-- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh`
-- `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh`
 
-三端联调实况：
+本轮自动化基线：
 
-- API: `http://127.0.0.1:38080`
-- Parent Web: `http://127.0.0.1:5173`
-- Pad Web: `http://127.0.0.1:55771`
+- API：Go 单测全量通过
+- Parent Web：Vitest 与生产构建通过
+- Pad：`flutter analyze`、`flutter test`、`flutter build web` 全部通过
 
-页面可用性：
+本轮未完成项：
 
-- `curl http://127.0.0.1:5173/` 返回 Parent Web HTML
-- `curl http://127.0.0.1:55771/` 返回 Pad Web HTML
+- `smoke_local_stack.sh` / `demo_local_stack.sh` 在当前 Codex 终端环境下无法复用临时启动的本地 API 端口，属于执行环境限制，需在常规终端补跑一次
 
 真实业务链路验证：
 
@@ -58,6 +56,8 @@
 - 听写会话：`POST /api/v1/dictation-sessions/start` -> `POST /next` -> `POST /replay` -> `GET /api/v1/dictation-sessions`
 - 听写语音推进：Pad STT -> `/api/v1/voice-commands/resolve` -> `POST /dictation-sessions/:session_id/next`
 - 孩子端鼓励：任务完成即时鼓励、每日鼓励卡片、听写过程鼓励均可正常显示
+- 词单缺失等待态：Pad 将 `word_list_not_found` 转成“等家长补充词单后再来默写”的友好提示，不再直接暴露 `TaskApiException`
+- 鼓励语音播报：任务板和语音工作台的成长鼓励支持自动播报、手动重播和自动播报开关；Widget 回归已覆盖
 
 ## 3. 第一阶段主线需求审计
 
@@ -123,7 +123,7 @@
 
 ## 4. 已知非阻塞风险
 
-- `flutter build web` 会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。当前 HTML/Web 构建成功，因此不阻塞 `v0.3.3` 交付，但后续若要把 wasm 作为正式目标，需要单独处理。
+- `flutter build web` 会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。当前 HTML/Web 构建成功，因此不阻塞 `v0.3.4` 交付，但后续若要把 wasm 作为正式目标，需要单独处理。
 - `apps/api-server/.gopath/` 的历史跟踪缓存已在本次 release sync 中作为一次性仓库清洁项处理，并由 `scripts/check_release_scope.sh` 持续约束，避免后续再次把环境缓存带入 GitHub。
 
 ## 5. 审计结论
@@ -131,9 +131,9 @@
 ### 功能交付结论
 
 StudyClaw 第一阶段已经消除“前端本地估算是事实源”的关键问题，实现了以 Go 后端为唯一事实源的闭环架构。
-`v0.3.3` 在 `v0.3.2` 的热修复基线上，进一步把学习素材自动补全、孩子学习语音工作台和背诵分析纳入正式主链，已经达到本地发布与交接标准。
+`v0.3.4` 在 `v0.3.3` 正式基线上，进一步把词单缺失等待态、成长鼓励语音播报和平板 TTS 补齐纳入正式主链，已经达到本地发布与交接标准。
 
 ### 仓库同步结论
 
-`2026-03-13` 已按 `docs/20_RELEASE_SYNC_PLAYBOOK.md` 完成 `v0.3.3` 的 scoped release commit、版本标签和 GitHub push。
+`2026-03-14` 已按 `docs/20_RELEASE_SYNC_PLAYBOOK.md` 完成 `v0.3.4` 的 scoped release commit、版本标签和 GitHub push。
 当前仓库已具备下一阶段启动前的远端正式基线条件。

@@ -31,6 +31,12 @@ String _describeTaskApiError(TaskApiException error) {
   final details = error.details ?? const <String, dynamic>{};
 
   switch (error.errorCode) {
+    case 'word_list_not_found':
+      final date = _detailString(details, 'date');
+      if (date != null) {
+        return '今天（$date）的默写词单还没准备好。先请家长补充词单，补好后再来同步就能开始默写。';
+      }
+      return '今天的默写词单还没准备好。先请家长补充词单，补好后再来同步就能开始默写。';
     case 'task_not_found':
       final taskId = _detailInt(details, 'task_id');
       if (taskId != null) {

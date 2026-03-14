@@ -742,6 +742,9 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
   TaskBoardRequest? _activeVoiceRequest;
   VoiceCommandSurface? _activeVoiceSurface;
   Timer? _voiceSessionTicker;
+  bool _encouragementVoiceEnabled = true;
+  String? _lastTaskEncouragementVoiceKey;
+  String? _lastVoiceWorkbenchEncouragementKey;
 
   @override
   void initState() {
@@ -759,6 +762,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     _wordListController = TextEditingController();
     _voiceReferenceController = TextEditingController();
     _controller = TaskBoardController(repository: widget.repository);
+    _controller.addListener(_handleTaskBoardStateChanged);
     if (widget.wordPlaybackController != null) {
       _wordController = widget.wordPlaybackController!;
       _ownsWordController = false;
@@ -788,6 +792,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     _dateController.dispose();
     _wordListController.dispose();
     _voiceReferenceController.dispose();
+    _controller.removeListener(_handleTaskBoardStateChanged);
     _controller.dispose();
     if (_ownsWordController) {
       _wordController.dispose();
@@ -820,6 +825,79 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     if (r != null) {
       await _controller.refresh(r);
     }
+  }
+
+  void _handleTaskBoardStateChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    final state = _controller.state;
+    final message = _taskEncouragementMessage(state)?.trim() ?? '';
+    if (message.isEmpty) {
+      _lastTaskEncouragementVoiceKey = null;
+      return;
+    }
+    if (message == _lastTaskEncouragementVoiceKey) {
+      return;
+    }
+
+    _lastTaskEncouragementVoiceKey = message;
+    if (!_encouragementVoiceEnabled || !_wordController.supportsPlayback) {
+      return;
+    }
+    if (state.noticeTone == TaskBoardNoticeTone.info) {
+      return;
+    }
+
+    unawaited(_wordController.speakCoachMessage(message));
+  }
+
+  void _toggleEncouragementVoice() {
+    if (!_wordController.supportsPlayback) {
+      return;
+    }
+    setState(() {
+      _encouragementVoiceEnabled = !_encouragementVoiceEnabled;
+    });
+  }
+
+  Future<void> _replayTaskEncouragement() async {
+    final message = _taskEncouragementMessage(_controller.state)?.trim() ?? '';
+    if (message.isEmpty) {
+      return;
+    }
+    await _wordController.speakCoachMessage(message);
+  }
+
+  Future<void> _replayVoiceWorkbenchEncouragement() async {
+    final message = _voiceAssistantState.encouragementMessage?.trim() ?? '';
+    if (message.isEmpty) {
+      return;
+    }
+    await _wordController.speakCoachMessage(message);
+  }
+
+  void _maybeAutoSpeakVoiceWorkbenchEncouragement(String? message) {
+    final normalized = message?.trim() ?? '';
+    if (normalized.isEmpty) {
+      _lastVoiceWorkbenchEncouragementKey = null;
+      return;
+    }
+
+    final key = '${_voiceAssistantState.scene.name}|'
+        '${_voiceAssistantState.sessionFinishedAt?.millisecondsSinceEpoch ?? 0}|'
+        '$normalized';
+    if (key == _lastVoiceWorkbenchEncouragementKey) {
+      return;
+    }
+    _lastVoiceWorkbenchEncouragementKey = key;
+
+    if (!_encouragementVoiceEnabled || !_wordController.supportsPlayback) {
+      return;
+    }
+
+    unawaited(_wordController.speakCoachMessage(normalized));
   }
 
   void _setSelectedTab(_PadHomeTab tab) {
@@ -1636,6 +1714,7 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
             liveSegmentText: null,
           );
         });
+        _maybeAutoSpeakVoiceWorkbenchEncouragement(encouragementMessage);
         return;
       }
 
@@ -1937,6 +2016,9 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
                       state: _voiceAssistantState,
                       supportsRecognition:
                           _speechRecognizer.supportsRecognition,
+                      supportsEncouragementVoice:
+                          _wordController.supportsPlayback,
+                      encouragementVoiceEnabled: _encouragementVoiceEnabled,
                       availableScenes: _availableVoiceScenes(
                         _voiceAssistantState.mode,
                         _selectedTab,
@@ -1959,6 +2041,9 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
                       onModeChanged: _setVoiceWorkbenchMode,
                       onSceneChanged: _setVoiceLearningScene,
                       onClear: _clearVoiceWorkbench,
+                      onReplayEncouragementVoice:
+                          _replayVoiceWorkbenchEncouragement,
+                      onToggleEncouragementVoice: _toggleEncouragementVoice,
                       onTrigger: _voiceAssistantState.isResolving
                           ? null
                           : _toggleVoiceAssistant,
@@ -1971,6 +2056,10 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
                           message: _taskEncouragementMessage(state)!,
                           totals: state.dailyStats?.totals,
                           tone: state.noticeTone,
+                          supportsVoice: _wordController.supportsPlayback,
+                          voiceEnabled: _encouragementVoiceEnabled,
+                          onReplayVoice: _replayTaskEncouragement,
+                          onToggleVoice: _toggleEncouragementVoice,
                         ),
                         const SizedBox(height: 24),
                       ],
@@ -2091,11 +2180,19 @@ class _TaskEncouragementCard extends StatelessWidget {
     required this.message,
     required this.totals,
     required this.tone,
+    required this.supportsVoice,
+    required this.voiceEnabled,
+    required this.onReplayVoice,
+    required this.onToggleVoice,
   });
 
   final String message;
   final StatsTotals? totals;
   final TaskBoardNoticeTone tone;
+  final bool supportsVoice;
+  final bool voiceEnabled;
+  final Future<void> Function() onReplayVoice;
+  final VoidCallback onToggleVoice;
 
   @override
   Widget build(BuildContext context) {
@@ -2143,6 +2240,21 @@ class _TaskEncouragementCard extends StatelessWidget {
               ),
             ],
           ),
+          if (supportsVoice) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _EncouragementVoiceControls(
+                replayKey: const Key('task-encouragement-replay'),
+                toggleKey: const Key('task-encouragement-voice-toggle'),
+                voiceEnabled: voiceEnabled,
+                onReplay: () {
+                  unawaited(onReplayVoice());
+                },
+                onToggle: onToggleVoice,
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Text(
             message,
@@ -2335,6 +2447,8 @@ class _VoiceAssistantCard extends StatelessWidget {
     required this.surface,
     required this.state,
     required this.supportsRecognition,
+    required this.supportsEncouragementVoice,
+    required this.encouragementVoiceEnabled,
     required this.availableScenes,
     required this.sessionDuration,
     required this.hintText,
@@ -2348,12 +2462,16 @@ class _VoiceAssistantCard extends StatelessWidget {
     required this.onModeChanged,
     required this.onSceneChanged,
     required this.onClear,
+    required this.onReplayEncouragementVoice,
+    required this.onToggleEncouragementVoice,
     required this.onTrigger,
   });
 
   final VoiceCommandSurface surface;
   final _VoiceAssistantState state;
   final bool supportsRecognition;
+  final bool supportsEncouragementVoice;
+  final bool encouragementVoiceEnabled;
   final List<_LearningScene> availableScenes;
   final Duration sessionDuration;
   final String hintText;
@@ -2367,6 +2485,8 @@ class _VoiceAssistantCard extends StatelessWidget {
   final ValueChanged<_SpeechWorkbenchMode> onModeChanged;
   final ValueChanged<_LearningScene> onSceneChanged;
   final VoidCallback? onClear;
+  final Future<void> Function() onReplayEncouragementVoice;
+  final VoidCallback onToggleEncouragementVoice;
   final VoidCallback? onTrigger;
 
   @override
@@ -2709,6 +2829,17 @@ class _VoiceAssistantCard extends StatelessWidget {
               title: '成长鼓励',
               icon: Icons.star_rounded,
               accentColor: KidColors.color3,
+              headerAction: supportsEncouragementVoice
+                  ? _EncouragementVoiceControls(
+                      replayKey: const Key('voice-encouragement-replay'),
+                      toggleKey: const Key('voice-encouragement-voice-toggle'),
+                      voiceEnabled: encouragementVoiceEnabled,
+                      onReplay: () {
+                        unawaited(onReplayEncouragementVoice());
+                      },
+                      onToggle: onToggleEncouragementVoice,
+                    )
+                  : null,
               child: Text(
                 state.encouragementMessage!,
                 style: const TextStyle(
@@ -2943,6 +3074,93 @@ class _VoiceWorkbenchStatTile extends StatelessWidget {
   }
 }
 
+class _EncouragementVoiceControls extends StatelessWidget {
+  const _EncouragementVoiceControls({
+    required this.replayKey,
+    required this.toggleKey,
+    required this.voiceEnabled,
+    required this.onReplay,
+    required this.onToggle,
+  });
+
+  final Key replayKey;
+  final Key toggleKey;
+  final bool voiceEnabled;
+  final VoidCallback onReplay;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      alignment: WrapAlignment.end,
+      children: [
+        _EncouragementVoiceAction(
+          key: replayKey,
+          icon: Icons.volume_up_rounded,
+          label: '重播鼓励',
+          color: KidColors.color3,
+          onTap: onReplay,
+        ),
+        _EncouragementVoiceAction(
+          key: toggleKey,
+          icon: voiceEnabled
+              ? Icons.record_voice_over_rounded
+              : Icons.volume_off_rounded,
+          label: voiceEnabled ? '自动播报开' : '自动播报关',
+          color: voiceEnabled ? KidColors.color2 : KidColors.black,
+          onTap: onToggle,
+        ),
+      ],
+    );
+  }
+}
+
+class _EncouragementVoiceAction extends StatelessWidget {
+  const _EncouragementVoiceAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withAlpha(20),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color, width: 2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _VoiceWorkbenchSectionCard extends StatelessWidget {
   const _VoiceWorkbenchSectionCard({
     super.key,
@@ -2950,12 +3168,14 @@ class _VoiceWorkbenchSectionCard extends StatelessWidget {
     required this.icon,
     required this.accentColor,
     required this.child,
+    this.headerAction,
   });
 
   final String title;
   final IconData icon;
   final Color accentColor;
   final Widget child;
+  final Widget? headerAction;
 
   @override
   Widget build(BuildContext context) {
@@ -2974,16 +3194,25 @@ class _VoiceWorkbenchSectionCard extends StatelessWidget {
             children: [
               Icon(icon, color: accentColor),
               const SizedBox(width: 10),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: accentColor,
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
                 ),
               ),
             ],
           ),
+          if (headerAction != null) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: headerAction!,
+            ),
+          ],
           const SizedBox(height: 12),
           child,
         ],
@@ -3181,6 +3410,7 @@ class _WordPlaybackPanel extends StatelessWidget {
       onSubmitPhoto;
   final Future<void> Function() onPlayCurrent;
   String get _instructionText {
+    if (state.waitingForParentWordList) return '等家长补充词单后再来默写';
     if (!state.hasWords) return '请同步词单';
     if (state.isPeeking) return '预览模式';
 
@@ -3200,6 +3430,18 @@ class _WordPlaybackPanel extends StatelessWidget {
     if (state.session?.isGradingPending == true) return '后台批改中';
     if (state.session?.hasGradingResult == true) return '重新拍照交卷';
     return '📸 拍照交卷';
+  }
+
+  String get _syncLabel {
+    if (state.isBusy) return '中...';
+    if (state.waitingForParentWordList) return '重新同步';
+    return '同步云端';
+  }
+
+  String get _playLabel {
+    if (state.waitingForParentWordList) return '等待词单';
+    if (state.isSpeaking) return '播报中';
+    return '开始播报';
   }
 
   @override
@@ -3233,7 +3475,7 @@ class _WordPlaybackPanel extends StatelessWidget {
             SizedBox(
                 width: 140,
                 child: KidSmallBtn(
-                    label: state.isBusy ? '中...' : '同步云端',
+                    label: _syncLabel,
                     color: KidColors.color2,
                     onTap: state.isBusy ? null : onSyncBackend)),
           ]),
@@ -3267,11 +3509,13 @@ class _WordPlaybackPanel extends StatelessWidget {
                   border: Border.all(color: KidColors.black, width: 3)),
               child: Column(children: [
                 Text(
-                    state.hasWords
-                        ? (state.isPeeking
-                            ? state.currentWord
-                            : '挑战 #${state.currentDisplayIndex}')
-                        : '等待中',
+                    state.waitingForParentWordList
+                        ? '待补充'
+                        : state.hasWords
+                            ? (state.isPeeking
+                                ? state.currentWord
+                                : '挑战 #${state.currentDisplayIndex}')
+                            : '等待中',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         fontSize: 64,
@@ -3366,7 +3610,7 @@ class _WordPlaybackPanel extends StatelessWidget {
             Expanded(
                 flex: 2,
                 child: KidSmallBtn(
-                    label: state.isSpeaking ? '播报中' : '开始播报',
+                    label: _playLabel,
                     color: KidColors.color3,
                     onTap: state.hasWords && !state.isSpeaking && !state.isBusy
                         ? onPlayCurrent

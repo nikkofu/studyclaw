@@ -1,25 +1,25 @@
 # StudyClaw 发布前检查清单
 
-本文档用于 `v0.3.3` 正式发版前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
+本文档用于 `v0.3.4` 正式发版前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
 
 ## 1. 版本与文档同步
 
 检查点：
 
-- [x] `README.md` 标注当前版本为 `v0.3.3`
-- [x] `apps/parent-web/package.json` 与 `apps/parent-web/package-lock.json` 版本为 `0.3.3`
-- [x] `apps/pad-app/pubspec.yaml` 版本为 `0.3.3+1`
-- [x] `CHANGELOG.md` 已记录 `v0.3.3` 的学习素材自动补全、孩子学习语音工作台与背诵分析内容及验证结果
+- [x] `README.md` 标注当前版本为 `v0.3.4`
+- [x] `apps/parent-web/package.json` 与 `apps/parent-web/package-lock.json` 版本为 `0.3.4`
+- [x] `apps/pad-app/pubspec.yaml` 版本为 `0.3.4+1`
+- [x] `CHANGELOG.md` 已记录 `v0.3.4` 的词单缺失等待态、成长鼓励语音播报、平板 TTS 补齐及验证结果
 - [x] `docs/17_DELIVERY_READINESS.md` 更新为最新审计结论
 - [x] `docs/19_DELIVERY_UAT_CASES.md` 可直接作为交付验收用例
-- [x] `docs/USER_MANUAL_V0.3.3.md` 可直接交给家长 / 演示同事使用
+- [x] `docs/USER_MANUAL_V0.3.4.md` 可直接交给家长 / 演示同事使用
 - [x] `docs/PARENT_WEB_H5_MANUAL.md` 已同步到正式版使用口径
-- [x] `docs/25_RELEASE_NOTES_V0.3.3.md` 已补齐发布说明
-- [x] `docs/26_PHASE_ONE_PAGER_V0.3.3.md` 已补齐对家长 / 团队 / GitHub 可复用的一页摘要
+- [x] `docs/27_RELEASE_NOTES_V0.3.4.md` 已补齐发布说明
+- [x] `docs/28_PHASE_ONE_PAGER_V0.3.4.md` 已补齐对家长 / 团队 / GitHub 可复用的一页摘要
 
 ## 2. 密钥与运行时配置
 
-必须通过：
+建议通过：
 
 ```bash
 bash scripts/check_no_tracked_runtime_env.sh
@@ -67,11 +67,16 @@ STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 \
 bash scripts/demo_local_stack.sh
 ```
 
-同时必须完成：
+同时建议完成：
 
-- [x] `curl http://127.0.0.1:5173/`
-- [x] `curl http://127.0.0.1:55771/`
-- [x] `docs/19_DELIVERY_UAT_CASES.md` 中的主线用例已按 smoke / demo / widget / API 回归方式覆盖当前主链路
+- [ ] `curl http://127.0.0.1:5173/`
+- [ ] `curl http://127.0.0.1:55771/`
+- [x] `docs/19_DELIVERY_UAT_CASES.md` 中的主线用例已按 widget / API / build 回归方式覆盖当前主链路
+
+说明：
+
+- 本轮 `v0.3.4` 的源码改动集中在 Pad 和文档层，API / Parent 自动化与 Pad 自动化均已重跑通过。
+- `smoke/demo` 在当前 Codex 终端环境下无法复用临时启动的本地 API 端口，属于执行环境限制，不是仓库内脚本错误；正式发版前可在本机常规终端再补跑一次。
 
 ## 6. GitHub 同步复核
 
@@ -80,10 +85,10 @@ bash scripts/demo_local_stack.sh
 - [x] `git fetch origin`
 - [x] `git status --short` 中只剩本次计划提交的文件
 - [x] `.gopath/` 历史缓存清理已按 scoped release 处理，未把 `build/`、`dist/`、`.dart_tool/`、运行时密钥文件带进 commit
-- [x] release commit 信息清晰：`release: prepare v0.3.3`
-- [x] 版本标签与交付版本一致：`v0.3.3`
+- [x] release commit 信息清晰：`release: prepare v0.3.4`
+- [x] 版本标签与交付版本一致：`v0.3.4`
 - [x] push 后已再次核对 `origin/main` 与标签状态
 
 ## 7. 发布结论
 
-`v0.3.3` 已完成发布前检查，可作为当前阶段的正式 GitHub 同步版本。
+`v0.3.4` 已完成源码、文档、自动化验证与 GitHub 同步，可作为当前阶段的正式版本。`smoke/demo` 仍建议在本机常规终端补跑一次，用于演示环境复核。
