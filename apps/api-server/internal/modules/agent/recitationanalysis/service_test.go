@@ -31,6 +31,9 @@ func TestAnalyzeFallsBackWithReferenceText(t *testing.T) {
 	if analysis.RecognizedTitle != "江畔独步寻花" {
 		t.Fatalf("expected title to be recognized from noisy transcript, got %+v", analysis)
 	}
+	if analysis.RecognizedAuthor != "杜甫" {
+		t.Fatalf("expected author to be recognized from noisy transcript, got %+v", analysis)
+	}
 	if len(analysis.MatchedLines) != 2 {
 		t.Fatalf("expected 2 matched lines, got %+v", analysis.MatchedLines)
 	}
@@ -42,6 +45,35 @@ func TestAnalyzeFallsBackWithReferenceText(t *testing.T) {
 	}
 	if !analysis.NeedsRetry {
 		t.Fatalf("expected noisy recitation to still require retry, got %+v", analysis)
+	}
+}
+
+func TestAnalyzeRecognizesReferenceTitleAfterShortPreamble(t *testing.T) {
+	service := NewService(nil)
+
+	analysis, err := service.Analyze(context.Background(), AnalyzeInput{
+		Transcript: "我来背江畔独步寻花糖杜甫黄思帕钳将水东春光染会以微风桃花一处开无主可爱深红爱浅红",
+		Scene:      "recitation",
+		Locale:     "zh-CN",
+		ReferenceText: "江畔独步寻花【唐】杜甫\n" +
+			"黄师塔前江水东，春光懒困倚微风。\n" +
+			"桃花一簇开无主，可爱深红爱浅红？",
+	})
+	if err != nil {
+		t.Fatalf("Analyze returned error: %v", err)
+	}
+
+	if analysis.RecognizedTitle != "江畔独步寻花" {
+		t.Fatalf("expected title to survive short preamble, got %+v", analysis)
+	}
+	if analysis.RecognizedAuthor != "杜甫" {
+		t.Fatalf("expected author to survive short preamble, got %+v", analysis)
+	}
+	if len(analysis.MatchedLines) != 2 {
+		t.Fatalf("expected 2 matched lines, got %+v", analysis.MatchedLines)
+	}
+	if analysis.MatchedLines[0].Observed == "" || analysis.MatchedLines[1].Observed == "" {
+		t.Fatalf("expected line observations to be reconstructed, got %+v", analysis.MatchedLines)
 	}
 }
 

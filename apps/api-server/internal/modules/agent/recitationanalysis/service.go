@@ -371,6 +371,18 @@ func extractReferenceHeader(header string) (string, string) {
 	}
 	title := strings.TrimSpace(trimmed[:titleEnd])
 	author := strings.TrimSpace(trimmed[titleEnd:])
+	for _, marker := range [][2]string{
+		{"【", "】"},
+		{"[", "]"},
+		{"（", "）"},
+		{"(", ")"},
+	} {
+		if strings.HasPrefix(author, marker[0]) {
+			if end := strings.Index(author, marker[1]); end >= 0 {
+				author = strings.TrimSpace(author[end+len(marker[1]):])
+			}
+		}
+	}
 	author = strings.Trim(author, "【】[]（）() -—")
 	for _, dynasty := range []string{"唐", "宋", "元", "明", "清"} {
 		author = strings.TrimPrefix(author, dynasty)
@@ -410,23 +422,37 @@ func detectReferencePart(transcript, target string, threshold float64) (string, 
 	transcriptRunes := []rune(transcript)
 	targetLen := len([]rune(targetComparable))
 	minLen := maxInt(1, targetLen-2)
-	maxLen := minInt(len(transcriptRunes), targetLen+6)
-	bestLen := 0
+	maxLen := targetLen + 6
+	maxStart := minInt(len(transcriptRunes)-1, targetLen/2+4)
+	bestStart := 0
+	bestEnd := 0
 	bestScore := 0.0
 
-	for candidateLen := minLen; candidateLen <= maxLen; candidateLen++ {
-		candidate := string(transcriptRunes[:candidateLen])
-		score := similarityScore(targetComparable, candidate)
-		if score > bestScore {
-			bestScore = score
-			bestLen = candidateLen
+	for start := 0; start <= maxStart; start++ {
+		localMaxLen := minInt(len(transcriptRunes)-start, maxLen)
+		if localMaxLen < minLen {
+			continue
+		}
+		for candidateLen := minLen; candidateLen <= localMaxLen; candidateLen++ {
+			candidate := string(transcriptRunes[start : start+candidateLen])
+			score := similarityScore(targetComparable, candidate)
+			score -= float64(start) * 0.02
+			score -= float64(absInt(candidateLen-targetLen)) * 0.01
+			if start == 0 {
+				score += 0.04
+			}
+			if score > bestScore {
+				bestScore = score
+				bestStart = start
+				bestEnd = start + candidateLen
+			}
 		}
 	}
 
-	if bestScore < threshold || bestLen <= 0 {
+	if bestScore < threshold || bestEnd <= bestStart {
 		return "", transcript, false
 	}
-	return target, string(transcriptRunes[bestLen:]), true
+	return target, string(transcriptRunes[bestEnd:]), true
 }
 
 func buildLineAssessments(transcript string, referenceLines []string) []LineAnalysis {
@@ -477,6 +503,95 @@ func buildLineAssessments(transcript string, referenceLines []string) []LineAnal
 }
 
 func splitObservedByReference(transcript string, referenceLines []string) []string {
+	segments := splitObservedByReferenceWithDP(transcript, referenceLines)
+	if len(segments) == len(referenceLines) {
+		return segments
+	}
+	return splitObservedByReferenceHeuristic(transcript, referenceLines)
+}
+
+func splitObservedByReferenceWithDP(transcript string, referenceLines []string) []string {
+	if len(referenceLines) == 0 {
+		return []string{}
+	}
+
+	normalizedTranscript := normalizeComparableText(transcript)
+	transcriptRunes := []rune(normalizedTranscript)
+	transcriptLen := len(transcriptRunes)
+
+	normalizedReferenceLines := make([]string, 0, len(referenceLines))
+	for _, line := range referenceLines {
+		normalizedReferenceLines = append(normalizedReferenceLines, normalizeComparableText(line))
+	}
+
+	const negativeInf = -1e9
+	dp := make([][]float64, len(referenceLines)+1)
+	prev := make([][]int, len(referenceLines)+1)
+	for index := range dp {
+		dp[index] = make([]float64, transcriptLen+1)
+		prev[index] = make([]int, transcriptLen+1)
+		for offset := range dp[index] {
+			dp[index][offset] = negativeInf
+			prev[index][offset] = -1
+		}
+	}
+	dp[0][0] = 0
+
+	for lineIndex := 1; lineIndex <= len(normalizedReferenceLines); lineIndex++ {
+		expected := normalizedReferenceLines[lineIndex-1]
+		expectedLen := len([]rune(expected))
+
+		for consumed := 0; consumed <= transcriptLen; consumed++ {
+			if dp[lineIndex-1][consumed] <= negativeInf/2 {
+				continue
+			}
+
+			remainingChars := transcriptLen - consumed
+			maxSegLen := minInt(remainingChars, expectedLen*3/2+6)
+			if lineIndex == len(normalizedReferenceLines) {
+				maxSegLen = remainingChars
+			}
+			if maxSegLen < 0 {
+				continue
+			}
+
+			for segLen := 0; segLen <= maxSegLen; segLen++ {
+				end := consumed + segLen
+				observed := string(transcriptRunes[consumed:end])
+				score := segmentAlignmentScore(expected, observed)
+				total := dp[lineIndex-1][consumed] + score
+				if total > dp[lineIndex][end] {
+					dp[lineIndex][end] = total
+					prev[lineIndex][end] = consumed
+				}
+			}
+		}
+	}
+
+	bestEnd := transcriptLen
+	if prev[len(normalizedReferenceLines)][bestEnd] < 0 {
+		return nil
+	}
+
+	boundaries := make([]int, len(normalizedReferenceLines)+1)
+	boundaries[len(normalizedReferenceLines)] = bestEnd
+	for lineIndex := len(normalizedReferenceLines); lineIndex > 0; lineIndex-- {
+		start := prev[lineIndex][boundaries[lineIndex]]
+		if start < 0 {
+			return nil
+		}
+		boundaries[lineIndex-1] = start
+	}
+
+	segments := make([]string, 0, len(normalizedReferenceLines))
+	for index := 0; index < len(normalizedReferenceLines); index++ {
+		segment := string(transcriptRunes[boundaries[index]:boundaries[index+1]])
+		segments = append(segments, strings.TrimSpace(segment))
+	}
+	return segments
+}
+
+func splitObservedByReferenceHeuristic(transcript string, referenceLines []string) []string {
 	remaining := []rune(strings.TrimSpace(transcript))
 	segments := make([]string, 0, len(referenceLines))
 
@@ -524,6 +639,23 @@ func splitObservedByReference(transcript string, referenceLines []string) []stri
 	}
 
 	return segments
+}
+
+func segmentAlignmentScore(expected, observed string) float64 {
+	expectedComparable := normalizeComparableText(expected)
+	observedComparable := normalizeComparableText(observed)
+	expectedLen := len([]rune(expectedComparable))
+	observedLen := len([]rune(observedComparable))
+
+	score := similarityScore(expectedComparable, observedComparable) * 1.15
+	score -= float64(absInt(observedLen-expectedLen)) * 0.015
+	if observedLen == 0 && expectedLen > 0 {
+		score -= 0.18
+	}
+	if expectedLen > 0 && observedLen > expectedLen*2 {
+		score -= 0.1
+	}
+	return score
 }
 
 func computeCompletionRatio(lines []LineAnalysis) float64 {

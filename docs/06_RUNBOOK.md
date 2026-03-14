@@ -178,6 +178,7 @@ curl -X POST http://127.0.0.1:38080/api/v1/tasks/parse \
 - 如果老师原文里只有“背诵《xxx》”而没有正文，且配置了可用 LLM，系统会只补全文本缺口，不覆盖家长已填内容。
 - `reference_source` 会按 `manual / extracted / llm` 记录来源；家长端审核卡上对应显示为 `手动录入 / 老师原文 / LLM 补全`。
 - 背诵任务默认 `hide_reference_from_child=true`，Pad 不直接展示标准原文，但可用来做背诵分析。
+- 背诵分析规则兜底已支持“短前导语 + noisy transcript”场景：会先在前段窗口里识别标题/作者，再按参考原文的行句形态对整段 transcript 做切分和逐句比对。
 
 确认写入：
 

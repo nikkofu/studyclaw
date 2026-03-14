@@ -441,8 +441,14 @@ func TestPhaseOneRecitationAnalyzeFallback(t *testing.T) {
 	if payload.Analysis.RecognizedTitle != "江畔独步寻花" {
 		t.Fatalf("expected title to be recognized from transcript, got %+v", payload.Analysis)
 	}
+	if payload.Analysis.RecognizedAuthor != "杜甫" {
+		t.Fatalf("expected author to be recognized from transcript, got %+v", payload.Analysis)
+	}
 	if len(payload.Analysis.MatchedLines) != 2 {
 		t.Fatalf("expected 2 line assessments, got %+v", payload.Analysis.MatchedLines)
+	}
+	if payload.Analysis.MatchedLines[0].Observed == "" {
+		t.Fatalf("expected first line to have observed text, got %+v", payload.Analysis.MatchedLines)
 	}
 	if payload.Analysis.CompletionRatio <= 0.45 {
 		t.Fatalf("expected usable completion ratio, got %+v", payload.Analysis)
