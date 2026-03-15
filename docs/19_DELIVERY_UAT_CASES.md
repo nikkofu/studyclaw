@@ -58,6 +58,7 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 | `UAT-11` | 语音任务完成 | 在 Pad 任务板说“数学订正好了” | Pad 调用 `/api/v1/voice-commands/resolve` 并执行对应完成动作 |
 | `UAT-11A` | 语音启动 | 在 Pad 点击“开始说话” | 不出现 `type 'Null' is not a bool in boolean expression`，可以正常进入监听或返回明确语音失败提示 |
 | `UAT-11B` | 长段语音 | 在 Pad 朗读 / 背诵任务中开始说话，停顿后继续，再手动结束 | 监听在人工结束前保持可用，期间 transcript 会分段记录而不是几秒内自动失败 |
+| `UAT-11B1` | 陪伴续听 | 在 Pad 点击“开始说话”后，先静音数秒或触发一次 `error_no_match`，随后继续说正文 | 会话不会因可恢复错误直接退出，而是自动续听；直到人工点击“结束说话”才收尾 |
 | `UAT-11C` | 背诵分析 | `POST /api/v1/recitation/analyze` | 返回标题 / 作者 / 完成度 / `matched_lines` / `needs_retry` / 建议 |
 | `UAT-11D` | 背诵前导语 | 在孩子先说“我来背”再进入古诗正文的场景调用 `/api/v1/recitation/analyze` | 仍能正确识别标题 / 作者，并按参考原文句形把 transcript 切成对应句段 |
 | `UAT-12` | 积分 | `POST /api/v1/points/ledger` | 成功写入一条人工奖励 |

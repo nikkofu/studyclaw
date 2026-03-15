@@ -29,6 +29,16 @@ class SpeechToTextRecognizer implements SpeechRecognizer {
   bool _isFinishing = false;
   bool _restartScheduled = false;
 
+  static const List<String> _recoverableContinuousErrorFragments = <String>[
+    'error_no_match',
+    'error_speech_timeout',
+    'no match',
+    'no speech',
+    'speech timeout',
+    'timeout',
+    'aborted',
+  ];
+
   @override
   bool get supportsRecognition => _supportsRecognition;
 
@@ -131,7 +141,7 @@ class SpeechToTextRecognizer implements SpeechRecognizer {
       localeId: _activeLocale,
       listenOptions: SpeechListenOptions(
         partialResults: true,
-        cancelOnError: true,
+        cancelOnError: !_isContinuousSession,
         listenMode: _isContinuousSession
             ? ListenMode.dictation
             : ListenMode.confirmation,
@@ -196,7 +206,25 @@ class SpeechToTextRecognizer implements SpeechRecognizer {
     if (completer == null || completer.isCompleted) {
       return;
     }
+    if (_shouldRecoverFromError(error)) {
+      _commitLatestTranscript();
+      _scheduleRestart();
+      return;
+    }
     completer.completeError(StateError('语音识别失败：${error.errorMsg}'));
+  }
+
+  bool _shouldRecoverFromError(SpeechRecognitionError error) {
+    if (!_isContinuousSession || _isFinishing) {
+      return false;
+    }
+    if (!error.permanent) {
+      return true;
+    }
+    final normalizedError = error.errorMsg.trim().toLowerCase();
+    return _recoverableContinuousErrorFragments.any(
+      normalizedError.contains,
+    );
   }
 
   void _onStatus(String status) {
