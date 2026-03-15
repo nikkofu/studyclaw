@@ -420,7 +420,7 @@ void main() {
 
       expect(repository.resolveVoiceCommandCalls, isEmpty);
       expect(find.byKey(const Key('voice-workbench-summary')), findsOneWidget);
-      expect(find.textContaining('已按朗读场景整理成 2 段'), findsOneWidget);
+      expect(find.textContaining('已按真实停顿记录成 2 段'), findsOneWidget);
       expect(find.textContaining('愿意一段一段读出来'), findsOneWidget);
       expect(find.text('第 1 段'), findsOneWidget);
       expect(find.text('第 2 段'), findsOneWidget);
@@ -506,6 +506,7 @@ void main() {
       expect(find.text('江畔独步寻花'), findsWidgets);
       expect(find.text('杜甫'), findsWidgets);
       expect(find.textContaining('重点回看第 1 句'), findsOneWidget);
+      expect(find.textContaining('上面的学习记录按真实停顿保留'), findsOneWidget);
       expect(find.textContaining('原文提示：需要家长/老师侧查看'), findsOneWidget);
       expect(find.textContaining('听到：黄思帕钳将水东春光染会以微风'), findsOneWidget);
     });
@@ -597,7 +598,7 @@ void main() {
       expect(repository.recitationAnalysisCalls.first.metadata['task_id'], '1');
     });
 
-    testWidgets('realigns recitation transcript into reference-shaped segments',
+    testWidgets('keeps natural pause segments for recitation records',
         (tester) async {
       const referenceText = '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？';
 
@@ -612,6 +613,57 @@ void main() {
               transcript: '江畔独步寻花糖杜甫黄思塔前江水东春光缆会以微风桃花一处开无主可爱深红爱浅红',
               locale: 'zh-CN',
             ),
+            committedSegments: const <String>[
+              '江畔独步寻花糖杜甫黄思塔前江水东春光',
+              '缆会以微风桃花一处开无主可爱深红爱浅',
+              '红',
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-mode-transcript')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('voice-reference-input')),
+        referenceText,
+      );
+      await tester.pump();
+      await tester.drag(find.byType(ListView).first, const Offset(0, 320));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('第 3 段'), findsOneWidget);
+      expect(find.text('江畔独步寻花糖杜甫黄思塔前江水东春光'), findsOneWidget);
+      expect(find.text('缆会以微风桃花一处开无主可爱深红爱浅'), findsOneWidget);
+      expect(find.text('红'), findsOneWidget);
+      expect(find.textContaining('已按真实停顿记录成 3 段'), findsOneWidget);
+    });
+
+    testWidgets(
+        'falls back to reference-shaped chunks when recognizer pauses are unavailable',
+        (tester) async {
+      const referenceText = '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？';
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: _FakeTaskBoardRepository(
+            onFetch: (_) async => _boardWithTasks(),
+          ),
+          speechRecognizer: _FakeSpeechRecognizer(
+            transcript: const SpeechTranscript(
+              transcript: '江畔独步寻花糖杜甫黄思塔前江水东春光缆会以微风桃花一处开无主可爱深红爱浅红',
+              locale: 'zh-CN',
+            ),
+            committedSegments: const <String>[],
           ),
         ),
       );
@@ -1301,9 +1353,15 @@ class _FakeSpokenCall {
 class _FakeSpeechRecognizer implements SpeechRecognizer {
   _FakeSpeechRecognizer({
     required this.transcript,
-  });
+    List<String>? committedSegments,
+    String? previewTranscript,
+  })  : committedSegments =
+            committedSegments ?? <String>[transcript.transcript],
+        previewTranscript = previewTranscript ?? transcript.transcript;
 
   final SpeechTranscript transcript;
+  final List<String> committedSegments;
+  final String previewTranscript;
   bool _isListening = false;
 
   @override
@@ -1319,8 +1377,10 @@ class _FakeSpeechRecognizer implements SpeechRecognizer {
     SpeechSegmentListener? onSegmentCommitted,
   }) async {
     _isListening = true;
-    onTranscriptChanged?.call(transcript.transcript);
-    onSegmentCommitted?.call(transcript.transcript);
+    onTranscriptChanged?.call(previewTranscript);
+    for (final segment in committedSegments) {
+      onSegmentCommitted?.call(segment);
+    }
   }
 
   @override

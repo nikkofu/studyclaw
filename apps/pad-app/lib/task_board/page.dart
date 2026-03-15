@@ -542,30 +542,26 @@ List<_SpeechSegment> _buildSpeechSegmentsFromRecognizer(
   String? referenceText,
 }) {
   if (!isListening) {
-    final normalizedPreview = _normalizeVoiceTranscript(previewTranscript);
-    final refinedChunks = _splitSpeechChunks(
-      normalizedPreview,
-      mode: mode,
-      scene: scene,
-      referenceText: referenceText,
-    );
-    if (refinedChunks.length > 1) {
-      return List<_SpeechSegment>.generate(refinedChunks.length, (index) {
-        final sourceSegments = committedSegments.where((item) => !item.isLive);
-        final sourceList = sourceSegments.toList(growable: false);
-        final capturedAt = sourceList.isEmpty
-            ? fallbackTime.add(Duration(seconds: index * 8))
-            : sourceList[((index * sourceList.length) / refinedChunks.length)
-                    .floor()
-                    .clamp(0, sourceList.length - 1)]
-                .capturedAt;
-        return _SpeechSegment(
-          index: index + 1,
-          text: refinedChunks[index],
-          capturedAt: capturedAt,
-          isLive: false,
-        );
-      });
+    final sourceList =
+        committedSegments.where((item) => !item.isLive).toList(growable: false);
+    if (sourceList.isEmpty) {
+      final normalizedPreview = _normalizeVoiceTranscript(previewTranscript);
+      final refinedChunks = _splitSpeechChunks(
+        normalizedPreview,
+        mode: mode,
+        scene: scene,
+        referenceText: referenceText,
+      );
+      if (refinedChunks.length > 1) {
+        return List<_SpeechSegment>.generate(refinedChunks.length, (index) {
+          return _SpeechSegment(
+            index: index + 1,
+            text: refinedChunks[index],
+            capturedAt: fallbackTime.add(Duration(seconds: index * 8)),
+            isLive: false,
+          );
+        });
+      }
     }
   }
 
@@ -671,9 +667,13 @@ String _buildVoiceSummary({
     case _SpeechWorkbenchMode.command:
       return '本次识别到 $charCount 个字，会在结束说话后统一理解并执行对应动作。';
     case _SpeechWorkbenchMode.transcript:
-      return '已按${scene.label}场景整理成 ${segments.length} 段，共 $charCount 个字，后续可继续做复述检查、朗读纠音或学习复盘。';
+      if (scene == _LearningScene.recitation ||
+          scene == _LearningScene.reading) {
+        return '已按真实停顿记录成 ${segments.length} 段，共 $charCount 个字；上方保留孩子真实开口节奏，下方再继续做标准原文逐句对照。';
+      }
+      return '已按真实停顿记录成 ${segments.length} 段，共 $charCount 个字，后续可继续做复述检查、朗读纠音或学习复盘。';
     case _SpeechWorkbenchMode.companion:
-      return '陪伴记录已整理成 ${segments.length} 段，共 $charCount 个字，适合继续追踪孩子整段学习过程并提取关键问题。';
+      return '陪伴记录已按真实停顿整理成 ${segments.length} 段，共 $charCount 个字，适合继续追踪孩子整段学习过程并提取关键问题。';
   }
 }
 
@@ -3483,6 +3483,15 @@ class _RecitationAnalysisPanel extends StatelessWidget {
           style: TextStyle(
             fontWeight: FontWeight.w700,
             color: KidColors.black.withAlpha(170),
+            height: 1.45,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          '上面的学习记录按真实停顿保留；下面这部分按标准原文逐句对照，方便同时看“真实开口过程”和“标准完成度”。',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: KidColors.black.withAlpha(150),
             height: 1.45,
           ),
         ),
