@@ -18,16 +18,18 @@ type Repository struct {
 }
 
 type persistedState struct {
-	NextDraftSeq      int64                                               `json:"next_draft_seq"`
-	NextAssignSeq     int64                                               `json:"next_assignment_seq"`
-	NextPointsSeq     int64                                               `json:"next_points_seq"`
-	NextWordListSeq   int64                                               `json:"next_word_list_seq"`
-	NextSessionSeq    int64                                               `json:"next_session_seq"`
-	Drafts            map[string]taskboarddomain.DailyAssignmentDraft     `json:"drafts"`
-	Assignments       map[string]taskboarddomain.PublishedDailyAssignment `json:"assignments"`
-	ManualPoints      map[string][]taskboarddomain.PointsLedgerEntry      `json:"manual_points"`
-	WordLists         map[string]taskboarddomain.WordList                 `json:"word_lists"`
-	DictationSessions map[string]taskboarddomain.DictationSession         `json:"dictation_sessions"`
+	NextDraftSeq           int64                                               `json:"next_draft_seq"`
+	NextAssignSeq          int64                                               `json:"next_assignment_seq"`
+	NextPointsSeq          int64                                               `json:"next_points_seq"`
+	NextWordListSeq        int64                                               `json:"next_word_list_seq"`
+	NextSessionSeq         int64                                               `json:"next_session_seq"`
+	NextVoiceSessionSeq    int64                                               `json:"next_voice_session_seq"`
+	Drafts                 map[string]taskboarddomain.DailyAssignmentDraft     `json:"drafts"`
+	Assignments            map[string]taskboarddomain.PublishedDailyAssignment `json:"assignments"`
+	ManualPoints           map[string][]taskboarddomain.PointsLedgerEntry      `json:"manual_points"`
+	WordLists              map[string]taskboarddomain.WordList                 `json:"word_lists"`
+	DictationSessions      map[string]taskboarddomain.DictationSession         `json:"dictation_sessions"`
+	VoiceLearningSessions  map[string]taskboarddomain.VoiceLearningSession     `json:"voice_learning_sessions"`
 }
 
 func NewRepository() *Repository {
@@ -330,6 +332,71 @@ func (r *Repository) ListDictationSessions(familyID, childID uint, startDate, en
 	return sessions, nil
 }
 
+func (r *Repository) SaveVoiceLearningSession(session taskboarddomain.VoiceLearningSession) (taskboarddomain.VoiceLearningSession, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	state, err := r.loadState()
+	if err != nil {
+		return taskboarddomain.VoiceLearningSession{}, err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if strings.TrimSpace(session.SessionID) == "" {
+		state.NextVoiceSessionSeq++
+		session.SessionID = fmt.Sprintf("voice_session_%06d", state.NextVoiceSessionSeq)
+		session.CreatedAt = now
+	}
+	if strings.TrimSpace(session.CreatedAt) == "" {
+		session.CreatedAt = now
+	}
+	session.UpdatedAt = now
+	state.VoiceLearningSessions[session.SessionID] = session
+
+	if err := r.saveState(state); err != nil {
+		return taskboarddomain.VoiceLearningSession{}, err
+	}
+
+	return session, nil
+}
+
+func (r *Repository) ListVoiceLearningSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.VoiceLearningSession, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	state, err := r.loadState()
+	if err != nil {
+		return nil, err
+	}
+
+	sessions := make([]taskboarddomain.VoiceLearningSession, 0)
+	for _, session := range state.VoiceLearningSessions {
+		if session.FamilyID != familyID || session.ChildID != childID {
+			continue
+		}
+		if !dateInRange(session.AssignedDate, startDate, endDate) {
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		leftTime := sessions[i].EndedAt
+		if strings.TrimSpace(leftTime) == "" {
+			leftTime = sessions[i].UpdatedAt
+		}
+		rightTime := sessions[j].EndedAt
+		if strings.TrimSpace(rightTime) == "" {
+			rightTime = sessions[j].UpdatedAt
+		}
+		if leftTime == rightTime {
+			return sessions[i].SessionID < sessions[j].SessionID
+		}
+		return leftTime > rightTime
+	})
+	return sessions, nil
+}
+
 func (r *Repository) loadState() (*persistedState, error) {
 	path := stateFilePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -364,6 +431,9 @@ func (r *Repository) loadState() (*persistedState, error) {
 	if state.DictationSessions == nil {
 		state.DictationSessions = make(map[string]taskboarddomain.DictationSession)
 	}
+	if state.VoiceLearningSessions == nil {
+		state.VoiceLearningSessions = make(map[string]taskboarddomain.VoiceLearningSession)
+	}
 	return &state, nil
 }
 
@@ -382,11 +452,12 @@ func (r *Repository) saveState(state *persistedState) error {
 
 func defaultState() persistedState {
 	return persistedState{
-		Drafts:            make(map[string]taskboarddomain.DailyAssignmentDraft),
-		Assignments:       make(map[string]taskboarddomain.PublishedDailyAssignment),
-		ManualPoints:      make(map[string][]taskboarddomain.PointsLedgerEntry),
-		WordLists:         make(map[string]taskboarddomain.WordList),
-		DictationSessions: make(map[string]taskboarddomain.DictationSession),
+		Drafts:                make(map[string]taskboarddomain.DailyAssignmentDraft),
+		Assignments:           make(map[string]taskboarddomain.PublishedDailyAssignment),
+		ManualPoints:          make(map[string][]taskboarddomain.PointsLedgerEntry),
+		WordLists:             make(map[string]taskboarddomain.WordList),
+		DictationSessions:     make(map[string]taskboarddomain.DictationSession),
+		VoiceLearningSessions: make(map[string]taskboarddomain.VoiceLearningSession),
 	}
 }
 

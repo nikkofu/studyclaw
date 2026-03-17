@@ -86,11 +86,27 @@ type wordListResponse struct {
 type dictationSessionResponse struct {
 	Message string `json:"message"`
 	Session struct {
-		SessionID     string `json:"session_id"`
-		Status        string `json:"status"`
-		GradingStatus string `json:"grading_status"`
-		GradingError  string `json:"grading_error"`
-		DebugContext  *struct {
+		SessionID          string   `json:"session_id"`
+		Mode               string   `json:"mode"`
+		Scene              string   `json:"scene"`
+		Status             string   `json:"status"`
+		GradingStatus      string   `json:"grading_status"`
+		GradingError       string   `json:"grading_error"`
+		MergedTranscript   string   `json:"merged_transcript"`
+		TranscriptSegments []struct {
+			SegmentID  string `json:"segment_id"`
+			Sequence   int    `json:"sequence"`
+			Transcript string `json:"transcript"`
+		} `json:"transcript_segments"`
+		AnalysisSummary struct {
+			Status               string   `json:"status"`
+			CompletionRatio      float64  `json:"completion_ratio"`
+			NeedsRetry           bool     `json:"needs_retry"`
+			Recommendation       string   `json:"recommendation"`
+			RecommendationReason string   `json:"recommendation_reason"`
+			Explainability       []string `json:"explainability"`
+		} `json:"analysis_summary"`
+		DebugContext *struct {
 			PhotoSHA1   string   `json:"photo_sha1"`
 			PhotoBytes  int      `json:"photo_bytes"`
 			Language    string   `json:"language"`
@@ -103,11 +119,36 @@ type dictationSessionResponse struct {
 		PlayedCount    int `json:"played_count"`
 		CompletedItems int `json:"completed_items"`
 		GradingResult  *struct {
-			Score int `json:"score"`
+			Score                int    `json:"score"`
+			AIFeedback           string `json:"ai_feedback"`
+			AnnotatedPhotoURL    string `json:"annotated_photo_url"`
+			AnnotatedPhotoWidth  int    `json:"annotated_photo_width"`
+			AnnotatedPhotoHeight int    `json:"annotated_photo_height"`
+			MarkRegions          []struct {
+				Index       int     `json:"index"`
+				Expected    string  `json:"expected"`
+				Actual      string  `json:"actual"`
+				IsCorrect   bool    `json:"is_correct"`
+				Left        float64 `json:"left"`
+				Top         float64 `json:"top"`
+				Width       float64 `json:"width"`
+				Height      float64 `json:"height"`
+				MarkerLabel string  `json:"marker_label"`
+			} `json:"mark_regions"`
+			Items []struct {
+				Index      int    `json:"index"`
+				Expected   string `json:"expected"`
+				Actual     string `json:"actual"`
+				IsCorrect  bool   `json:"is_correct"`
+				Comment    string `json:"comment"`
+				NeedsRetry bool   `json:"needs_correction"`
+			} `json:"graded_items"`
 		} `json:"grading_result"`
 		CurrentItem *struct {
 			Text string `json:"text"`
 		} `json:"current_item"`
+		StartedAt string `json:"started_at"`
+		EndedAt   string `json:"ended_at"`
 	} `json:"dictation_session"`
 }
 
@@ -124,7 +165,30 @@ type dictationSessionListResponse struct {
 			LogKeywords []string `json:"log_keywords"`
 		} `json:"debug_context"`
 		GradingResult *struct {
-			Score int `json:"score"`
+			Score                int    `json:"score"`
+			AIFeedback           string `json:"ai_feedback"`
+			AnnotatedPhotoURL    string `json:"annotated_photo_url"`
+			AnnotatedPhotoWidth  int    `json:"annotated_photo_width"`
+			AnnotatedPhotoHeight int    `json:"annotated_photo_height"`
+			MarkRegions          []struct {
+				Index       int     `json:"index"`
+				Expected    string  `json:"expected"`
+				Actual      string  `json:"actual"`
+				IsCorrect   bool    `json:"is_correct"`
+				Left        float64 `json:"left"`
+				Top         float64 `json:"top"`
+				Width       float64 `json:"width"`
+				Height      float64 `json:"height"`
+				MarkerLabel string  `json:"marker_label"`
+			} `json:"mark_regions"`
+			Items []struct {
+				Index      int    `json:"index"`
+				Expected   string `json:"expected"`
+				Actual     string `json:"actual"`
+				IsCorrect  bool   `json:"is_correct"`
+				Comment    string `json:"comment"`
+				NeedsRetry bool   `json:"needs_correction"`
+			} `json:"graded_items"`
 		} `json:"grading_result"`
 	} `json:"dictation_sessions"`
 }
@@ -165,17 +229,23 @@ type voiceCommandResolutionResponse struct {
 
 type recitationAnalysisResponse struct {
 	Analysis struct {
-		ParserMode           string  `json:"parser_mode"`
-		Scene                string  `json:"scene"`
-		RecognizedTitle      string  `json:"recognized_title"`
-		RecognizedAuthor     string  `json:"recognized_author"`
-		ReferenceTitle       string  `json:"reference_title"`
-		ReferenceAuthor      string  `json:"reference_author"`
-		NormalizedTranscript string  `json:"normalized_transcript"`
-		CompletionRatio      float64 `json:"completion_ratio"`
-		NeedsRetry           bool    `json:"needs_retry"`
-		Summary              string  `json:"summary"`
-		Suggestion           string  `json:"suggestion"`
+		ParserMode           string   `json:"parser_mode"`
+		Scene                string   `json:"scene"`
+		RecognizedTitle      string   `json:"recognized_title"`
+		RecognizedAuthor     string   `json:"recognized_author"`
+		ReferenceTitle       string   `json:"reference_title"`
+		ReferenceAuthor      string   `json:"reference_author"`
+		NormalizedTranscript string   `json:"normalized_transcript"`
+		CompletionRatio      float64  `json:"completion_ratio"`
+		NeedsRetry           bool     `json:"needs_retry"`
+		RetryRecommendation  string   `json:"retry_recommendation"`
+		RecommendationReason string   `json:"recommendation_reason"`
+		Explainability       []string `json:"explainability"`
+		MissingTokens        []string `json:"missing_tokens"`
+		ExtraTokens          []string `json:"extra_tokens"`
+		ConfusedTokens       []string `json:"confused_tokens"`
+		Summary              string   `json:"summary"`
+		Suggestion           string   `json:"suggestion"`
 		MatchedLines         []struct {
 			Index      int     `json:"index"`
 			Expected   string  `json:"expected"`
@@ -456,6 +526,12 @@ func TestPhaseOneRecitationAnalyzeFallback(t *testing.T) {
 	if !payload.Analysis.NeedsRetry {
 		t.Fatalf("expected noisy transcript to still require retry, got %+v", payload.Analysis)
 	}
+	if payload.Analysis.RetryRecommendation == "" || payload.Analysis.RecommendationReason == "" {
+		t.Fatalf("expected retry recommendation explainability fields, got %+v", payload.Analysis)
+	}
+	if len(payload.Analysis.Explainability) == 0 {
+		t.Fatalf("expected explainability traces, got %+v", payload.Analysis)
+	}
 }
 
 func TestPhaseOneDraftParsePreservesLearningReferenceMetadata(t *testing.T) {
@@ -564,6 +640,15 @@ func TestPhaseOneWordListDictationAndStatsFlow(t *testing.T) {
 	if startPayload.Session.SessionID == "" || startPayload.Session.CurrentItem == nil || startPayload.Session.CurrentItem.Text != "apple" {
 		t.Fatalf("unexpected started session: %+v", startPayload.Session)
 	}
+	if startPayload.Session.Mode != "dictation" || startPayload.Session.Scene != "word_list" {
+		t.Fatalf("expected stable mode/scene contract, got %+v", startPayload.Session)
+	}
+	if startPayload.Session.AnalysisSummary.Status != "not_started" || startPayload.Session.AnalysisSummary.Recommendation == "" {
+		t.Fatalf("expected analysis summary defaults, got %+v", startPayload.Session.AnalysisSummary)
+	}
+	if startPayload.Session.StartedAt == "" {
+		t.Fatalf("expected started_at to be populated, got %+v", startPayload.Session)
+	}
 
 	replayRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/dictation-sessions/"+startPayload.Session.SessionID+"/replay", nil)
 	if replayRecorder.Code != http.StatusOK {
@@ -581,6 +666,9 @@ func TestPhaseOneWordListDictationAndStatsFlow(t *testing.T) {
 	}
 	if nextPayload.Session.CurrentIndex != 1 || nextPayload.Session.CurrentItem == nil || nextPayload.Session.CurrentItem.Text != "orange" {
 		t.Fatalf("unexpected advanced session: %+v", nextPayload.Session)
+	}
+	if nextPayload.Session.EndedAt != "" {
+		t.Fatalf("expected ended_at to remain empty before completion, got %+v", nextPayload.Session)
 	}
 
 	dailyStatsRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/stats/daily?family_id=306&user_id=1&date=2026-03-15", nil)

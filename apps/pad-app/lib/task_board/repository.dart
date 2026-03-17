@@ -63,6 +63,11 @@ abstract interface class TaskBoardRepository {
     required VoiceCommandContext context,
   });
 
+  Future<void> saveVoiceLearningSession(
+    String apiBaseUrl, {
+    required Map<String, dynamic> payload,
+  });
+
   Future<RecitationAnalysis> analyzeRecitation(
     String apiBaseUrl, {
     required String transcript,
@@ -310,6 +315,18 @@ class RemoteTaskBoardRepository implements TaskBoardRepository {
     );
     return VoiceCommandResolution.fromJson(
       payload['resolution'] as Map<String, dynamic>,
+    );
+  }
+
+  @override
+  Future<void> saveVoiceLearningSession(
+    String apiBaseUrl, {
+    required Map<String, dynamic> payload,
+  }) async {
+    await clientFactory(apiBaseUrl).send(
+      'POST',
+      '/api/v1/voice-learning-sessions',
+      body: payload,
     );
   }
 

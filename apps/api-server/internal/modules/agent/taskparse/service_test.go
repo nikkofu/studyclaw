@@ -248,7 +248,7 @@ func TestParseFallbackRegressionReviewMatrix(t *testing.T) {
 		{
 			name:        "continuation with explicit target stays actionable",
 			rawText:     "数学：\n1. 继续完成校本P18",
-			title:       "继续完成校本P18",
+			title:       "校本P18",
 			needsReview: false,
 		},
 		{
@@ -323,8 +323,8 @@ func TestParseFallbackNormalTasksAvoidFalsePositiveNeedsReview(t *testing.T) {
 	}
 
 	expectedSafeTitles := []string{
-		"完成口算本第5页",
-		"继续完成校本P19",
+		"口算本第5页",
+		"校本P19",
 		"订正第2页错题",
 		"阅读《假若给我三天光明》并摘抄好词",
 		"圈画生字",
@@ -350,7 +350,7 @@ func TestParseFallbackInfersLearningTaskTypes(t *testing.T) {
 		t.Fatalf("expected reading task type, got %+v", readingTask)
 	}
 
-	normalMath := findTaskByTitle(t, result.Data, "完成口算本第5页")
+	normalMath := findTaskByTitle(t, result.Data, "口算本第5页")
 	if normalMath.Type != "homework" {
 		t.Fatalf("expected normal math task to stay homework, got %+v", normalMath)
 	}
@@ -466,6 +466,65 @@ func TestParseHybridReappliesDeterministicReviewRules(t *testing.T) {
 	}
 	if !containsString(task.Notes, "订正/续做任务未写明具体对象，建议家长确认完成内容。") {
 		t.Fatalf("expected ambiguous target note, got %+v", task.Notes)
+	}
+}
+
+func TestParseHybridCollapsesSimpleEquivalentTaskTitles(t *testing.T) {
+	service := NewService(&stubLLMClient{
+		response: `{"status":"success","data":[{"subject":"数学","group_title":"完成校本P14～15","title":"完成校本P14～15","type":"homework","confidence":0.95,"needs_review":false,"notes":[]},{"subject":"数学","group_title":"完成练习册P12～13","title":"完成练习册P12～13","type":"homework","confidence":0.95,"needs_review":false,"notes":[]}]}`,
+	})
+
+	result, err := service.Parse(context.Background(), "数学：\n1、校本P14～15\n2、练习册P12～13")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if result.ParserMode != "llm_hybrid" {
+		t.Fatalf("expected llm_hybrid parser mode, got %s", result.ParserMode)
+	}
+	if len(result.Data) != 2 {
+		t.Fatalf("expected 2 merged tasks, got %+v", result.Data)
+	}
+
+	first := findTaskByTitle(t, result.Data, "校本P14～15")
+	if first.Subject != "数学" || first.GroupTitle != "校本P14～15" {
+		t.Fatalf("expected canonical simple task to remain, got %+v", first)
+	}
+
+	second := findTaskByTitle(t, result.Data, "练习册P12～13")
+	if second.Subject != "数学" || second.GroupTitle != "练习册P12～13" {
+		t.Fatalf("expected second canonical simple task to remain, got %+v", second)
+	}
+
+	for _, unexpected := range []string{"完成校本P14～15", "完成练习册P12～13"} {
+		for _, task := range result.Data {
+			if task.Title == unexpected {
+				t.Fatalf("expected semantic duplicate %q to be removed: %+v", unexpected, result.Data)
+			}
+		}
+	}
+}
+
+func TestParseHybridPreservesRealMultiStepTasks(t *testing.T) {
+	service := NewService(&stubLLMClient{
+		response: `{"status":"success","data":[{"subject":"英语","group_title":"预习M1U2","title":"书本上标注好“黄页”出现单词的音标","type":"homework","confidence":0.95,"needs_review":false,"notes":[]}]}`,
+	})
+
+	result, err := service.Parse(context.Background(), "英语：\n1. 预习M1U2\n（1）书本上标注好“黄页”出现单词的音标\n（2）抄写单词（今天默写全对，可免抄）\n（3）沪学习听录音跟读")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if result.ParserMode != "llm_hybrid" {
+		t.Fatalf("expected llm_hybrid parser mode, got %s", result.ParserMode)
+	}
+	if len(result.Data) != 3 {
+		t.Fatalf("expected 3 tasks after fallback fill, got %+v", result.Data)
+	}
+	if !containsString(result.Analysis.Notes, "LLM 结果缺失的 2 条任务已由结构兜底补全。") {
+		t.Fatalf("expected merge note for missing substeps, got %+v", result.Analysis.Notes)
+	}
+
+	for _, expected := range []string{"书本上标注好“黄页”出现单词的音标", "抄写单词（今天默写全对，可免抄）", "沪学习听录音跟读"} {
+		findTaskByTitle(t, result.Data, expected)
 	}
 }
 

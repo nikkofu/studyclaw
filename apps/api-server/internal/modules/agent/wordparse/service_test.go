@@ -69,6 +69,86 @@ func TestDecodeGradeResultWrapped(t *testing.T) {
 	}
 }
 
+func TestDecodeGradeResultNormalizesEnglishFeedbackAndKeepsMarkRegions(t *testing.T) {
+	raw := `{
+		"status": "success",
+		"score": 90,
+		"annotated_photo_url": "https://example.com/graded.png",
+		"annotated_photo_width": 1200,
+		"annotated_photo_height": 900,
+		"mark_regions": [
+			{
+				"index": 2,
+				"expected": "library",
+				"actual": "libary",
+				"is_correct": false,
+				"left": 0.12,
+				"top": 0.3,
+				"width": 0.2,
+				"height": 0.08,
+				"marker_label": "❌"
+			}
+		],
+		"graded_items": [
+			{
+				"index": 2,
+				"expected": "library",
+				"meaning": "图书馆",
+				"actual": "libary",
+				"is_correct": false,
+				"comment": "少了 r",
+				"needs_retry": true
+			}
+		],
+		"feedback": "All English words are correct!"
+	}`
+
+	result, err := decodeGradeResult(raw)
+	if err != nil {
+		t.Fatalf("decode grade result with mark regions: %v", err)
+	}
+
+	if result.Feedback == "All English words are correct!" {
+		t.Fatalf("expected english feedback to be normalized, got %q", result.Feedback)
+	}
+	if result.AnnotatedPhotoURL != "https://example.com/graded.png" {
+		t.Fatalf("expected annotated photo url to survive decode, got %q", result.AnnotatedPhotoURL)
+	}
+	if len(result.MarkRegions) != 1 {
+		t.Fatalf("expected 1 mark region, got %d", len(result.MarkRegions))
+	}
+	if result.MarkRegions[0].MarkerLabel != "❌" {
+		t.Fatalf("expected marker label ❌, got %+v", result.MarkRegions[0])
+	}
+}
+
+func TestDecodeGradeResultGeneratesChineseFallbackWhenFeedbackMissing(t *testing.T) {
+	raw := `{
+		"status": "success",
+		"score": 100,
+		"graded_items": [
+			{
+				"index": 1,
+				"expected": "touch",
+				"meaning": "触碰",
+				"actual": "touch",
+				"is_correct": true,
+				"comment": "正确",
+				"needs_retry": false
+			}
+		],
+		"feedback": ""
+	}`
+
+	result, err := decodeGradeResult(raw)
+	if err != nil {
+		t.Fatalf("decode grade result with empty feedback: %v", err)
+	}
+	if result.Feedback == "" {
+		t.Fatal("expected fallback chinese feedback to be generated")
+	}
+}
+
 func TestDecodeGradeResultRejectsIncompleteWrapper(t *testing.T) {
 	raw := `{"data":{"status":"success"}}`
 

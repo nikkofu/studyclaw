@@ -52,6 +52,8 @@ flutter drive \
 
 - Pad 默认示例数据仍使用 `family_id=306`、`user_id=1`，方便和 API / 演示清单保持一致。
 - `flutter build web` 当前会打印 `flutter_tts` 的 wasm dry-run warning，但产物构建成功，不影响现阶段 HTML/Web 交付。
+- 当前仓库仍以 HTML/Web 调试与交付为目标，而不是 wasm 发布目标；因此这条 warning 继续按非阻塞处理。
+- 若后续要把 wasm 作为正式目标，应优先评估 `flutter_tts` 的 Web 兼容性，必要时改为仅在非 Web/非 wasm 路径启用该依赖或替换为更稳的 Web TTS 方案。
 - 语音助手当前优先面向 Chrome / Edge 等支持麦克风与 Web Speech 的浏览器；首次使用时需要允许麦克风权限。
 - 真正的词单来源已经切到后端；Pad 不再以本地临时词单作为正式事实源。
 

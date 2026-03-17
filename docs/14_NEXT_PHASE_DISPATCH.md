@@ -8,11 +8,12 @@
 
 适用状态：
 
-- 日期：`2026-03-14`
-- 当前正式基线：`v0.3.5`
-- 当前目标版本：`v0.4.0`
-- 当前结论：`第一阶段已交付，进入第二阶段 Agentic 学习助手建设`
-- 当前已落地切片：`reference_source` 已在 parse / draft / confirm / task board / Pad metadata 端到端打通
+- 日期：`2026-03-16`
+- 当前正式基线：`v0.4.0`
+- 当前目标版本：`v0.4.1`
+- 当前结论：`第二阶段主链已正式签收，v0.4.0 已成为当前 Agentic 学习助手正式基线`
+- 当前已完成：学习素材来源可追溯、Pad 持续监听不因短暂停顿自动退出、transcript 分段时间线、背诵/朗读 noisy transcript 对齐增强、家长端语音学习结果摘要复盘闭环
+- 下一阶段重点：语音稳定化、时间线体验优化、评测误判回归与家长端解释可读性提升
 
 必须先阅读的主文档：
 
@@ -70,6 +71,35 @@
 8. `preflight / smoke / demo / go test / web test-build / pad analyze-test-build` 全部通过
 
 ## 3. 本轮工作流总表
+
+治理约束（接管后统一执行）：
+
+- 所有 lane 必须围绕家庭学习主环路交付，不新增偏离主线的“炫技需求”
+- 业务状态坚持确定性优先，Agent 输出不能直接改任务状态、积分或统计事实
+- 执行顺序按依赖推进：`SC-01` 冻结契约 -> `SC-03/SC-04` 对齐消费 -> `SC-05` 验收收口，`SC-02` 贯穿提供分析能力
+- 文档口径以 `README.md`、`docs/03_ROADMAP.md`、`docs/14_NEXT_PHASE_DISPATCH.md`、`docs/17_DELIVERY_READINESS.md` 为接管后四份 canonical 文档
+
+### 3.1 `v0.4.0` Integration / Release Gates（跨端切片）
+
+为避免“功能做完但无法交接”，本轮所有跨端切片统一按以下 gate 推进。每过一层 gate，才允许进入下一层。
+
+| Gate | 目标 | 必跑命令 / 操作 | 通过标准 | 证据落点 |
+| --- | --- | --- | --- | --- |
+| `G0-Verification` | 本地环境与 release 范围可验证 | `bash scripts/check_no_tracked_runtime_env.sh`<br>`bash scripts/preflight_local_env.sh`<br>`bash scripts/check_release_scope.sh` | 无运行时密钥泄漏；环境依赖齐全；工作区不含禁止发布路径 | `docs/13_RELEASE_CHECKLIST.md`、`docs/17_DELIVERY_READINESS.md` |
+| `G1-Smoke` | 三端最小可运行主链打通 | `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 bash scripts/smoke_local_stack.sh` | API 健康、最小任务板链路、Parent build、Pad web build 全部通过 | `docs/17_DELIVERY_READINESS.md`、`docs/19_DELIVERY_UAT_CASES.md` |
+| `G2-Demo` | 可演示的跨端业务故事成立 | `STUDYCLAW_SMOKE_API_BASE_URL=http://127.0.0.1:38080 STUDYCLAW_PARENT_WEB_URL=http://127.0.0.1:5173 bash scripts/demo_local_stack.sh` | 能按 runbook 完成 `发布 -> 孩子执行 -> 家长复盘` 演示路径 | `docs/06_RUNBOOK.md`、`docs/16_FIRST_PHASE_DEMO_CHECKLIST.md` |
+| `G3-Acceptance` | `v0.4.0` 切片级签收可复核 | 按 `docs/19_DELIVERY_UAT_CASES.md` 执行对应切片用例（含语音、背诵分析、学习素材管理） | 每个切片至少 1 条跨端主用例通过，并能回填风险/未完成项 | `docs/19_DELIVERY_UAT_CASES.md`、PR 描述或 release notes |
+
+跨端切片统一最小口径（用于 `G3`）：
+
+1. **学习素材切片**：Parent 发布/审核字段 -> API 持久化 -> Pad 读取元数据一致。
+2. **语音学习切片**：Pad 语音输入/分段 -> API 分析返回 -> Parent 可复盘结果。
+3. **任务与反馈切片**：Parent 发布 -> Pad 完成 -> Parent 日/月反馈与积分变化一致。
+
+说明：
+
+- `G0~G3` 是本轮 `SC-05-INTEGRATION` 的统一出口标准；未通过 `G3` 的切片不得标记“可发布”。
+- 若本轮只改文档或脚本，也至少要重新执行 `G0`，并在 PR 中说明未触发的 gate 原因。
 
 | Codex | 本轮主目标 | 优先级 | 交付物 |
 | --- | --- | --- | --- |

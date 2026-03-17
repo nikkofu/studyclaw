@@ -1,6 +1,8 @@
 # StudyClaw 发布前检查清单
 
-本文档用于 `v0.3.5` 正式发版前检查。只要有一项不满足，就不应该把仓库当作下一阶段前的正式基线。
+本文档当前用于 `v0.4.0` 正式发版前检查。`2026-03-16` 的最新结论是：学习素材前置、Pad 持续监听、transcript 分段与时间点、背诵/朗读分析增强、家长端语音学习结果摘要复盘、以及三端验证均已完成，因此可以按 `v0.4.0` 进入正式发版准备。
+
+本文档用于 `v0.4.0` 正式发版前检查。只要有一项不满足，就不应该把仓库当作新的正式基线。
 
 ## 1. 版本与文档同步
 
@@ -70,8 +72,9 @@ bash scripts/demo_local_stack.sh
 
 同时建议完成：
 
+- [x] `bash scripts/probe_local_stack.sh`
 - [x] `curl http://127.0.0.1:5173/`
-- [x] `curl http://127.0.0.1:55771/`
+- [x] Pad Web 已通过 `bash scripts/probe_local_stack.sh` 确认端口存活；若 `flutter run -d web-server` 调试态下根路径返回 `404`，按当前 runbook 口径视为非阻塞
 - [x] `docs/19_DELIVERY_UAT_CASES.md` 中的主线用例已按 widget / API / build 回归方式覆盖当前主链路
 
 说明：

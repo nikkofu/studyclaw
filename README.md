@@ -8,9 +8,17 @@ StudyClaw 是一套面向家庭学习场景的三端协同系统：
 
 ## 当前阶段
 
-- 当前交付版本：`v0.3.5`
-- 当前状态：`v0.3.5` 已作为稳定交付基线；当前主干继续推进 `v0.4.0`，并已落地第一条“学习素材来源可追溯”切片
-- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一到 `v0.3.5` 基线
+- 当前交付版本：`v0.4.0`
+- 当前状态：`v0.4.0` 已完成第二阶段正式收口，当前主干正式基线已从 `v0.3.5` 切换到 `v0.4.0`
+- 当前审计结论：`v0.4.0` 已覆盖学习素材前置、Pad 持续监听、transcript 分段、背诵/朗读分析增强，以及家长端语音学习结果摘要复盘闭环
+- 版本对齐：根文档、`apps/parent-web/package.json`、`apps/pad-app/pubspec.yaml` 已统一切换到 `v0.4.0` 基线
+
+## 接管治理基线（`v0.4.0`）
+
+- 核心主题：围绕家庭学习主环路推进——`家长准备学习素材 -> 孩子语音学习 -> 系统给出 grounded 分析 -> 家长复盘与干预`
+- 架构边界：坚持“确定性状态机 / 业务事实源在 API，Agent 只做解释与增强”
+- 执行顺序：`API 契约冻结 -> Pad 语音主链补齐 -> Parent 复盘入口补齐 -> 集成验收与发版收口`
+- 协作结构：按 `SC-01` 到 `SC-05` 五个 lane 并行推进，`SC-05-INTEGRATION` 负责跨文档与交付口径统一
 
 ## 当前已闭环能力
 
@@ -94,6 +102,14 @@ bash scripts/preflight_local_env.sh
 
 ### 2. 启动 API / Parent / Pad
 
+推荐先查看统一启动提示：
+
+```bash
+bash scripts/start_local_stack.sh
+```
+
+再按提示分别在 **各自 app 目录** 启动三端：
+
 ```bash
 # API
 cd apps/api-server
@@ -109,6 +125,16 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
   --dart-define=API_BASE_URL=http://127.0.0.1:38080
 ```
 
+注意：
+
+- 这三个命令**不能**在仓库根目录直接运行；必须先进入对应子目录，否则会出现 `go mod` / `package.json` / `pubspec.yaml` 找不到的错误。
+- `flutter run -d web-server` 在本地调试时可能不会让 `http://127.0.0.1:55771/` 直接返回 HTML；Pad Web 是否已启动，应优先以 Flutter 控制台输出和端口存活为准。
+- 三端启动后可执行：
+
+```bash
+bash scripts/probe_local_stack.sh
+```
+
 ### 3. 冒烟和演示入口
 
 ```bash
@@ -121,10 +147,10 @@ bash scripts/demo_local_stack.sh
 ## 交付文档
 
 - 运行手册：[docs/06_RUNBOOK.md](docs/06_RUNBOOK.md)
-- 用户操作手册：[docs/USER_MANUAL_V0.3.5.md](docs/USER_MANUAL_V0.3.5.md)
+- 用户操作手册：[docs/USER_MANUAL_V0.4.0.md](docs/USER_MANUAL_V0.4.0.md)
 - 家长端移动 H5 操作手册：[docs/PARENT_WEB_H5_MANUAL.md](docs/PARENT_WEB_H5_MANUAL.md)
-- 阶段一页摘要：[docs/30_PHASE_ONE_PAGER_V0.3.5.md](docs/30_PHASE_ONE_PAGER_V0.3.5.md)
-- `v0.3.5` 发布说明：[docs/29_RELEASE_NOTES_V0.3.5.md](docs/29_RELEASE_NOTES_V0.3.5.md)
+- 阶段一页摘要：[docs/32_PHASE_ONE_PAGER_V0.4.0.md](docs/32_PHASE_ONE_PAGER_V0.4.0.md)
+- `v0.4.0` 发布说明：[docs/31_RELEASE_NOTES_V0.4.0.md](docs/31_RELEASE_NOTES_V0.4.0.md)
 - 交付就绪审计：[docs/17_DELIVERY_READINESS.md](docs/17_DELIVERY_READINESS.md)
 - 交付验收用例：[docs/19_DELIVERY_UAT_CASES.md](docs/19_DELIVERY_UAT_CASES.md)
 - Release 同步手册：[docs/20_RELEASE_SYNC_PLAYBOOK.md](docs/20_RELEASE_SYNC_PLAYBOOK.md)
@@ -143,8 +169,9 @@ bash scripts/demo_local_stack.sh
 - `v0.3.2` 已作为上一版正式标签保留
 - `v0.3.3` 已作为历史正式标签和 GitHub release 基线同步
 - `v0.3.4` 已作为上一版正式标签和 GitHub release 基线同步
-- `v0.3.5` 已作为当前正式标签和 GitHub release 基线同步
-- 当前正式发版范围包括 release scope 校验脚本硬化、三端联调证据回填、发布说明与交付文档同步
+- `v0.3.5` 已作为上一版正式标签和 GitHub release 基线同步
+- `v0.4.0` 已作为当前正式标签和 GitHub release 基线准备口径
+- 当前正式发版范围包括学习素材前置、Pad 语音工作台主链、语音学习结果摘要复盘闭环和版本文档同步
 
 ## 许可
 

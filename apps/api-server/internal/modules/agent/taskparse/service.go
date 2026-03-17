@@ -48,17 +48,18 @@ var (
 	taskTargetReferencePattern = regexp.MustCompile(`[A-Za-z]+\d+|\d`)
 	jsonFencePattern           = regexp.MustCompile("(?s)^```(?:json)?\\s*(.*?)\\s*```$")
 	quotedTitlePattern         = regexp.MustCompile(`《([^》]+)》`)
-	learningActionTitlePattern = regexp.MustCompile(`(?:背诵|朗读|跟读|诵读|朗诵)\s*[《“"]?([^》”"，。；、\s]{2,30})[》”"]?`)
+	learningActionTitlePattern = regexp.MustCompile(`(?:背诵|朗读|跟读|诵读|朗诵)\s*[《“"]?([^》””，。；、\s]{2,30})[》”"]?`)
 	referenceHeaderPattern     = regexp.MustCompile(`^(.*?)[【\[\(（〔][^】\]\)）〕]{1,12}[】\]\)）〕]\s*([^\s]{1,16})$`)
 	referenceAuthorPattern     = regexp.MustCompile(`^作者[:：]\s*([^\s]{1,16})$`)
 	conditionalSignalKeywords  = []string{"可免", "选做", "如需", "如果", "酌情", "全对", "完成后", "做完后"}
 	conditionalSignalPatterns  = []*regexp.Regexp{
 		regexp.MustCompile(`(^|[，,；;。:：\s])若(?:有|需|未|完成|全对|正确|时间|背会|默写)`),
 	}
-	audienceSignalKeywords = []string{"部分学生", "个别同学", "相关同学", "有需要的同学", "需要的同学", "未完成的同学", "未交的同学", "没交的同学"}
-	correctionKeywords     = []string{"订正", "改错", "更正"}
-	continuationKeywords   = []string{"续做", "继续", "接着", "补做"}
-	taskTargetKeywords     = []string{
+	audienceSignalKeywords   = []string{"部分学生", "个别同学", "相关同学", "有需要的同学", "需要的同学", "未完成的同学", "未交的同学", "没交的同学"}
+	correctionKeywords       = []string{"订正", "改错", "更正"}
+	continuationKeywords     = []string{"续做", "继续", "接着", "补做"}
+	simpleTaskActionPrefixes = []string{"继续完成", "完成", "做完", "去做", "做"}
+	taskTargetKeywords       = []string{
 		"本", "卷", "册", "页", "课", "课文", "单词", "错词", "错题", "练习", "练习册", "试卷",
 		"校本", "作业", "口算", "作文", "默写", "听写", "知识点", "音标", "录音", "题",
 	}
@@ -279,6 +280,88 @@ func normalizeComparisonText(value string) string {
 		}
 	}
 	return builder.String()
+}
+
+func normalizeSimpleTaskDisplay(value string) string {
+	trimmed := normalizedKeywordText(trimStructuralMarker(value))
+	if trimmed == "" {
+		return ""
+	}
+	for _, prefix := range simpleTaskActionPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			candidate := strings.TrimSpace(strings.TrimLeft(trimmed[len(prefix):], "：:，,。；; "))
+			if candidate != "" && hasExplicitTaskTarget(candidate) {
+				return candidate
+			}
+			break
+		}
+	}
+	return trimmed
+}
+
+func normalizeSimpleTaskEquivalent(value string) string {
+	trimmed := normalizeSimpleTaskDisplay(value)
+	if trimmed == "" {
+		return ""
+	}
+	return normalizeComparisonText(trimmed)
+}
+
+func taskSemanticKey(task ParsedTask) string {
+	subjectKey := normalizeComparisonText(task.Subject)
+	groupKey := normalizeComparisonText(task.GroupTitle)
+	titleKey := normalizeComparisonText(task.Title)
+	if groupKey == "" {
+		groupKey = titleKey
+	}
+
+	titleEquivalent := normalizeSimpleTaskEquivalent(task.Title)
+	groupEquivalent := normalizeSimpleTaskEquivalent(task.GroupTitle)
+	if titleEquivalent != "" && groupEquivalent != "" && titleEquivalent == groupEquivalent {
+		return subjectKey + "\x00simple\x00" + titleEquivalent
+	}
+
+	return subjectKey + "\x00" + groupKey + "\x00" + titleKey
+}
+
+func mergeTaskIdentity(primary ParsedTask, fallback ParsedTask) ParsedTask {
+	merged := primary
+	if strings.TrimSpace(merged.Subject) == "" {
+		merged.Subject = fallback.Subject
+	}
+	if strings.TrimSpace(merged.GroupTitle) == "" {
+		merged.GroupTitle = fallback.GroupTitle
+	}
+	if strings.TrimSpace(merged.Title) == "" {
+		merged.Title = fallback.Title
+	}
+	if normalizeLearningTaskType(merged.Type) == "homework" && normalizeLearningTaskType(fallback.Type) != "homework" {
+		merged.Type = fallback.Type
+	}
+	if fallback.Confidence > 0 && (merged.Confidence <= 0 || fallback.Confidence > merged.Confidence) {
+		merged.Confidence = fallback.Confidence
+	}
+	merged.NeedsReview = merged.NeedsReview || fallback.NeedsReview
+	merged.Notes = mergeNotes(merged.Notes, fallback.Notes...)
+	if strings.TrimSpace(merged.ReferenceTitle) == "" {
+		merged.ReferenceTitle = fallback.ReferenceTitle
+	}
+	if strings.TrimSpace(merged.ReferenceAuthor) == "" {
+		merged.ReferenceAuthor = fallback.ReferenceAuthor
+	}
+	if strings.TrimSpace(merged.ReferenceText) == "" {
+		merged.ReferenceText = fallback.ReferenceText
+	}
+	if strings.TrimSpace(merged.ReferenceSource) == "" {
+		merged.ReferenceSource = fallback.ReferenceSource
+	}
+	if !merged.HideReferenceFromChild {
+		merged.HideReferenceFromChild = fallback.HideReferenceFromChild
+	}
+	if strings.TrimSpace(merged.AnalysisMode) == "" {
+		merged.AnalysisMode = fallback.AnalysisMode
+	}
+	return finalizeLearningReferenceFields(merged)
 }
 
 func splitRawMessageLines(rawText string) []string {
@@ -1122,6 +1205,19 @@ func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
 	}
 	groupTitle = strings.TrimSpace(whitespacePattern.ReplaceAllString(groupTitle, " "))
 
+	titleEquivalent := normalizeSimpleTaskEquivalent(title)
+	groupEquivalent := normalizeSimpleTaskEquivalent(groupTitle)
+	if titleEquivalent != "" && groupEquivalent != "" && titleEquivalent == groupEquivalent {
+		canonicalTitle := normalizeSimpleTaskDisplay(title)
+		canonicalGroupTitle := normalizeSimpleTaskDisplay(groupTitle)
+		if canonicalTitle != "" {
+			title = canonicalTitle
+		}
+		if canonicalGroupTitle != "" {
+			groupTitle = canonicalGroupTitle
+		}
+	}
+
 	confidence := item.Confidence
 
 	notes := make([]string, 0, len(item.Notes))
@@ -1161,7 +1257,7 @@ func normalizeTaskItem(item ParsedTask) (ParsedTask, bool) {
 
 func normalizeTaskList(items []ParsedTask) []ParsedTask {
 	normalized := make([]ParsedTask, 0, len(items))
-	seen := make(map[string]struct{})
+	seen := make(map[string]int)
 
 	for _, item := range items {
 		task, ok := normalizeTaskItem(item)
@@ -1169,12 +1265,13 @@ func normalizeTaskList(items []ParsedTask) []ParsedTask {
 			continue
 		}
 
-		key := task.Subject + "\x00" + task.GroupTitle + "\x00" + task.Title
-		if _, exists := seen[key]; exists {
+		key := taskSemanticKey(task)
+		if existingIndex, exists := seen[key]; exists {
+			normalized[existingIndex] = mergeTaskIdentity(normalized[existingIndex], task)
 			continue
 		}
 
-		seen[key] = struct{}{}
+		seen[key] = len(normalized)
 		normalized = append(normalized, task)
 	}
 
@@ -1184,20 +1281,20 @@ func normalizeTaskList(items []ParsedTask) []ParsedTask {
 func mergeTaskLists(primary []ParsedTask, fallback []ParsedTask) ([]ParsedTask, []string) {
 	merged := normalizeTaskList(primary)
 	fallbackNormalized := normalizeTaskList(fallback)
-	existing := make(map[string]struct{}, len(merged))
-	for _, task := range merged {
-		key := task.Subject + "\x00" + task.GroupTitle + "\x00" + task.Title
-		existing[key] = struct{}{}
+	existing := make(map[string]int, len(merged))
+	for index, task := range merged {
+		existing[taskSemanticKey(task)] = index
 	}
 
 	mergedCount := 0
 	for _, task := range fallbackNormalized {
-		key := task.Subject + "\x00" + task.GroupTitle + "\x00" + task.Title
-		if _, exists := existing[key]; exists {
+		key := taskSemanticKey(task)
+		if existingIndex, exists := existing[key]; exists {
+			merged[existingIndex] = mergeTaskIdentity(merged[existingIndex], task)
 			continue
 		}
 
-		existing[key] = struct{}{}
+		existing[key] = len(merged)
 		merged = append(merged, task)
 		mergedCount++
 	}

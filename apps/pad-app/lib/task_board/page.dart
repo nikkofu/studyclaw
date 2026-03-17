@@ -1486,6 +1486,84 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
         scene == _LearningScene.reading;
   }
 
+  Future<void> _persistVoiceLearningSession({
+    required _SpeechWorkbenchMode mode,
+    required _LearningScene scene,
+    required List<_SpeechSegment> segments,
+    required String transcript,
+    required String summaryMessage,
+    required String encouragementMessage,
+    required DateTime startedAt,
+    required DateTime finishedAt,
+    RecitationAnalysis? recitationAnalysis,
+  }) async {
+    if (!_hasUsableApiBaseUrl()) {
+      return;
+    }
+    final request = _buildRequest();
+    if (request == null) {
+      return;
+    }
+    final referenceTask = _currentReferenceTaskForState(_voiceAssistantState);
+    await widget.repository.saveVoiceLearningSession(
+      _apiBaseUrlController.text.trim(),
+      payload: {
+        'family_id': request.familyId,
+        'child_id': request.userId,
+        'assigned_date': request.date,
+        'mode': mode.name,
+        'scene': scene.name,
+        if (referenceTask != null) 'task_id': referenceTask.taskId,
+        if (referenceTask != null) 'task_title': referenceTask.content,
+        if (referenceTask != null) 'task_type': referenceTask.taskType,
+        if (referenceTask != null) 'reference_title': referenceTask.referenceTitle,
+        if (referenceTask != null) 'reference_author': referenceTask.referenceAuthor,
+        if (referenceTask != null) 'reference_source': referenceTask.referenceSource,
+        if (referenceTask != null)
+          'hide_reference_from_child': referenceTask.hideReferenceFromChild,
+        'merged_transcript': transcript,
+        'summary': summaryMessage,
+        'encouragement': encouragementMessage,
+        'started_at': startedAt.toUtc().toIso8601String(),
+        'ended_at': finishedAt.toUtc().toIso8601String(),
+        'transcript_segments': segments
+            .where((item) => item.text.trim().isNotEmpty)
+            .map((item) => {
+                  'sequence': item.index,
+                  'started_at': item.capturedAt.toUtc().toIso8601String(),
+                  'ended_at': item.capturedAt.toUtc().toIso8601String(),
+                  'transcript': item.text,
+                  'source': item.isLive ? 'live' : 'recognizer',
+                })
+            .toList(),
+        if (recitationAnalysis != null)
+          'analysis': {
+            'recognized_title': recitationAnalysis.recognizedTitle,
+            'recognized_author': recitationAnalysis.recognizedAuthor,
+            'reference_title': recitationAnalysis.referenceTitle,
+            'reference_author': recitationAnalysis.referenceAuthor,
+            'completion_ratio': recitationAnalysis.completionRatio,
+            'needs_retry': recitationAnalysis.needsRetry,
+            'summary': recitationAnalysis.summary,
+            'suggestion': recitationAnalysis.suggestion,
+            'issues': recitationAnalysis.issues,
+            'parser_mode': recitationAnalysis.parserMode,
+            'normalized_transcript': recitationAnalysis.normalizedTranscript,
+            'matched_lines': recitationAnalysis.matchedLines
+                .map((line) => {
+                      'index': line.index,
+                      'expected': line.expected,
+                      'observed': line.observed,
+                      'match_ratio': line.matchRatio,
+                      'status': line.status,
+                      'notes': line.notes,
+                    })
+                .toList(),
+          },
+      },
+    );
+  }
+
   Map<String, String> _buildRecitationAnalysisMetadata(
       {TaskItem? referenceTask}) {
     return <String, String>{
@@ -1920,6 +1998,17 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
             liveSegmentText: null,
           );
         });
+        unawaited(_persistVoiceLearningSession(
+          mode: mode,
+          scene: scene,
+          segments: segments,
+          transcript: normalized,
+          summaryMessage: summaryMessage,
+          encouragementMessage: encouragementMessage,
+          startedAt: _voiceAssistantState.sessionStartedAt ?? finishedAt,
+          finishedAt: finishedAt,
+          recitationAnalysis: recitationAnalysis,
+        ));
         _maybeAutoSpeakVoiceWorkbenchEncouragement(encouragementMessage);
         return;
       }
@@ -3602,6 +3691,163 @@ class _RecitationLineTile extends StatelessWidget {
   }
 }
 
+String _formatScoreSummary(DictationGradingResult result) {
+  if (result.incorrectCount <= 0) {
+    return '本次共 ${result.gradedItems.length} 个词，全对，得分 ${result.score}。';
+  }
+  return '本次共 ${result.gradedItems.length} 个词，错 ${result.incorrectCount} 个，得分 ${result.score}。';
+}
+
+String _formatWordCorrectionComment(DictationGradedItem item) {
+  final comment = item.comment?.trim() ?? '';
+  if (comment.isNotEmpty) {
+    return comment;
+  }
+  if (item.actual.trim().isEmpty) {
+    return '这一处没有识别清楚，订正时写完整一点。';
+  }
+  return '对照正确写法再认真订正一次。';
+}
+
+void _showAnnotatedResultPreview(
+  BuildContext context,
+  DictationGradingResult result,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 820),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '错词标注大图',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        color: Colors.white,
+                        child: result.hasAnnotatedPhoto
+                            ? Image.network(
+                                result.annotatedPhotoUrl!,
+                                fit: BoxFit.contain,
+                              )
+                            : Container(
+                                color: KidColors.color4.withAlpha(30),
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.photo_camera_back_rounded,
+                                    size: 64,
+                                    color: KidColors.black,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      if (result.markRegions.isNotEmpty)
+                        Positioned.fill(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              return Stack(
+                                children: result.markRegions
+                                    .map((region) => Positioned(
+                                          left: constraints.maxWidth *
+                                              region.left.clamp(0, 1),
+                                          top: constraints.maxHeight *
+                                              region.top.clamp(0, 1),
+                                          width: constraints.maxWidth *
+                                              region.width.clamp(0, 1),
+                                          height: constraints.maxHeight *
+                                              region.height.clamp(0, 1),
+                                          child: Container(
+                                            alignment: Alignment.topLeft,
+                                            decoration: BoxDecoration(
+                                              border: Border.all(
+                                                color: region.isCorrect
+                                                    ? KidColors.color3
+                                                    : KidColors.color5,
+                                                width: 3,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              color: (region.isCorrect
+                                                      ? KidColors.color3
+                                                      : KidColors.color5)
+                                                  .withAlpha(26),
+                                            ),
+                                            child: Container(
+                                              margin: const EdgeInsets.all(6),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: region.isCorrect
+                                                    ? KidColors.color3
+                                                    : KidColors.color5,
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: Text(
+                                                region.markerLabel?.trim().isNotEmpty ==
+                                                        true
+                                                    ? region.markerLabel!
+                                                    : (region.isCorrect
+                                                        ? '✅'
+                                                        : '❌'),
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ))
+                                    .toList(),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (result.incorrectCount > 0) ...[
+              const SizedBox(height: 16),
+              Text(
+                '需要订正的单词：${result.incorrectCount} 个',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _WordPlaybackPanel extends StatelessWidget {
   const _WordPlaybackPanel(
       {required this.state,
@@ -3627,6 +3873,12 @@ class _WordPlaybackPanel extends StatelessWidget {
   String get _instructionText {
     if (state.waitingForParentWordList) return '等家长补充词单后再来默写';
     if (!state.hasWords) return '请同步词单';
+    if (state.session?.hasGradingResult == true) {
+      return '看看这次批改结果，把需要订正的单词认真改好。';
+    }
+    if (state.session?.isGradingPending == true) {
+      return '照片已经交给云端，先看看交卷进度，等批改结果回来。';
+    }
     if (state.isPeeking) return '预览模式';
 
     if (state.language == WordPlaybackLanguage.english) {
@@ -3729,7 +3981,11 @@ class _WordPlaybackPanel extends StatelessWidget {
                         : state.hasWords
                             ? (state.isPeeking
                                 ? state.currentWord
-                                : '挑战 #${state.currentDisplayIndex}')
+                                : (state.session?.hasGradingResult == true
+                                    ? '本次听写结果'
+                                    : state.session?.isGradingPending == true
+                                        ? '等待批改'
+                                        : '挑战 #${state.currentDisplayIndex}'))
                             : '等待中',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -3760,7 +4016,12 @@ class _WordPlaybackPanel extends StatelessWidget {
                   ]);
                 }),
                 const SizedBox(height: 16),
-                Text('进度 ${state.currentDisplayIndex} / ${state.totalWords}',
+                Text(
+                    state.session?.hasGradingResult == true
+                        ? '结果已返回'
+                        : state.session?.isGradingPending == true
+                            ? '交卷已完成'
+                            : '进度 ${state.currentDisplayIndex} / ${state.totalWords}',
                     style: const TextStyle(
                         fontWeight: FontWeight.w900, fontSize: 18)),
               ])),
@@ -3818,7 +4079,9 @@ class _WordPlaybackPanel extends StatelessWidget {
                 child: KidSmallBtn(
                     label: '上一个',
                     color: KidColors.color1,
-                    onTap: state.canPrevious && !state.isBusy
+                    onTap: state.canPrevious &&
+                            !state.isBusy &&
+                            !(state.session?.isShowingResultView ?? false)
                         ? onPreviousWord
                         : null)),
             const SizedBox(width: 12),
@@ -3827,7 +4090,10 @@ class _WordPlaybackPanel extends StatelessWidget {
                 child: KidSmallBtn(
                     label: _playLabel,
                     color: KidColors.color3,
-                    onTap: state.hasWords && !state.isSpeaking && !state.isBusy
+                    onTap: state.hasWords &&
+                            !state.isSpeaking &&
+                            !state.isBusy &&
+                            !(state.session?.isShowingResultView ?? false)
                         ? onPlayCurrent
                         : null)),
             const SizedBox(width: 12),
@@ -3835,7 +4101,11 @@ class _WordPlaybackPanel extends StatelessWidget {
                 child: KidSmallBtn(
                     label: state.canNext ? '下一个' : '已播完',
                     color: KidColors.color1,
-                    onTap: state.canNext && !state.isBusy ? onNextWord : null))
+                    onTap: state.canNext &&
+                            !state.isBusy &&
+                            !(state.session?.isShowingResultView ?? false)
+                        ? onNextWord
+                        : null))
           ]),
           const SizedBox(height: 16),
           Row(children: [
@@ -3843,7 +4113,9 @@ class _WordPlaybackPanel extends StatelessWidget {
                 child: KidSmallBtn(
                     label: '重播',
                     color: KidColors.color5,
-                    onTap: state.hasWords && !state.isBusy
+                    onTap: state.hasWords &&
+                            !state.isBusy &&
+                            !(state.session?.isShowingResultView ?? false)
                         ? onReplayCurrent
                         : null)),
             const SizedBox(width: 12),
@@ -3886,13 +4158,15 @@ class _LastSubmissionPreviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '最近一次交卷',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          Text(
+            session?.hasGradingResult == true ? '最近一次交卷照片' : '最近一次交卷',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 8),
           Text(
-            '先看看照片是否清楚，再等 AI 给结果。',
+            session?.hasGradingResult == true
+                ? '批改结果已经回来了，先看看这次照片和标注。'
+                : '先看看照片是否清楚，再等 AI 给结果。',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
@@ -3903,28 +4177,75 @@ class _LastSubmissionPreviewCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: KidColors.black, width: 2),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: snapshot.previewBytes != null
-                      ? Image.memory(
-                          snapshot.previewBytes!,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                        )
-                      : const Icon(
-                          Icons.photo_camera_back_rounded,
-                          size: 44,
-                          color: KidColors.black,
+              Stack(
+                children: [
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: KidColors.black, width: 2),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: snapshot.previewBytes != null
+                          ? Image.memory(
+                              snapshot.previewBytes!,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            )
+                          : const Icon(
+                              Icons.photo_camera_back_rounded,
+                              size: 44,
+                              color: KidColors.black,
+                            ),
+                    ),
+                  ),
+                  if (session?.gradingResult?.hasMarkRegions == true)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: KidColors.color5,
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                ),
+                        child: const Text(
+                          '含错词标注',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (session?.gradingResult?.hasAnnotatedPhoto == true ||
+                      session?.gradingResult?.hasMarkRegions == true)
+                    Positioned(
+                      right: 8,
+                      bottom: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: KidColors.black.withAlpha(180),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          '点结果卡可放大',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -4190,10 +4511,18 @@ class _GradingStatusCard extends StatelessWidget {
             : stageMeta.hint;
         break;
       case 'completed':
-        borderColor = KidColors.color3;
-        backgroundColor = KidColors.color3.withAlpha(35);
-        icon = Icons.task_alt_rounded;
-        title = result == null ? '批改已完成' : '批改完成 · ${result.score} 分';
+        borderColor = result?.incorrectCount == 0
+            ? KidColors.color3
+            : KidColors.color5;
+        backgroundColor = borderColor.withAlpha(35);
+        icon = result?.incorrectCount == 0
+            ? Icons.emoji_events_rounded
+            : Icons.fact_check_rounded;
+        title = result == null
+            ? '本次交卷已批改'
+            : (result.incorrectCount == 0
+                ? '本次听写全对啦'
+                : '本次听写结果');
         subtitle = result?.aiFeedback.isNotEmpty == true
             ? result!.aiFeedback
             : stageMeta.hint;
@@ -4206,63 +4535,209 @@ class _GradingStatusCard extends StatelessWidget {
         subtitle = '等待后台状态同步。';
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: borderColor, width: 2),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: borderColor),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: Text(title,
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w900))),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(subtitle,
-              style:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _MiniTraceChip(label: '会话 ${session.sessionId}'),
-              if (session.gradingRequestedAt?.isNotEmpty == true)
-                _MiniTraceChip(
-                    label:
-                        '提交 ${_formatJourneyTime(session.gradingRequestedAt)}'),
-              if (session.gradingCompletedAt?.isNotEmpty == true)
-                _MiniTraceChip(
-                    label:
-                        '返回 ${_formatJourneyTime(session.gradingCompletedAt)}'),
-            ],
-          ),
-          if (result != null) ...[
-            const SizedBox(height: 12),
-            Text('错题 ${incorrectItems.length} / ${result.gradedItems.length}',
-                style: const TextStyle(fontWeight: FontWeight.w900)),
-          ],
-          if (incorrectItems.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ...incorrectItems.take(4).map((item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    '#${item.index} ${item.expected} -> ${item.actual.isEmpty ? "未识别" : item.actual}${(item.comment?.isNotEmpty ?? false) ? " · ${item.comment}" : ""}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+    final canPreviewAnnotated =
+        result?.hasAnnotatedPhoto == true || result?.hasMarkRegions == true;
+
+    return GestureDetector(
+      onTap: canPreviewAnnotated ? () => _showAnnotatedResultPreview(context, result!) : null,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: borderColor),
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Text(title,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w900))),
+                if (canPreviewAnnotated)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: borderColor, width: 1.5),
+                    ),
+                    child: Text(
+                      '放大查看',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: borderColor,
+                      ),
+                    ),
                   ),
-                )),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(subtitle,
+                style:
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _MiniTraceChip(label: '会话 ${session.sessionId}'),
+                if (session.gradingRequestedAt?.isNotEmpty == true)
+                  _MiniTraceChip(
+                      label:
+                          '提交 ${_formatJourneyTime(session.gradingRequestedAt)}'),
+                if (session.gradingCompletedAt?.isNotEmpty == true)
+                  _MiniTraceChip(
+                      label:
+                          '返回 ${_formatJourneyTime(session.gradingCompletedAt)}'),
+              ],
+            ),
+            if (result != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: borderColor, width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      result.incorrectCount <= 0 ? '满分表现' : '结果小结',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _formatScoreSummary(result),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (result.incorrectCount <= 0) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '太棒了，所有单词都写对了，继续保持这样的专注。',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: KidColors.color3.withAlpha(220),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            if (incorrectItems.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text(
+                '这次需要订正的单词',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
+              ...incorrectItems.map(
+                (item) => Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: KidColors.color5, width: 1.5),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              color: KidColors.color5,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Text(
+                              '❌',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '第 ${item.index} 词 · ${item.expected}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '正确写法：${item.expected}',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '你这次写成：${item.actual.trim().isEmpty ? '未识别清楚' : item.actual}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: KidColors.color5.withAlpha(220),
+                        ),
+                      ),
+                      if ((item.meaning?.trim().isNotEmpty ?? false)) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '词义：${item.meaning!}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: KidColors.black.withAlpha(170),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        _formatWordCorrectionComment(item),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: KidColors.black.withAlpha(180),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (result != null &&
+                incorrectItems.isEmpty &&
+                canPreviewAnnotated) ...[
+              const SizedBox(height: 12),
+              Text(
+                '点开可以放大查看批改标注图。',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: borderColor.withAlpha(220),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

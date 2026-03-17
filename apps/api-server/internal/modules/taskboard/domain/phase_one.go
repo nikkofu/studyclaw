@@ -21,6 +21,8 @@ const (
 	DictationGradingProcessing = "processing"
 	DictationGradingCompleted  = "completed"
 	DictationGradingFailed     = "failed"
+
+	VoiceLearningSessionCompleted = "completed"
 )
 
 type TaskItem struct {
@@ -129,25 +131,100 @@ type WordList struct {
 }
 
 type DictationSession struct {
-	SessionID          string                  `json:"session_id"`
-	WordListID         string                  `json:"word_list_id"`
-	FamilyID           uint                    `json:"family_id"`
-	ChildID            uint                    `json:"child_id"`
-	AssignedDate       string                  `json:"assigned_date"`
-	Status             string                  `json:"status"`
-	CurrentIndex       int                     `json:"current_index"`
-	TotalItems         int                     `json:"total_items"`
-	PlayedCount        int                     `json:"played_count"`
-	CompletedItems     int                     `json:"completed_items"`
-	CurrentItem        *WordItem               `json:"current_item,omitempty"`
-	GradingStatus      string                  `json:"grading_status"`
-	GradingError       string                  `json:"grading_error,omitempty"`
-	GradingRequestedAt string                  `json:"grading_requested_at,omitempty"`
-	GradingCompletedAt string                  `json:"grading_completed_at,omitempty"`
-	GradingResult      *DictationGradingResult `json:"grading_result,omitempty"`
-	DebugContext       *DictationDebugContext  `json:"debug_context,omitempty"`
-	StartedAt          string                  `json:"started_at"`
-	UpdatedAt          string                  `json:"updated_at"`
+	SessionID          string                   `json:"session_id"`
+	WordListID         string                   `json:"word_list_id"`
+	FamilyID           uint                     `json:"family_id"`
+	ChildID            uint                     `json:"child_id"`
+	AssignedDate       string                   `json:"assigned_date"`
+	Mode               string                   `json:"mode"`
+	Scene              string                   `json:"scene"`
+	Status             string                   `json:"status"`
+	CurrentIndex       int                      `json:"current_index"`
+	TotalItems         int                      `json:"total_items"`
+	PlayedCount        int                      `json:"played_count"`
+	CompletedItems     int                      `json:"completed_items"`
+	CurrentItem        *WordItem                `json:"current_item,omitempty"`
+	TranscriptSegments []TranscriptSegment      `json:"transcript_segments"`
+	MergedTranscript   string                   `json:"merged_transcript"`
+	AnalysisSummary    DictationAnalysisSummary `json:"analysis_summary"`
+	GradingStatus      string                   `json:"grading_status"`
+	GradingError       string                   `json:"grading_error,omitempty"`
+	GradingRequestedAt string                   `json:"grading_requested_at,omitempty"`
+	GradingCompletedAt string                   `json:"grading_completed_at,omitempty"`
+	GradingResult      *DictationGradingResult  `json:"grading_result,omitempty"`
+	DebugContext       *DictationDebugContext   `json:"debug_context,omitempty"`
+	StartedAt          string                   `json:"started_at"`
+	EndedAt            string                   `json:"ended_at,omitempty"`
+	UpdatedAt          string                   `json:"updated_at"`
+}
+
+type VoiceLearningSession struct {
+	SessionID                string                    `json:"session_id"`
+	FamilyID                 uint                      `json:"family_id"`
+	ChildID                  uint                      `json:"child_id"`
+	AssignedDate             string                    `json:"assigned_date"`
+	Mode                     string                    `json:"mode"`
+	Scene                    string                    `json:"scene"`
+	Status                   string                    `json:"status"`
+	TaskID                   int                       `json:"task_id,omitempty"`
+	TaskTitle                string                    `json:"task_title,omitempty"`
+	TaskType                 string                    `json:"task_type,omitempty"`
+	ReferenceTitle           string                    `json:"reference_title,omitempty"`
+	ReferenceAuthor          string                    `json:"reference_author,omitempty"`
+	ReferenceSource          string                    `json:"reference_source,omitempty"`
+	HideReferenceFromChild   bool                      `json:"hide_reference_from_child,omitempty"`
+	TranscriptSegments       []TranscriptSegment       `json:"transcript_segments"`
+	MergedTranscript         string                    `json:"merged_transcript"`
+	Summary                  string                    `json:"summary,omitempty"`
+	Encouragement            string                    `json:"encouragement,omitempty"`
+	Analysis                 *VoiceLearningAnalysis    `json:"analysis,omitempty"`
+	StartedAt                string                    `json:"started_at,omitempty"`
+	EndedAt                  string                    `json:"ended_at,omitempty"`
+	CreatedAt                string                    `json:"created_at,omitempty"`
+	UpdatedAt                string                    `json:"updated_at,omitempty"`
+}
+
+type TranscriptSegment struct {
+	SegmentID   string  `json:"segment_id"`
+	Sequence    int     `json:"sequence"`
+	StartedAt   string  `json:"started_at,omitempty"`
+	EndedAt     string  `json:"ended_at,omitempty"`
+	Transcript  string  `json:"transcript"`
+	Source      string  `json:"source,omitempty"`
+	Confidence  float64 `json:"confidence,omitempty"`
+}
+
+type DictationAnalysisSummary struct {
+	Status               string   `json:"status"`
+	CompletionRatio      float64  `json:"completion_ratio"`
+	NeedsRetry           bool     `json:"needs_retry"`
+	Recommendation       string   `json:"recommendation"`
+	RecommendationReason string   `json:"recommendation_reason"`
+	Explainability       []string `json:"explainability"`
+}
+
+type VoiceLearningAnalysis struct {
+	RecognizedTitle      string                     `json:"recognized_title,omitempty"`
+	RecognizedAuthor     string                     `json:"recognized_author,omitempty"`
+	ReferenceTitle       string                     `json:"reference_title,omitempty"`
+	ReferenceAuthor      string                     `json:"reference_author,omitempty"`
+	CompletionRatio      float64                    `json:"completion_ratio"`
+	NeedsRetry           bool                       `json:"needs_retry"`
+	Summary              string                     `json:"summary,omitempty"`
+	Suggestion           string                     `json:"suggestion,omitempty"`
+	Issues               []string                   `json:"issues,omitempty"`
+	MatchedLines         []VoiceLearningMatchedLine `json:"matched_lines,omitempty"`
+	ParserMode           string                     `json:"parser_mode,omitempty"`
+	NormalizedTranscript string                     `json:"normalized_transcript,omitempty"`
+}
+
+type VoiceLearningMatchedLine struct {
+	Index      int     `json:"index"`
+	Expected   string  `json:"expected"`
+	Observed   string  `json:"observed,omitempty"`
+	MatchRatio float64 `json:"match_ratio"`
+	Status     string  `json:"status"`
+	Notes      string  `json:"notes,omitempty"`
 }
 
 type DictationDebugContext struct {
@@ -161,13 +238,29 @@ type DictationDebugContext struct {
 }
 
 type DictationGradingResult struct {
-	GradingID   string           `json:"grading_id"`
-	PhotoURL    string           `json:"photo_url,omitempty"`
-	Status      string           `json:"status"` // "passed", "needs_correction"
-	Score       int              `json:"score"`
-	GradedItems []GradedWordItem `json:"graded_items"`
-	AIFeedback  string           `json:"ai_feedback"`
-	CreatedAt   string           `json:"created_at"`
+	GradingID            string               `json:"grading_id"`
+	PhotoURL             string               `json:"photo_url,omitempty"`
+	AnnotatedPhotoURL    string               `json:"annotated_photo_url,omitempty"`
+	AnnotatedPhotoWidth  int                  `json:"annotated_photo_width,omitempty"`
+	AnnotatedPhotoHeight int                  `json:"annotated_photo_height,omitempty"`
+	MarkRegions          []GradedWordRegion   `json:"mark_regions,omitempty"`
+	Status               string               `json:"status"` // "passed", "needs_correction"
+	Score                int                  `json:"score"`
+	GradedItems          []GradedWordItem     `json:"graded_items"`
+	AIFeedback           string               `json:"ai_feedback"`
+	CreatedAt            string               `json:"created_at"`
+}
+
+type GradedWordRegion struct {
+	Index       int     `json:"index"`
+	Expected    string  `json:"expected,omitempty"`
+	Actual      string  `json:"actual,omitempty"`
+	IsCorrect   bool    `json:"is_correct"`
+	Left        float64 `json:"left,omitempty"`
+	Top         float64 `json:"top,omitempty"`
+	Width       float64 `json:"width,omitempty"`
+	Height      float64 `json:"height,omitempty"`
+	MarkerLabel string  `json:"marker_label,omitempty"`
 }
 
 type GradedWordItem struct {

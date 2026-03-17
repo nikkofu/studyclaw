@@ -33,6 +33,8 @@ type PhaseOneRepository interface {
 	SaveDictationSession(session taskboarddomain.DictationSession) (taskboarddomain.DictationSession, error)
 	GetDictationSession(sessionID string) (taskboarddomain.DictationSession, bool, error)
 	ListDictationSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.DictationSession, error)
+	SaveVoiceLearningSession(session taskboarddomain.VoiceLearningSession) (taskboarddomain.VoiceLearningSession, error)
+	ListVoiceLearningSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.VoiceLearningSession, error)
 }
 
 type PhaseOneService struct {
@@ -439,15 +441,27 @@ func (s *PhaseOneService) StartDictationSession(familyID, childID uint, assigned
 	}
 
 	session := taskboarddomain.DictationSession{
-		WordListID:    list.WordListID,
-		FamilyID:      familyID,
-		ChildID:       childID,
-		AssignedDate:  assignedDate.Format("2006-01-02"),
-		Status:        taskboarddomain.DictationSessionActive,
-		GradingStatus: taskboarddomain.DictationGradingIdle,
-		CurrentIndex:  0,
-		TotalItems:    len(list.Items),
-		PlayedCount:   1,
+		WordListID:         list.WordListID,
+		FamilyID:           familyID,
+		ChildID:            childID,
+		AssignedDate:       assignedDate.Format("2006-01-02"),
+		Mode:               "dictation",
+		Scene:              "word_list",
+		Status:             taskboarddomain.DictationSessionActive,
+		GradingStatus:      taskboarddomain.DictationGradingIdle,
+		CurrentIndex:       0,
+		TotalItems:         len(list.Items),
+		PlayedCount:        1,
+		TranscriptSegments: []taskboarddomain.TranscriptSegment{},
+		MergedTranscript:   "",
+		AnalysisSummary: taskboarddomain.DictationAnalysisSummary{
+			Status:               "not_started",
+			CompletionRatio:      0,
+			NeedsRetry:           false,
+			Recommendation:       "continue",
+			RecommendationReason: "语音会话已创建，等待孩子开始朗读或背诵。",
+			Explainability:       []string{"会话已建立，尚未收到 transcript segment。"},
+		},
 	}
 	if len(list.Items) > 0 {
 		session.CurrentItem = cloneWordItem(list.Items[0])
@@ -486,6 +500,7 @@ func (s *PhaseOneService) PreviousDictationSession(sessionID string) (taskboardd
 
 	if session.Status == taskboarddomain.DictationSessionCompleted {
 		session.Status = taskboarddomain.DictationSessionActive
+		session.EndedAt = ""
 		if session.CurrentIndex >= len(list.Items) {
 			session.CurrentIndex = len(list.Items) - 1
 		}
@@ -514,6 +529,7 @@ func (s *PhaseOneService) AdvanceDictationSession(sessionID string) (taskboarddo
 		session.Status = taskboarddomain.DictationSessionCompleted
 		session.CompletedItems = len(list.Items)
 		session.CurrentItem = nil
+		session.EndedAt = time.Now().UTC().Format(time.RFC3339)
 	} else {
 		session.CurrentItem = cloneWordItem(list.Items[session.CurrentIndex])
 		session.PlayedCount++
@@ -535,6 +551,32 @@ func (s *PhaseOneService) GetDictationSession(sessionID string) (taskboarddomain
 
 func (s *PhaseOneService) ListDictationSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.DictationSession, error) {
 	return s.repo.ListDictationSessions(familyID, childID, startDate, endDate)
+}
+
+func (s *PhaseOneService) SaveVoiceLearningSession(session taskboarddomain.VoiceLearningSession) (taskboarddomain.VoiceLearningSession, error) {
+	session.Status = strings.TrimSpace(session.Status)
+	if session.Status == "" {
+		session.Status = taskboarddomain.VoiceLearningSessionCompleted
+	}
+	session.Mode = strings.TrimSpace(session.Mode)
+	session.Scene = strings.TrimSpace(session.Scene)
+	session.AssignedDate = strings.TrimSpace(session.AssignedDate)
+	session.TaskTitle = strings.TrimSpace(session.TaskTitle)
+	session.TaskType = strings.TrimSpace(session.TaskType)
+	session.ReferenceTitle = strings.TrimSpace(session.ReferenceTitle)
+	session.ReferenceAuthor = strings.TrimSpace(session.ReferenceAuthor)
+	session.ReferenceSource = strings.TrimSpace(session.ReferenceSource)
+	session.MergedTranscript = strings.TrimSpace(session.MergedTranscript)
+	session.Summary = strings.TrimSpace(session.Summary)
+	session.Encouragement = strings.TrimSpace(session.Encouragement)
+	if session.TranscriptSegments == nil {
+		session.TranscriptSegments = []taskboarddomain.TranscriptSegment{}
+	}
+	return s.repo.SaveVoiceLearningSession(session)
+}
+
+func (s *PhaseOneService) ListVoiceLearningSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.VoiceLearningSession, error) {
+	return s.repo.ListVoiceLearningSessions(familyID, childID, startDate, endDate)
 }
 
 func (s *PhaseOneService) GetDictationSessionWordList(sessionID string) (taskboarddomain.DictationSession, taskboarddomain.WordList, error) {

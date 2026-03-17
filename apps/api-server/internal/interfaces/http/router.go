@@ -57,6 +57,8 @@ func SetupRouter(container *app.Container) *gin.Engine {
 		apiV1.POST("/dictation-sessions/:session_id/prev", wordsHandler.PreviousDictationSession)
 		apiV1.POST("/dictation-sessions/:session_id/next", wordsHandler.NextDictationSession)
 		apiV1.POST("/dictation-sessions/:session_id/grade", wordsHandler.GradeDictationSession)
+		apiV1.POST("/voice-learning-sessions", wordsHandler.SaveVoiceLearningSession)
+		apiV1.GET("/voice-learning-sessions", wordsHandler.ListVoiceLearningSessions)
 		apiV1.GET("/stats/daily", statsHandler.GetDailyStats)
 		apiV1.GET("/stats/weekly", statsHandler.GetWeeklyStats)
 		apiV1.GET("/stats/monthly", statsHandler.GetMonthlyStats)

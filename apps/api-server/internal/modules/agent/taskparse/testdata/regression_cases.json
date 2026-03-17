@@ -140,8 +140,8 @@
     "expected_tasks": [
       {
         "subject": "数学",
-        "group_title": "继续完成校本P18",
-        "title": "继续完成校本P18",
+        "group_title": "校本P18",
+        "title": "校本P18",
         "needs_review": false
       }
     ]
@@ -405,8 +405,8 @@
       },
       {
         "subject": "语文",
-        "group_title": "完成练习册第4页",
-        "title": "完成练习册第4页",
+        "group_title": "练习册第4页",
+        "title": "练习册第4页",
         "needs_review": false
       }
     ]
@@ -427,14 +427,14 @@
     "expected_tasks": [
       {
         "subject": "数学",
-        "group_title": "完成口算本第5页",
-        "title": "完成口算本第5页",
+        "group_title": "口算本第5页",
+        "title": "口算本第5页",
         "needs_review": false
       },
       {
         "subject": "数学",
-        "group_title": "继续完成校本P19",
-        "title": "继续完成校本P19",
+        "group_title": "校本P19",
+        "title": "校本P19",
         "needs_review": false
       },
       {

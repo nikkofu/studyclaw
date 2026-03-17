@@ -47,6 +47,55 @@ type ParseWordsReq struct {
 	RawText string `json:"raw_text" binding:"required"`
 }
 
+type SaveVoiceLearningSessionReq struct {
+	FamilyID               uint   `json:"family_id" binding:"required"`
+	ChildID                uint   `json:"child_id" binding:"required"`
+	AssignedDate           string `json:"assigned_date" binding:"required"`
+	Mode                   string `json:"mode" binding:"required"`
+	Scene                  string `json:"scene" binding:"required"`
+	TaskID                 int    `json:"task_id,omitempty"`
+	TaskTitle              string `json:"task_title,omitempty"`
+	TaskType               string `json:"task_type,omitempty"`
+	ReferenceTitle         string `json:"reference_title,omitempty"`
+	ReferenceAuthor        string `json:"reference_author,omitempty"`
+	ReferenceSource        string `json:"reference_source,omitempty"`
+	HideReferenceFromChild bool   `json:"hide_reference_from_child,omitempty"`
+	MergedTranscript       string `json:"merged_transcript" binding:"required"`
+	Summary                string `json:"summary,omitempty"`
+	Encouragement          string `json:"encouragement,omitempty"`
+	StartedAt              string `json:"started_at,omitempty"`
+	EndedAt                string `json:"ended_at,omitempty"`
+	TranscriptSegments     []struct {
+		Sequence   int     `json:"sequence"`
+		StartedAt  string  `json:"started_at,omitempty"`
+		EndedAt    string  `json:"ended_at,omitempty"`
+		Transcript string  `json:"transcript"`
+		Source     string  `json:"source,omitempty"`
+		Confidence float64 `json:"confidence,omitempty"`
+	} `json:"transcript_segments"`
+	Analysis *struct {
+		RecognizedTitle      string `json:"recognized_title,omitempty"`
+		RecognizedAuthor     string `json:"recognized_author,omitempty"`
+		ReferenceTitle       string `json:"reference_title,omitempty"`
+		ReferenceAuthor      string `json:"reference_author,omitempty"`
+		CompletionRatio      float64 `json:"completion_ratio"`
+		NeedsRetry           bool   `json:"needs_retry"`
+		Summary              string `json:"summary,omitempty"`
+		Suggestion           string `json:"suggestion,omitempty"`
+		Issues               []string `json:"issues,omitempty"`
+		ParserMode           string `json:"parser_mode,omitempty"`
+		NormalizedTranscript string `json:"normalized_transcript,omitempty"`
+		MatchedLines         []struct {
+			Index      int     `json:"index"`
+			Expected   string  `json:"expected"`
+			Observed   string  `json:"observed,omitempty"`
+			MatchRatio float64 `json:"match_ratio"`
+			Status     string  `json:"status"`
+			Notes      string  `json:"notes,omitempty"`
+		} `json:"matched_lines,omitempty"`
+	} `json:"analysis,omitempty"`
+}
+
 func NewWordsHandler(phaseOne *taskboardapp.PhaseOneService, wordParse *wordparse.Service) *WordsHandler {
 	return &WordsHandler{
 		phaseOne:  phaseOne,
@@ -288,6 +337,127 @@ func (h *WordsHandler) GetDictationSession(c *gin.Context) {
 	})
 }
 
+func (h *WordsHandler) SaveVoiceLearningSession(c *gin.Context) {
+	var req SaveVoiceLearningSessionReq
+	if !bindJSONOrAbort(c, &req) {
+		return
+	}
+	assignedDate, ok := parseOptionalDateOrAbort(c, "assigned_date", req.AssignedDate)
+	if !ok {
+		return
+	}
+	segments := make([]taskboarddomain.TranscriptSegment, 0, len(req.TranscriptSegments))
+	for index, item := range req.TranscriptSegments {
+		segmentID := fmt.Sprintf("voice_seg_%d", index+1)
+		segments = append(segments, taskboarddomain.TranscriptSegment{
+			SegmentID:  segmentID,
+			Sequence:   index + 1,
+			StartedAt:  strings.TrimSpace(item.StartedAt),
+			EndedAt:    strings.TrimSpace(item.EndedAt),
+			Transcript: strings.TrimSpace(item.Transcript),
+			Source:     strings.TrimSpace(item.Source),
+			Confidence: item.Confidence,
+		})
+	}
+	var analysis *taskboarddomain.VoiceLearningAnalysis
+	if req.Analysis != nil {
+		matchedLines := make([]taskboarddomain.VoiceLearningMatchedLine, 0, len(req.Analysis.MatchedLines))
+		for _, line := range req.Analysis.MatchedLines {
+			matchedLines = append(matchedLines, taskboarddomain.VoiceLearningMatchedLine{
+				Index:      line.Index,
+				Expected:   strings.TrimSpace(line.Expected),
+				Observed:   strings.TrimSpace(line.Observed),
+				MatchRatio: line.MatchRatio,
+				Status:     strings.TrimSpace(line.Status),
+				Notes:      strings.TrimSpace(line.Notes),
+			})
+		}
+		analysis = &taskboarddomain.VoiceLearningAnalysis{
+			RecognizedTitle:      strings.TrimSpace(req.Analysis.RecognizedTitle),
+			RecognizedAuthor:     strings.TrimSpace(req.Analysis.RecognizedAuthor),
+			ReferenceTitle:       strings.TrimSpace(req.Analysis.ReferenceTitle),
+			ReferenceAuthor:      strings.TrimSpace(req.Analysis.ReferenceAuthor),
+			CompletionRatio:      req.Analysis.CompletionRatio,
+			NeedsRetry:           req.Analysis.NeedsRetry,
+			Summary:              strings.TrimSpace(req.Analysis.Summary),
+			Suggestion:           strings.TrimSpace(req.Analysis.Suggestion),
+			Issues:               req.Analysis.Issues,
+			MatchedLines:         matchedLines,
+			ParserMode:           strings.TrimSpace(req.Analysis.ParserMode),
+			NormalizedTranscript: strings.TrimSpace(req.Analysis.NormalizedTranscript),
+		}
+	}
+	startedAt := strings.TrimSpace(req.StartedAt)
+	endedAt := strings.TrimSpace(req.EndedAt)
+	session, err := h.phaseOne.SaveVoiceLearningSession(taskboarddomain.VoiceLearningSession{
+		FamilyID:               req.FamilyID,
+		ChildID:                req.ChildID,
+		AssignedDate:           assignedDate.Format("2006-01-02"),
+		Mode:                   strings.TrimSpace(req.Mode),
+		Scene:                  strings.TrimSpace(req.Scene),
+		Status:                 taskboarddomain.VoiceLearningSessionCompleted,
+		TaskID:                 req.TaskID,
+		TaskTitle:              strings.TrimSpace(req.TaskTitle),
+		TaskType:               strings.TrimSpace(req.TaskType),
+		ReferenceTitle:         strings.TrimSpace(req.ReferenceTitle),
+		ReferenceAuthor:        strings.TrimSpace(req.ReferenceAuthor),
+		ReferenceSource:        strings.TrimSpace(req.ReferenceSource),
+		HideReferenceFromChild: req.HideReferenceFromChild,
+		TranscriptSegments:     segments,
+		MergedTranscript:       strings.TrimSpace(req.MergedTranscript),
+		Summary:                strings.TrimSpace(req.Summary),
+		Encouragement:          strings.TrimSpace(req.Encouragement),
+		Analysis:               analysis,
+		StartedAt:              startedAt,
+		EndedAt:                endedAt,
+	})
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to save voice learning session", nil)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "Voice learning session saved successfully",
+		"voice_learning_session": session,
+	})
+}
+
+func (h *WordsHandler) ListVoiceLearningSessions(c *gin.Context) {
+	queryValues, ok := requireQueryParams(c, "family_id", "child_id")
+	if !ok {
+		return
+	}
+	familyID, ok := parseUintQueryParam(c, "family_id", queryValues["family_id"])
+	if !ok {
+		return
+	}
+	childID, ok := parseUintQueryParam(c, "child_id", queryValues["child_id"])
+	if !ok {
+		return
+	}
+	dateStr := strings.TrimSpace(c.Query("date"))
+	if dateStr == "" {
+		startDate := time.Now().AddDate(-1, 0, 0)
+		endDate := time.Now().AddDate(0, 0, 1)
+		sessions, err := h.phaseOne.ListVoiceLearningSessions(familyID, childID, startDate, endDate)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "internal_error", "Failed to load voice learning sessions", nil)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"voice_learning_sessions": sessions})
+		return
+	}
+	targetDate, ok := parseOptionalDateOrAbort(c, "date", dateStr)
+	if !ok {
+		return
+	}
+	sessions, err := h.phaseOne.ListVoiceLearningSessions(familyID, childID, targetDate, targetDate)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "internal_error", "Failed to load voice learning sessions", nil)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"voice_learning_sessions": sessions})
+}
+
 func (h *WordsHandler) ReplayDictationSession(c *gin.Context) {
 	sessionID := strings.TrimSpace(c.Param("session_id"))
 	log.Printf("[WordsHandler] ReplayDictationSession: received session_id=%s", sessionID)
@@ -500,6 +670,7 @@ func (h *WordsHandler) persistDictationDebugContextForSession(session taskboardd
 
 func toDomainGradingResult(result *wordparse.DictationGradeResult) taskboarddomain.DictationGradingResult {
 	gradedItems := make([]taskboarddomain.GradedWordItem, 0)
+	markRegions := make([]taskboarddomain.GradedWordRegion, 0)
 	status := "passed"
 	if result != nil {
 		gradedItems = make([]taskboarddomain.GradedWordItem, 0, len(result.GradedItems))
@@ -517,13 +688,31 @@ func toDomainGradingResult(result *wordparse.DictationGradeResult) taskboarddoma
 				NeedsRetry: item.NeedsRetry,
 			})
 		}
+		markRegions = make([]taskboarddomain.GradedWordRegion, 0, len(result.MarkRegions))
+		for _, region := range result.MarkRegions {
+			markRegions = append(markRegions, taskboarddomain.GradedWordRegion{
+				Index:       region.Index,
+				Expected:    region.Expected,
+				Actual:      region.Actual,
+				IsCorrect:   region.IsCorrect,
+				Left:        region.Left,
+				Top:         region.Top,
+				Width:       region.Width,
+				Height:      region.Height,
+				MarkerLabel: strings.TrimSpace(region.MarkerLabel),
+			})
+		}
 	}
 
 	return taskboarddomain.DictationGradingResult{
-		Status:      status,
-		Score:       safeGradeScore(result),
-		GradedItems: gradedItems,
-		AIFeedback:  safeGradeFeedback(result),
+		Status:               status,
+		Score:                safeGradeScore(result),
+		AnnotatedPhotoURL:    safeAnnotatedPhotoURL(result),
+		AnnotatedPhotoWidth:  safeAnnotatedPhotoWidth(result),
+		AnnotatedPhotoHeight: safeAnnotatedPhotoHeight(result),
+		MarkRegions:          markRegions,
+		GradedItems:          gradedItems,
+		AIFeedback:           safeGradeFeedback(result),
 	}
 }
 
@@ -539,6 +728,27 @@ func safeGradeFeedback(result *wordparse.DictationGradeResult) string {
 		return ""
 	}
 	return strings.TrimSpace(result.Feedback)
+}
+
+func safeAnnotatedPhotoURL(result *wordparse.DictationGradeResult) string {
+	if result == nil {
+		return ""
+	}
+	return strings.TrimSpace(result.AnnotatedPhotoURL)
+}
+
+func safeAnnotatedPhotoWidth(result *wordparse.DictationGradeResult) int {
+	if result == nil {
+		return 0
+	}
+	return result.AnnotatedPhotoWidth
+}
+
+func safeAnnotatedPhotoHeight(result *wordparse.DictationGradeResult) int {
+	if result == nil {
+		return 0
+	}
+	return result.AnnotatedPhotoHeight
 }
 
 func countIncorrectItems(items []wordparse.GradedWord) int {

@@ -17,7 +17,7 @@ const CONSOLE_SECTIONS = [
 const CONSOLE_PANEL_ORDER = ["publish-console", "report-console", "points-console", "word-console"]
 const WORD_LIST_SYNC_DEBOUNCE_MS = 700
 const PAGE_TRANSITION_MS = 280
-const FEEDBACK_PANEL_ORDER = ["daily", "dictation", "trend"]
+const FEEDBACK_PANEL_ORDER = ["daily", "dictation", "voice-learning", "trend"]
 const POINTS_PANEL_ORDER = ["compose", "ledger"]
 const WORD_PANEL_ORDER = ["create", "lists"]
 const PUBLISH_PANEL_ORDER = ["scope", "compose", "review", "release", "split", "preview", "analysis", "board"]
@@ -556,6 +556,81 @@ function buildDictationSummary(dictationSessions) {
     completed,
     failed,
     latestSession,
+  }
+}
+
+function normalizeVoiceLearningSession(session) {
+  const transcriptSegments = Array.isArray(session?.transcript_segments) ? session.transcript_segments : []
+  const matchedLines = Array.isArray(session?.analysis?.matched_lines) ? session.analysis.matched_lines : []
+  return {
+    ...session,
+    id: session?.session_id || createLocalId("voice-learning-session"),
+    family_id: String(session?.family_id ?? ""),
+    assignee_id: String(session?.child_id ?? ""),
+    task_id: Number(session?.task_id || 0),
+    transcript_segments: transcriptSegments,
+    analysis: session?.analysis
+      ? {
+          ...session.analysis,
+          completion_ratio: Number(session.analysis.completion_ratio || 0),
+          matched_lines: matchedLines,
+        }
+      : null,
+  }
+}
+
+function buildVoiceLearningSummary(voiceLearningSessions) {
+  const total = voiceLearningSessions.length
+  const needsRetry = voiceLearningSessions.filter((session) => session.analysis?.needs_retry).length
+  const recitationCount = voiceLearningSessions.filter((session) => ["recitation", "reading"].includes(session.scene)).length
+  const latestSession = [...voiceLearningSessions].sort(
+    (left, right) =>
+      new Date(right.ended_at || right.updated_at || right.created_at || 0).getTime() -
+      new Date(left.ended_at || left.updated_at || left.created_at || 0).getTime(),
+  )[0] || null
+
+  return {
+    total,
+    needsRetry,
+    recitationCount,
+    latestSession,
+  }
+}
+
+function summarizeVoiceLearningSession(session) {
+  if (!session) {
+    return "当前还没有语音学习记录。"
+  }
+  const title = session.analysis?.recognized_title || session.analysis?.reference_title || session.reference_title || session.task_title || "本次语音学习"
+  const completionRatio = Number(session.analysis?.completion_ratio || 0)
+  const completionLabel = `${Math.round(completionRatio * 100)}%`
+  if (session.analysis?.needs_retry) {
+    return `${title} 当前完成度约 ${completionLabel}，建议按标记句子再练一遍。`
+  }
+  return `${title} 当前完成度约 ${completionLabel}，这次整体比较稳。`
+}
+
+function buildVoiceLearningStatusMeta(session) {
+  if (!session) {
+    return {
+      label: "暂无记录",
+      tone: "ready",
+      description: "孩子完成一次背诵、朗读或陪伴式语音学习后，这里会自动出现结果摘要。",
+    }
+  }
+  const completionRatio = Number(session.analysis?.completion_ratio || 0)
+  const completionLabel = `${Math.round(completionRatio * 100)}%`
+  if (session.analysis?.needs_retry) {
+    return {
+      label: "建议重练",
+      tone: "high",
+      description: `本次完成度约 ${completionLabel}，建议按摘要里的重点句子再练一遍。`,
+    }
+  }
+  return {
+    label: "整体较稳",
+    tone: "ready",
+    description: `本次完成度约 ${completionLabel}，标题识别与逐句对照整体较稳。`,
   }
 }
 
@@ -1362,6 +1437,10 @@ function normalizeComparisonText(value) {
     .replace(/[\s`~!@#$%^&*()_\-+=[\]{}\\|;:'",.<>/?，。；：！？、（）【】《》“”‘’·]/g, "")
 }
 
+function normalizeDuplicateTitle(value) {
+  return normalizeComparisonText(value).replace(/^(完成|做完|做|订正|更正|背诵|朗读|跟读|默写|抄写|预习)+/g, "")
+}
+
 function getConfidenceMeta(confidence) {
   if (confidence >= 0.85) {
     return { label: "高置信", tone: "high" }
@@ -1500,19 +1579,22 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
       const rightSubject = normalizeComparisonText(right.subject)
       const leftTitle = normalizeComparisonText(left.title)
       const rightTitle = normalizeComparisonText(right.title)
+      const leftDuplicateTitle = normalizeDuplicateTitle(left.title)
+      const rightDuplicateTitle = normalizeDuplicateTitle(right.title)
 
       if (!leftTitle || !rightTitle || leftSubject !== rightSubject) {
         continue
       }
 
-      if (leftTitle === rightTitle) {
+      if (leftTitle === rightTitle || (leftDuplicateTitle && leftDuplicateTitle === rightDuplicateTitle)) {
         addIssue(left.id, `duplicate-draft-${right.id}`, "force", `与另一条草稿任务重复: ${right.title}`)
         addIssue(right.id, `duplicate-draft-${left.id}`, "force", `与另一条草稿任务重复: ${left.title}`)
         continue
       }
 
       const similarity = calculateSimilarity(leftTitle, rightTitle)
-      if (similarity >= 0.82) {
+      const duplicateSimilarity = calculateSimilarity(leftDuplicateTitle, rightDuplicateTitle)
+      if (similarity >= 0.82 || duplicateSimilarity >= 0.9) {
         addIssue(left.id, `similar-draft-${right.id}`, "warn", `与另一条草稿任务高度相似，建议考虑合并: ${right.title}`)
         addIssue(right.id, `similar-draft-${left.id}`, "warn", `与另一条草稿任务高度相似，建议考虑合并: ${left.title}`)
       }
@@ -1522,6 +1604,7 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
   draftTasks.forEach((task) => {
     const normalizedSubject = normalizeComparisonText(task.subject)
     const normalizedTitle = normalizeComparisonText(task.title)
+    const normalizedDuplicateTitle = normalizeDuplicateTitle(task.title)
     if (!normalizedSubject || !normalizedTitle) {
       return
     }
@@ -1531,7 +1614,9 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
         return
       }
 
-      if (todayTask.title === normalizedTitle) {
+      const todayDuplicateTitle = normalizeDuplicateTitle(todayTask.rawTitle)
+
+      if (todayTask.title === normalizedTitle || (todayDuplicateTitle && todayDuplicateTitle === normalizedDuplicateTitle)) {
         addIssue(
           task.id,
           `duplicate-today-${todayTask.id}`,
@@ -1542,7 +1627,8 @@ function buildTaskDiagnostics(draftTasks, todayTasks) {
       }
 
       const similarity = calculateSimilarity(todayTask.title, normalizedTitle)
-      if (similarity >= 0.82) {
+      const duplicateSimilarity = calculateSimilarity(todayDuplicateTitle, normalizedDuplicateTitle)
+      if (similarity >= 0.82 || duplicateSimilarity >= 0.9) {
         addIssue(
           task.id,
           `similar-today-${todayTask.id}`,
@@ -2316,6 +2402,8 @@ function FeedbackPanel({
   currentDatePointEntries,
   dictationSessions,
   dictationStatus,
+  voiceLearningSessions,
+  voiceLearningStatus,
   weeklyStats,
   weeklyStatus,
   monthlyRows,
@@ -2335,6 +2423,9 @@ function FeedbackPanel({
   const dictationSummary = buildDictationSummary(dictationSessions)
   const latestDictationSession = dictationSummary.latestSession
   const latestDictationMeta = getDictationStatusMeta(latestDictationSession)
+  const voiceLearningSummary = buildVoiceLearningSummary(voiceLearningSessions)
+  const latestVoiceLearningSession = voiceLearningSummary.latestSession
+  const latestVoiceLearningMeta = buildVoiceLearningStatusMeta(latestVoiceLearningSession)
   const latestGradingResult = latestDictationSession?.grading_result || null
   const latestIncorrectItems = Array.isArray(latestGradingResult?.graded_items)
     ? latestGradingResult.graded_items.filter((item) => !item.is_correct || item.needs_correction)
@@ -2434,6 +2525,12 @@ function FeedbackPanel({
           : "Pad 端还没有拍照上传。",
     },
     {
+      id: "voice-learning",
+      label: "语音",
+      metric: voiceLearningSummary.total > 0 ? `${voiceLearningSummary.total} 次` : "--",
+      caption: latestVoiceLearningSession ? summarizeVoiceLearningSession(latestVoiceLearningSession) : "背诵 / 朗读结果还没有同步到家长端。",
+    },
+    {
       id: "trend",
       label: "趋势",
       metric: reportView === "week" ? `${weeklyRows.length} 天` : `${monthlyRows.length} 组`,
@@ -2520,6 +2617,13 @@ function FeedbackPanel({
     topSummaryMeta = {
       chip: "听写摘要",
       text: dictationSummaryText,
+    }
+  } else if (activeFeedbackSection === "voice-learning") {
+    topSummaryMeta = {
+      chip: "语音学习摘要",
+      text: latestVoiceLearningSession
+        ? summarizeVoiceLearningSession(latestVoiceLearningSession)
+        : `当前日期 ${assignedDate} 还没有背诵 / 朗读语音学习记录。孩子在 Pad 端完成一次语音学习后，这里会自动显示结果摘要。`,
     }
   } else if (activeFeedbackSection === "trend") {
     topSummaryMeta = {
@@ -2724,6 +2828,114 @@ function FeedbackPanel({
               </>
             ) : (
               <p className="empty-state">当前日期还没有听写拍照上传记录。孩子在 Pad 端提交后，这里会自动汇总最新状态。</p>
+            )}
+          </div>
+
+          <div className={feedbackTransition.getPageClass("voice-learning")}>
+            <div className="panel-heading">
+              <div>
+                <h3>背诵 / 朗读语音复盘</h3>
+                <p className="panel-caption">这里专门汇总孩子在 Pad 端完成的背诵、朗读和陪伴式语音学习结果。</p>
+              </div>
+              <span>{voiceLearningSummary.total} 次记录</span>
+            </div>
+
+            <div className="report-switcher">
+              <button className="ghost-button compact" type="button" onClick={() => void refreshVoiceLearningSessions()}>
+                刷新语音结果
+              </button>
+              <button className="ghost-button compact" type="button" onClick={() => setActiveFeedbackSection("trend")}>
+                去看趋势
+              </button>
+            </div>
+
+            <StatusBanner
+              status={voiceLearningStatus}
+              actionLabel={voiceLearningStatus?.retryable ? "重试拉取语音结果" : undefined}
+              onAction={voiceLearningStatus?.retryable ? () => void refreshVoiceLearningSessions() : undefined}
+              actionDisabled={!voiceLearningStatus?.retryable}
+            />
+
+            {latestVoiceLearningSession ? (
+              <>
+                <div className="report-summary-card">
+                  <span className="summary-chip">本次语音学习摘要</span>
+                  <p>{summarizeVoiceLearningSession(latestVoiceLearningSession)}</p>
+                </div>
+
+                <FeedbackExpandableCard
+                  title="当前语音学习记录"
+                  badge={latestVoiceLearningMeta.label}
+                  summary={latestVoiceLearningMeta.description}
+                  defaultOpen
+                >
+                  <ul className="rule-list compact">
+                    <li>任务标题: {latestVoiceLearningSession.task_title || latestVoiceLearningSession.reference_title || "--"}</li>
+                    <li>场景: {latestVoiceLearningSession.scene || "--"}</li>
+                    <li>会话 ID: {latestVoiceLearningSession.session_id || "--"}</li>
+                    <li>开始时间: {formatTimestampLabel(latestVoiceLearningSession.started_at)}</li>
+                    <li>结束时间: {formatTimestampLabel(latestVoiceLearningSession.ended_at)}</li>
+                    <li>分段数量: {latestVoiceLearningSession.transcript_segments?.length || 0}</li>
+                    <li>完成度: {Math.round(Number(latestVoiceLearningSession.analysis?.completion_ratio || 0) * 100)}%</li>
+                  </ul>
+                </FeedbackExpandableCard>
+
+                <FeedbackExpandableCard
+                  title="结果摘要与重练建议"
+                  badge={latestVoiceLearningSession.analysis?.needs_retry ? "建议重练" : "整体较稳"}
+                  summary={latestVoiceLearningSession.analysis?.summary || latestVoiceLearningSession.summary || "当前没有额外摘要。"}
+                  defaultOpen
+                >
+                  <ul className="rule-list compact">
+                    <li>标题识别: {latestVoiceLearningSession.analysis?.recognized_title || latestVoiceLearningSession.reference_title || "未识别"}</li>
+                    <li>作者识别: {latestVoiceLearningSession.analysis?.recognized_author || latestVoiceLearningSession.reference_author || "未识别"}</li>
+                    <li>系统总结: {latestVoiceLearningSession.analysis?.summary || latestVoiceLearningSession.summary || "--"}</li>
+                    <li>家长建议: {latestVoiceLearningSession.analysis?.suggestion || (latestVoiceLearningSession.analysis?.needs_retry ? "建议按问题句子再练一遍。" : "当前可以进入下一轮学习。")}</li>
+                  </ul>
+                </FeedbackExpandableCard>
+
+                <FeedbackExpandableCard
+                  title="逐句对照重点"
+                  badge={latestVoiceLearningSession.analysis?.matched_lines?.length > 0 ? `${latestVoiceLearningSession.analysis.matched_lines.length} 句` : "暂无逐句"}
+                  summary={latestVoiceLearningSession.analysis?.matched_lines?.length > 0 ? "家长可优先看部分对上或差距较大的句子。" : "当前没有逐句对照详情。"}
+                  defaultOpen={Boolean(latestVoiceLearningSession.analysis?.matched_lines?.length)}
+                >
+                  {latestVoiceLearningSession.analysis?.matched_lines?.length > 0 ? (
+                    <ul className="rule-list compact">
+                      {latestVoiceLearningSession.analysis.matched_lines.map((line) => (
+                        <li key={`${latestVoiceLearningSession.session_id}-${line.index}`}>
+                          第 {line.index} 句 · {Math.round(Number(line.match_ratio || 0) * 100)}% · {line.status === "matched" ? "基本对上" : line.status === "missing" ? "差距较大" : "部分对上"}
+                          {line.expected ? `；标准：${line.expected}` : ""}
+                          {line.observed ? `；听到：${line.observed}` : ""}
+                          {line.notes ? `；说明：${line.notes}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="empty-state">当前没有逐句对照详情。</p>
+                  )}
+                </FeedbackExpandableCard>
+
+                <FeedbackExpandableCard
+                  title="孩子真实开口记录"
+                  badge={`${latestVoiceLearningSession.transcript_segments?.length || 0} 段`}
+                  summary={latestVoiceLearningSession.merged_transcript || "当前没有可展示的 transcript。"}
+                >
+                  {latestVoiceLearningSession.transcript_segments?.length > 0 ? (
+                    <ul className="rule-list compact">
+                      {latestVoiceLearningSession.transcript_segments.map((segment, index) => (
+                        <li key={`${latestVoiceLearningSession.session_id}-segment-${index}`}>
+                          第 {segment.sequence || index + 1} 段 · {formatTimeOnlyLabel(segment.started_at || segment.ended_at)} · {segment.transcript}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>{latestVoiceLearningSession.merged_transcript || "当前没有可展示的 transcript。"}</p>
+                  )}
+                </FeedbackExpandableCard>
+              </>
+            ) : (
+              <p className="empty-state">当前日期还没有背诵 / 朗读语音学习记录。孩子在 Pad 端完成一次语音学习后，这里会自动汇总标题识别、完成度和重练建议。</p>
             )}
           </div>
 
@@ -3468,6 +3680,8 @@ export default function App() {
   const [wordListSyncState, setWordListSyncState] = useState({})
   const [dictationSessions, setDictationSessions] = useState([])
   const [dictationStatus, setDictationStatus] = useState(null)
+  const [voiceLearningSessions, setVoiceLearningSessions] = useState([])
+  const [voiceLearningStatus, setVoiceLearningStatus] = useState(null)
   const [isLoadingDictation, setIsLoadingDictation] = useState(false)
   const [activeConsoleSection, setActiveConsoleSection] = useState("publish-console")
   const [publishStage, setPublishStage] = useState("compose")
@@ -3800,6 +4014,45 @@ export default function App() {
     void refreshTasks()
   }, [apiBaseUrl, familyId, assigneeId, assignedDate])
 
+  async function refreshVoiceLearningSessions() {
+    if (!familyId.trim() || !assigneeId.trim() || !assignedDate) {
+      setVoiceLearningSessions([])
+      setVoiceLearningStatus(null)
+      return
+    }
+
+    try {
+      const data = await requestJSON(
+        `${apiBaseUrl}/api/v1/voice-learning-sessions?family_id=${encodeURIComponent(familyId)}&child_id=${encodeURIComponent(
+          assigneeId,
+        )}&date=${encodeURIComponent(assignedDate)}`,
+      )
+      const sessions = (Array.isArray(data.voice_learning_sessions) ? data.voice_learning_sessions : [])
+        .map((session) => normalizeVoiceLearningSession(session))
+      setVoiceLearningSessions(sessions)
+
+      const summary = buildVoiceLearningSummary(sessions)
+      if (summary.total === 0) {
+        setVoiceLearningStatus(null)
+      } else {
+        const latest = buildVoiceLearningStatusMeta(summary.latestSession)
+        setVoiceLearningStatus({
+          tone: summary.needsRetry > 0 ? "warning" : "success",
+          title: summary.needsRetry > 0 ? "语音学习结果已同步（含待重练）" : "语音学习结果已同步",
+          message: latest.description,
+          retryable: false,
+        })
+      }
+    } catch (requestError) {
+      setVoiceLearningStatus({
+        tone: "error",
+        title: "语音学习结果拉取失败",
+        message: requestError.message,
+        retryable: true,
+      })
+    }
+  }
+
   useEffect(() => {
     void refreshDictationSessions()
   }, [apiBaseUrl, familyId, assigneeId, assignedDate])
@@ -3817,6 +4070,10 @@ export default function App() {
       window.clearTimeout(timerId)
     }
   }, [apiBaseUrl, familyId, assigneeId, assignedDate, dictationSessions])
+
+  useEffect(() => {
+    void refreshVoiceLearningSessions()
+  }, [apiBaseUrl, familyId, assigneeId, assignedDate])
 
   useEffect(() => {
     if (createdTasks.length > 0) {
@@ -5142,6 +5399,8 @@ export default function App() {
                   currentDatePointEntries={currentDatePointEntries}
                   dictationSessions={dictationSessions}
                   dictationStatus={dictationStatus}
+                  voiceLearningSessions={voiceLearningSessions}
+                  voiceLearningStatus={voiceLearningStatus}
                   weeklyStats={weeklyStats}
                   weeklyStatus={weeklyStatus}
                   monthlyRows={monthlyRows}

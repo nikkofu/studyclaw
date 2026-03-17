@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -50,6 +51,12 @@ type Analysis struct {
 	ReconstructedText    string         `json:"reconstructed_text,omitempty"`
 	CompletionRatio      float64        `json:"completion_ratio"`
 	NeedsRetry           bool           `json:"needs_retry"`
+	RetryRecommendation  string         `json:"retry_recommendation"`
+	RecommendationReason string         `json:"recommendation_reason"`
+	Explainability       []string       `json:"explainability,omitempty"`
+	MissingTokens        []string       `json:"missing_tokens,omitempty"`
+	ExtraTokens          []string       `json:"extra_tokens,omitempty"`
+	ConfusedTokens       []string       `json:"confused_tokens,omitempty"`
 	Summary              string         `json:"summary"`
 	Suggestion           string         `json:"suggestion"`
 	Issues               []string       `json:"issues,omitempty"`
@@ -196,6 +203,9 @@ func analyzeWithFallback(input AnalyzeInput) Analysis {
 			NormalizedTranscript: normalizedTranscript,
 			CompletionRatio:      0,
 			NeedsRetry:           true,
+			RetryRecommendation:  "retry_after_practice",
+			RecommendationReason: "未识别到有效 transcript，无法完成对照分析。",
+			Explainability:       []string{"transcript 为空，分析器无法定位任何有效句段。"},
 			Summary:              "没有识别到可用的背诵内容。",
 			Suggestion:           "请再说一遍，并尽量把标题和正文完整读出来。",
 			Issues:               []string{"没有识别到有效语音内容"},
@@ -234,12 +244,18 @@ func analyzeWithFallback(input AnalyzeInput) Analysis {
 			NormalizedTranscript: normalizedTranscript,
 			CompletionRatio:      0,
 			NeedsRetry:           true,
+			RetryRecommendation:  "needs_reference_material",
+			RecommendationReason: "缺少参考原文，无法进行 grounded 对照。",
+			Explainability:       []string{"未提供 reference_text，系统无法输出逐句缺漏定位。"},
 			Summary:              "已记录本次背诵，但缺少参考原文，暂时无法可靠判断是否背对。",
 			Suggestion:           "建议输入标题、作者和正文，或接入 LLM 后再做自动识别比对。",
 			Issues:               []string{"缺少参考原文，当前只能保留 transcript，不能做可靠对照"},
 			MatchedLines:         []LineAnalysis{},
 		}
 	}
+
+	retryRecommendation, recommendationReason := deriveRetryRecommendation(completionRatio, issues, needsRetry)
+	missingTokens, extraTokens, confusedTokens := deriveTokenDiff(normalizedTranscript, reference.bodyLines)
 
 	return Analysis{
 		Status:               "success",
@@ -253,10 +269,20 @@ func analyzeWithFallback(input AnalyzeInput) Analysis {
 		NormalizedTranscript: normalizedTranscript,
 		CompletionRatio:      completionRatio,
 		NeedsRetry:           needsRetry,
-		Summary:              summary,
-		Suggestion:           suggestion,
-		Issues:               issues,
-		MatchedLines:         lineAssessments,
+		RetryRecommendation:  retryRecommendation,
+		RecommendationReason: recommendationReason,
+		Explainability: []string{
+			fmt.Sprintf("completion_ratio=%.2f", completionRatio),
+			fmt.Sprintf("matched_lines=%d", len(lineAssessments)),
+			fmt.Sprintf("issues=%d", len(issues)),
+		},
+		MissingTokens: missingTokens,
+		ExtraTokens:   extraTokens,
+		ConfusedTokens: confusedTokens,
+		Summary:       summary,
+		Suggestion:    suggestion,
+		Issues:        issues,
+		MatchedLines:  lineAssessments,
 	}
 }
 
@@ -278,6 +304,13 @@ func normalizeLLMAnalysis(parsed llmAnalysis, input AnalyzeInput, fallback Analy
 		Suggestion:           strings.TrimSpace(parsed.Suggestion),
 		Issues:               sanitizeIssues(parsed.Issues),
 		MatchedLines:         sanitizeLineAssessments(parsed.MatchedLines),
+	}
+	result.RetryRecommendation, result.RecommendationReason = deriveRetryRecommendation(result.CompletionRatio, result.Issues, result.NeedsRetry)
+	result.MissingTokens, result.ExtraTokens, result.ConfusedTokens = deriveTokenDiff(result.NormalizedTranscript, extractLineTexts(result.MatchedLines))
+	result.Explainability = []string{
+		fmt.Sprintf("parser_mode=%s", result.ParserMode),
+		fmt.Sprintf("completion_ratio=%.2f", result.CompletionRatio),
+		fmt.Sprintf("matched_lines=%d", len(result.MatchedLines)),
 	}
 
 	if result.RecognizedTitle == "" {
@@ -743,6 +776,90 @@ func buildFallbackSuggestion(reference referenceDoc, completionRatio float64, li
 	default:
 		return "建议先看着原文朗读几遍，把标题、作者和每一句顺下来后再重背。"
 	}
+}
+
+func deriveRetryRecommendation(completionRatio float64, issues []string, needsRetry bool) (string, string) {
+	if !needsRetry {
+		return "continue", "完成度达到稳定阈值，可继续下一轮学习。"
+	}
+	if completionRatio < 0.45 {
+		return "retry_after_practice", "当前错漏较多，建议先对照原文熟读后再重试。"
+	}
+	if len(issues) > 0 {
+		return "retry_focus_weak_lines", "存在明显薄弱句段，建议重点重背后再提交。"
+	}
+	return "retry", "当前输出建议重试以提升稳定度。"
+}
+
+func deriveTokenDiff(transcript string, referenceLines []string) ([]string, []string, []string) {
+	reference := normalizeComparableText(strings.Join(referenceLines, ""))
+	observed := normalizeComparableText(transcript)
+	if reference == "" && observed == "" {
+		return nil, nil, nil
+	}
+
+	referenceCount := runeFrequency(reference)
+	observedCount := runeFrequency(observed)
+
+	missing := make([]string, 0)
+	extra := make([]string, 0)
+	for token, count := range referenceCount {
+		if observedCount[token] >= count {
+			continue
+		}
+		missing = append(missing, string(token))
+	}
+	for token, count := range observedCount {
+		if referenceCount[token] >= count {
+			continue
+		}
+		extra = append(extra, string(token))
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	if len(missing) > 8 {
+		missing = missing[:8]
+	}
+	if len(extra) > 8 {
+		extra = extra[:8]
+	}
+
+	confused := make([]string, 0)
+	referenceRunes := []rune(reference)
+	observedRunes := []rune(observed)
+	for index := 0; index < minInt(len(referenceRunes), len(observedRunes)); index++ {
+		if referenceRunes[index] == observedRunes[index] {
+			continue
+		}
+		pair := string(referenceRunes[index]) + "→" + string(observedRunes[index])
+		if !slices.Contains(confused, pair) {
+			confused = append(confused, pair)
+		}
+		if len(confused) >= 8 {
+			break
+		}
+	}
+
+	return missing, extra, confused
+}
+
+func runeFrequency(raw string) map[rune]int {
+	counts := make(map[rune]int)
+	for _, token := range []rune(raw) {
+		counts[token]++
+	}
+	return counts
+}
+
+func extractLineTexts(lines []LineAnalysis) []string {
+	texts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line.Expected) == "" {
+			continue
+		}
+		texts = append(texts, line.Expected)
+	}
+	return texts
 }
 
 func sanitizeLineAssessments(lines []LineAnalysis) []LineAnalysis {

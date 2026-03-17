@@ -27,6 +27,7 @@ function createFetchMock({
   weeklyHandlers = [],
   monthlyHandlers = [],
   dictationHandlers = [],
+  voiceLearningListResponse = { voice_learning_sessions: [createVoiceLearningSession()] },
   taskListResponse = { tasks: [], date: "2026-03-09", summary: { total: 0, completed: 0, pending: 0 } },
   dictationListResponse = { dictation_sessions: [] },
   pointsLedgerResponse = { entries: [], points_balance: { balance: 0 } },
@@ -54,6 +55,10 @@ function createFetchMock({
 
     if (url.includes("/api/v1/word-lists?") && method === "GET") {
       return createSuccessResponse({ word_lists: storedWordLists })
+    }
+
+    if (url.includes("/api/v1/voice-learning-sessions?") && method === "GET") {
+      return createSuccessResponse(voiceLearningListResponse)
     }
 
     if (url.includes("/api/v1/dictation-sessions?") && method === "GET") {
@@ -169,6 +174,68 @@ function createFetchMock({
 
     throw new Error(`Unhandled request: ${method} ${url}`)
   })
+}
+
+function createVoiceLearningSession({
+  session_id = "voice_session_000001",
+  family_id = 101,
+  child_id = 201,
+  assigned_date = "2026-03-12",
+  mode = "transcript",
+  scene = "recitation",
+  task_id = 1,
+  task_title = "背诵《江畔独步寻花》",
+  reference_title = "江畔独步寻花",
+  reference_author = "杜甫",
+  merged_transcript = "黄师塔前江水东 春光懒困倚微风 桃花一簇开无主 可爱深红爱浅红",
+  summary = "已按真实停顿整理成 3 段，并完成逐句对照。",
+  encouragement = "敢完整说出来就是在练记忆和表达。",
+  started_at = "2026-03-12T09:10:00Z",
+  ended_at = "2026-03-12T09:10:32Z",
+  transcript_segments = [
+    { sequence: 1, started_at: "2026-03-12T09:10:05Z", transcript: "黄师塔前江水东" },
+    { sequence: 2, started_at: "2026-03-12T09:10:12Z", transcript: "春光懒困倚微风" },
+  ],
+  analysis = {
+    recognized_title: "江畔独步寻花",
+    recognized_author: "杜甫",
+    reference_title: "江畔独步寻花",
+    reference_author: "杜甫",
+    completion_ratio: 0.78,
+    needs_retry: true,
+    summary: "已经识别到标题和主体内容，但第一句还不够稳。",
+    suggestion: "建议把第一句再熟读一遍后重背。",
+    matched_lines: [
+      {
+        index: 1,
+        expected: "黄师塔前江水东，春光懒困倚微风。",
+        observed: "黄师塔前江水东 春光懒困倚微风",
+        match_ratio: 0.72,
+        status: "partial",
+        notes: "主体对上，但仍有停顿和漏字。",
+      },
+    ],
+  },
+} = {}) {
+  return {
+    session_id,
+    family_id,
+    child_id,
+    assigned_date,
+    mode,
+    scene,
+    task_id,
+    task_title,
+    reference_title,
+    reference_author,
+    merged_transcript,
+    summary,
+    encouragement,
+    started_at,
+    ended_at,
+    transcript_segments,
+    analysis,
+  }
 }
 
 function createParsedTask({
@@ -474,6 +541,36 @@ describe("App", () => {
 
     expect(confirmBody.tasks).toHaveLength(2)
     expect(screen.getByRole("button", { name: "快捷看反馈" })).toBeInTheDocument()
+  })
+
+  it("treats action-prefix variants as duplicate-risk drafts", async () => {
+    const fetchMock = createFetchMock({
+      parseHandlers: [
+        createParseSuccess([
+          createParsedTask({
+            subject: "数学",
+            group_title: "数学3.6",
+            title: "完成校本P14～15",
+          }),
+          createParsedTask({
+            subject: "数学",
+            group_title: "数学3.6",
+            title: "校本P14～15",
+          }),
+        ]),
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText("AI 草稿已生成")
+
+    expect(screen.getAllByText(/与另一条草稿任务重复/).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: "强制发布 (2)" })).toBeEnabled()
   })
 
   it("publishes recitation reference metadata configured in the review card", async () => {
@@ -824,6 +921,30 @@ describe("App", () => {
     await screen.findByText("周趋势已刷新")
     expect(weeklyUrl).toContain("end_date=2026-03-12")
     expect(screen.getByText("周趋势摘要").closest(".report-summary-card")).toHaveTextContent("本周保持了稳定推进。")
+  })
+
+  it("shows the latest voice learning recap for recitation", async () => {
+    const fetchMock = createFetchMock({
+      dictationListResponse: { dictation_sessions: [] },
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "查看反馈" }))
+    await screen.findByText("语音学习结果已同步（含待重练）")
+    expect(screen.getAllByText(/江畔独步寻花 当前完成度约 78%/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/建议按标记句子再练一遍/).length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole("tab", { name: /语音/ }))
+
+    expect(screen.getByText("背诵 / 朗读语音复盘")).toBeInTheDocument()
+    expect(screen.getAllByText(/江畔独步寻花 当前完成度约 78%/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/建议把第一句再熟读一遍后重背/)).toBeInTheDocument()
+    expect(screen.getByText(/第 1 句/)).toBeInTheDocument()
+    expect(screen.getAllByText(/黄师塔前江水东/).length).toBeGreaterThan(0)
   })
 
   it("shows the latest async dictation grading result", async () => {

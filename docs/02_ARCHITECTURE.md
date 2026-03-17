@@ -23,7 +23,8 @@ graph TD
 说明：
 
 - 当前只有一个后端进程需要运行：`apps/api-server`
-- 任务主存储是 Markdown 工作区
+- 任务板主存储是 Markdown 工作区（`internal/modules/taskboard/infrastructure/markdown`）
+- Phase 1 结构化数据（draft/assignment/points/wordlist/dictation）使用 JSON 状态文件（`internal/modules/taskboard/infrastructure/jsonstore`）
 - Redis 当前仍是辅助组件，不是主数据源
 - LLM 通过 OpenAI 兼容接口接入，默认支持 Ark Base URL
 

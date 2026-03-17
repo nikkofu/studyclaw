@@ -190,6 +190,8 @@ class DictationSession {
       gradingStatus == 'pending' || gradingStatus == 'processing';
   bool get hasGradingResult =>
       gradingStatus == 'completed' && gradingResult != null;
+  bool get isShowingResultView => isGradingPending || hasGradingResult;
+  bool get isWaitingForGradingView => isGradingPending && !hasGradingResult;
 }
 
 class DictationDebugContext {
@@ -338,6 +340,10 @@ class DictationGradingResult {
     required this.gradedItems,
     required this.aiFeedback,
     required this.createdAt,
+    this.annotatedPhotoUrl,
+    this.annotatedPhotoWidth = 0,
+    this.annotatedPhotoHeight = 0,
+    this.markRegions = const <DictationMarkRegion>[],
   });
 
   factory DictationGradingResult.fromJson(Map<String, dynamic> json) {
@@ -352,6 +358,13 @@ class DictationGradingResult {
               .toList(),
       aiFeedback: json['ai_feedback']?.toString() ?? '',
       createdAt: json['created_at']?.toString() ?? '',
+      annotatedPhotoUrl: json['annotated_photo_url']?.toString(),
+      annotatedPhotoWidth: _readInt(json['annotated_photo_width']),
+      annotatedPhotoHeight: _readInt(json['annotated_photo_height']),
+      markRegions: ((json['mark_regions'] as List<dynamic>? ?? const <dynamic>[]))
+          .map((item) =>
+              DictationMarkRegion.fromJson(item as Map<String, dynamic>))
+          .toList(),
     );
   }
 
@@ -361,10 +374,55 @@ class DictationGradingResult {
   final List<DictationGradedItem> gradedItems;
   final String aiFeedback;
   final String createdAt;
+  final String? annotatedPhotoUrl;
+  final int annotatedPhotoWidth;
+  final int annotatedPhotoHeight;
+  final List<DictationMarkRegion> markRegions;
 
   int get incorrectCount => gradedItems
       .where((item) => !item.isCorrect || item.needsCorrection)
       .length;
+
+  bool get hasAnnotatedPhoto => (annotatedPhotoUrl?.trim().isNotEmpty ?? false);
+  bool get hasMarkRegions => markRegions.isNotEmpty;
+}
+
+class DictationMarkRegion {
+  const DictationMarkRegion({
+    required this.index,
+    required this.isCorrect,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    this.expected,
+    this.actual,
+    this.markerLabel,
+  });
+
+  factory DictationMarkRegion.fromJson(Map<String, dynamic> json) {
+    return DictationMarkRegion(
+      index: _readInt(json['index']),
+      expected: json['expected']?.toString(),
+      actual: json['actual']?.toString(),
+      isCorrect: json['is_correct'] == true,
+      left: _readDouble(json['left']),
+      top: _readDouble(json['top']),
+      width: _readDouble(json['width']),
+      height: _readDouble(json['height']),
+      markerLabel: json['marker_label']?.toString(),
+    );
+  }
+
+  final int index;
+  final String? expected;
+  final String? actual;
+  final bool isCorrect;
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+  final String? markerLabel;
 }
 
 class DictationGradedItem {
@@ -397,6 +455,16 @@ class DictationGradedItem {
   final bool needsCorrection;
   final String? meaning;
   final String? comment;
+}
+
+double _readDouble(Object? value) {
+  if (value is double) {
+    return value;
+  }
+  if (value is num) {
+    return value.toDouble();
+  }
+  return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
 int _readInt(Object? value) {

@@ -95,6 +95,22 @@ void main() {
           ],
           aiFeedback: '建议把 library 的字母顺序再看一遍。',
           createdAt: '2026-03-12T08:10:12Z',
+          annotatedPhotoUrl: 'https://example.com/graded.png',
+          annotatedPhotoWidth: 1200,
+          annotatedPhotoHeight: 900,
+          markRegions: [
+            DictationMarkRegion(
+              index: 2,
+              expected: 'library',
+              actual: 'libary',
+              isCorrect: false,
+              left: 0.2,
+              top: 0.3,
+              width: 0.25,
+              height: 0.1,
+              markerLabel: '❌',
+            ),
+          ],
         ),
       );
 
@@ -149,6 +165,21 @@ void main() {
         controller.state.session?.gradingResult?.aiFeedback,
         '建议把 library 的字母顺序再看一遍。',
       );
+      expect(find.textContaining('本次听写结果'), findsNothing);
+      expect(find.text('这次需要订正的单词'), findsNothing);
+      expect(
+        controller.state.session?.gradingResult?.incorrectCount,
+        1,
+      );
+      expect(
+        controller.state.session?.gradingResult?.hasAnnotatedPhoto,
+        isTrue,
+      );
+      expect(
+        controller.state.session?.gradingResult?.hasMarkRegions,
+        isTrue,
+      );
+      expect(find.text('挑战 #3'), findsNothing);
     });
 
     testWidgets('applies voice command to advance dictation', (tester) async {
@@ -907,6 +938,50 @@ void main() {
 
       expect(controller.state.noticeMessage, '这一组单词都完成啦，你坚持到了最后！');
     });
+
+    test('treats grading sessions as result mode after submission', () {
+      const pendingSession = DictationSession(
+        sessionId: 'session_pending_001',
+        wordListId: 'word_list_pending_001',
+        status: 'completed',
+        currentIndex: 2,
+        totalItems: 3,
+        playedCount: 3,
+        completedItems: 3,
+        gradingStatus: 'pending',
+      );
+      const completedSession = DictationSession(
+        sessionId: 'session_done_001',
+        wordListId: 'word_list_done_001',
+        status: 'completed',
+        currentIndex: 2,
+        totalItems: 3,
+        playedCount: 3,
+        completedItems: 3,
+        gradingStatus: 'completed',
+        gradingResult: DictationGradingResult(
+          gradingId: 'grading_done_001',
+          status: 'needs_correction',
+          score: 88,
+          gradedItems: [
+            DictationGradedItem(
+              index: 2,
+              expected: 'library',
+              actual: 'libary',
+              isCorrect: false,
+              needsCorrection: true,
+            ),
+          ],
+          aiFeedback: '有一个词需要订正。',
+          createdAt: '2026-03-12T08:10:12Z',
+        ),
+      );
+
+      expect(pendingSession.isShowingResultView, isTrue);
+      expect(pendingSession.isWaitingForGradingView, isTrue);
+      expect(completedSession.isShowingResultView, isTrue);
+      expect(completedSession.isWaitingForGradingView, isFalse);
+    });
   });
 }
 
@@ -1070,6 +1145,10 @@ class _FakeTaskBoardRepository implements TaskBoardRepository {
           target: VoiceCommandTarget(),
         )));
   }
+
+  @override
+  Future<void> saveVoiceLearningSession(String apiBaseUrl,
+      {required Map<String, dynamic> payload}) async {}
 
   @override
   Future<RecitationAnalysis> analyzeRecitation(

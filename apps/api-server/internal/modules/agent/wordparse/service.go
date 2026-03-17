@@ -159,7 +159,7 @@ func decodeGradeResult(raw string) (*DictationGradeResult, error) {
 }
 
 func hasGradeResultKeys(envelope map[string]json.RawMessage) bool {
-	for _, key := range []string{"status", "score", "graded_items", "feedback"} {
+	for _, key := range []string{"status", "score", "graded_items", "feedback", "mark_regions", "annotated_photo_url"} {
 		if _, ok := envelope[key]; ok {
 			return true
 		}
@@ -177,20 +177,34 @@ func validateGradeResult(result *DictationGradeResult) error {
 	if len(result.GradedItems) == 0 {
 		return fmt.Errorf("failed to decode grading result: missing graded_items")
 	}
-	if strings.TrimSpace(result.Feedback) == "" {
-		return fmt.Errorf("failed to decode grading result: missing feedback")
-	}
 	if result.Score < 0 || result.Score > 100 {
 		return fmt.Errorf("failed to decode grading result: score out of range")
 	}
+	result.Feedback = normalizeGradeFeedback(result.Feedback, result.GradedItems, result.Score)
 	return nil
 }
 
 type DictationGradeResult struct {
-	Status      string       `json:"status"`
-	Score       int          `json:"score"`
-	GradedItems []GradedWord `json:"graded_items"`
-	Feedback    string       `json:"feedback"`
+	Status               string       `json:"status"`
+	Score                int          `json:"score"`
+	AnnotatedPhotoURL    string       `json:"annotated_photo_url"`
+	AnnotatedPhotoWidth  int          `json:"annotated_photo_width"`
+	AnnotatedPhotoHeight int          `json:"annotated_photo_height"`
+	MarkRegions          []MarkRegion `json:"mark_regions"`
+	GradedItems          []GradedWord `json:"graded_items"`
+	Feedback             string       `json:"feedback"`
+}
+
+type MarkRegion struct {
+	Index       int     `json:"index"`
+	Expected    string  `json:"expected"`
+	Actual      string  `json:"actual"`
+	IsCorrect   bool    `json:"is_correct"`
+	Left        float64 `json:"left"`
+	Top         float64 `json:"top"`
+	Width       float64 `json:"width"`
+	Height      float64 `json:"height"`
+	MarkerLabel string  `json:"marker_label"`
 }
 
 type GradedWord struct {
@@ -201,6 +215,56 @@ type GradedWord struct {
 	IsCorrect  bool   `json:"is_correct"`
 	Comment    string `json:"comment"`
 	NeedsRetry bool   `json:"needs_retry"`
+}
+
+func normalizeGradeFeedback(feedback string, gradedItems []GradedWord, score int) string {
+	trimmed := strings.TrimSpace(feedback)
+	if trimmed != "" && !looksLikeEnglishFeedback(trimmed) {
+		return trimmed
+	}
+
+	incorrectCount := countIncorrectWords(gradedItems)
+	if incorrectCount == 0 {
+		return fmt.Sprintf("这次默写全部正确，得分 %d 分，继续保持。", score)
+	}
+
+	if incorrectCount == 1 {
+		return fmt.Sprintf("这次默写得分 %d 分，有 1 个词需要订正，继续认真改一改就更好了。", score)
+	}
+
+	return fmt.Sprintf("这次默写得分 %d 分，有 %d 个词需要订正，按错词清单逐个改一改吧。", score, incorrectCount)
+}
+
+func looksLikeEnglishFeedback(feedback string) bool {
+	if feedback == "" {
+		return true
+	}
+	asciiLetters := 0
+	letterCount := 0
+	for _, r := range feedback {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			asciiLetters++
+			letterCount++
+			continue
+		}
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return false
+		}
+	}
+	if letterCount == 0 {
+		return false
+	}
+	return asciiLetters == letterCount
+}
+
+func countIncorrectWords(items []GradedWord) int {
+	incorrect := 0
+	for _, item := range items {
+		if !item.IsCorrect || item.NeedsRetry {
+			incorrect++
+		}
+	}
+	return incorrect
 }
 
 func (s *Service) GradeDictation(ctx context.Context, wordList []ParsedWord, photoBase64 string, language string, mode string) (*DictationGradeResult, error) {
@@ -214,17 +278,33 @@ func (s *Service) GradeDictation(ctx context.Context, wordList []ParsedWord, pho
 	}
 
 	prompt := fmt.Sprintf(`
-Compare the handwritten content in the image with the ordered answer list below.
+请对照图片中的手写内容和下面的有序答案列表完成听写批改。
 
-Language: %s
-Mode: %s
-Ordered answers:
+语言：%s
+模式：%s
+有序答案：
 %s
 
-Return JSON only:
+只返回 JSON：
 {
   "status": "success",
   "score": 0,
+  "annotated_photo_url": "",
+  "annotated_photo_width": 0,
+  "annotated_photo_height": 0,
+  "mark_regions": [
+    {
+      "index": 1,
+      "expected": "touch",
+      "actual": "touch",
+      "is_correct": true,
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0,
+      "marker_label": "✅"
+    }
+  ],
   "graded_items": [
     {
       "index": 1,
@@ -239,12 +319,14 @@ Return JSON only:
   "feedback": "继续保持。"
 }
 
-Rules:
-- Compare in order.
-- Read the handwritten English word when possible.
-- Keep comment short.
-- If unreadable or mismatched, set needs_retry true.
-- Keep feedback concise.
+规则：
+- 按顺序逐词比对。
+- 尽量识别手写内容；无法确认时在 actual 中保留你能识别的部分，并将 needs_retry 设为 true。
+- feedback 默认用简体中文，简短鼓励，不要输出英文反馈。
+- comment 默认用简体中文，保持简短，让孩子容易看懂。
+- 如果当前无法可靠定位图片中的单词位置，可返回空字符串 annotated_photo_url、0 宽高，以及空数组 mark_regions。
+- 如果能提供位置，请使用 0 到 1 之间的归一化坐标填写 left/top/width/height。
+- marker_label 仅使用“✅”或“❌”。
 `, language, mode, wordListStr.String())
 
 	// Note: We'll assume the LLM Client implementation can handle image data in the future.
@@ -271,7 +353,7 @@ Rules:
 		ModelEnvKey: "LLM_GRADER_MODEL_NAME",
 		Temperature: 0.1,
 		Messages: []llm.Message{
-			{Role: "system", Content: "You are a professional teacher assistant grading dictation photos. Return valid JSON only."},
+			{Role: "system", Content: "你是 StudyClaw 的听写批改老师助手。必须只返回合法 JSON，默认使用简体中文反馈和评语。"},
 			{Role: "user", Content: contentParts},
 		},
 	})

@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-16
+
+### Added
+
+- **家长端语音学习结果摘要闭环**
+  - 新增语音学习会话持久化与查询接口，支持家长端按日期拉取背诵 / 朗读 / 陪伴式语音学习记录。
+  - Parent Web 反馈区新增“语音”视图，可查看标题 / 作者识别、完成度、逐句对照重点、真实开口记录和重练建议。
+
+### Changed
+
+- **Pad 语音工作台结果上报**
+  - Pad 在完成一次背诵 / 朗读语音学习后，会把 transcript 分段、merged transcript、总结、鼓励和分析结果写回后端，供家长复盘。
+- **版本与发布资产切换到 `v0.4.0`**
+  - README、路线图、派单文档、交付审计、release checklist、release playbook、Parent Web 版本号和 Pad 版本号已同步切换到 `v0.4.0`。
+
+### Verified
+
+- `bash scripts/check_no_tracked_runtime_env.sh`
+- `bash scripts/preflight_local_env.sh`
+- `bash scripts/check_release_scope.sh`
+- `cd apps/api-server && go test ./... -count=1`
+- `cd apps/parent-web && npm test -- --run`
+- `cd apps/parent-web && npm run build`
+- `cd apps/pad-app && flutter analyze`
+- `cd apps/pad-app && flutter test --no-pub`
+
 ## [0.3.5] - 2026-03-14
 
 ### Fixed

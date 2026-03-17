@@ -70,6 +70,14 @@ STUDYCLAW_LOG_DIR=./data/logs
 
 ## 4. 标准三端启动顺序
 
+推荐先执行：
+
+```bash
+bash scripts/start_local_stack.sh
+```
+
+该脚本不会直接起服务，但会统一打印三端启动命令，并明确提醒：**必须先进入各自 app 目录再启动**。
+
 ### 4.1 启动 API
 
 ```bash
@@ -116,6 +124,16 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 ```
 
 地址：`http://127.0.0.1:55771`
+
+注意：
+
+- `flutter run -d web-server` 在本地调试时，`http://127.0.0.1:55771/` 不一定稳定返回 HTML；如果 Flutter 控制台已显示 `Waiting for connection from debug service on Web Server...`，且 55771 端口已监听，可视为 Pad Web 已成功启动。
+- `flutter build web` 当前仍会输出第三方依赖 `flutter_tts` 的 wasm dry-run warning。现阶段 HTML/Web 构建产物可正常生成，因此这条 warning 继续按**非阻塞**处理；只有在后续把 wasm 作为正式目标时，才需要单独治理该依赖。
+- 建议统一用下面命令做三端探针检查：
+
+```bash
+bash scripts/probe_local_stack.sh
+```
 
 真机联调请把 `127.0.0.1` 替换成宿主机局域网 IP。
 
