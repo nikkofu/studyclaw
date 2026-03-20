@@ -35,6 +35,12 @@ type PhaseOneRepository interface {
 	ListDictationSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.DictationSession, error)
 	SaveVoiceLearningSession(session taskboarddomain.VoiceLearningSession) (taskboarddomain.VoiceLearningSession, error)
 	ListVoiceLearningSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.VoiceLearningSession, error)
+	SavePersistenceEvent(event PersistenceEventRecord) (PersistenceEventRecord, bool, error)
+	GetPersistenceEventByIdempotencyKey(idempotencyKey string) (PersistenceEventRecord, bool, error)
+	SavePersistenceSessionSnapshot(snapshot PersistenceSessionSnapshot) (PersistenceSessionSnapshot, error)
+	GetPersistenceSessionSnapshot(sessionID string) (PersistenceSessionSnapshot, bool, error)
+	ListPersistenceEvents(familyID, childID uint, startDate, endDate time.Time) ([]PersistenceEventRecord, error)
+	ListPersistenceSessionSnapshots(familyID, childID uint, startDate, endDate time.Time) ([]PersistenceSessionSnapshot, error)
 }
 
 type PhaseOneService struct {
@@ -69,6 +75,40 @@ type rangeSnapshot struct {
 	WordItems          int
 	CompletedWordItems int
 	Sessions           int
+}
+
+type PersistenceEventRecord struct {
+	EventID         string
+	SessionID       string
+	FamilyID        uint
+	ChildID         uint
+	AssignedDate    string
+	Status          string
+	EventType       string
+	IdempotencyKey  string
+	EffectiveSeconds int
+	TotalSeconds    int
+	InvalidTrigger  bool
+	Makeup          bool
+	OccurredAt      string
+	CreatedAt       string
+}
+
+type PersistenceSessionSnapshot struct {
+	SessionID        string
+	FamilyID         uint
+	ChildID          uint
+	AssignedDate     string
+	Status           string
+	LastEventType    string
+	LastEventAt      string
+	EffectiveSeconds int
+	TotalSeconds     int
+	InvalidTriggers  int
+	InterruptedCount int
+	Completed        bool
+	Makeup           bool
+	UpdatedAt        string
 }
 
 func NewPhaseOneService(taskboard *Service, repo PhaseOneRepository) *PhaseOneService {
@@ -577,6 +617,195 @@ func (s *PhaseOneService) SaveVoiceLearningSession(session taskboarddomain.Voice
 
 func (s *PhaseOneService) ListVoiceLearningSessions(familyID, childID uint, startDate, endDate time.Time) ([]taskboarddomain.VoiceLearningSession, error) {
 	return s.repo.ListVoiceLearningSessions(familyID, childID, startDate, endDate)
+}
+
+func (s *PhaseOneService) SavePersistenceEvent(event PersistenceEventRecord) (PersistenceSessionSnapshot, bool, error) {
+	event.EventType = strings.TrimSpace(event.EventType)
+	event.Status = strings.TrimSpace(event.Status)
+	event.IdempotencyKey = strings.TrimSpace(event.IdempotencyKey)
+	event.AssignedDate = strings.TrimSpace(event.AssignedDate)
+	event.SessionID = strings.TrimSpace(event.SessionID)
+	if event.OccurredAt == "" {
+		event.OccurredAt = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	if event.IdempotencyKey != "" {
+		existingEvent, ok, err := s.repo.GetPersistenceEventByIdempotencyKey(event.IdempotencyKey)
+		if err != nil {
+			return PersistenceSessionSnapshot{}, false, err
+		}
+		if ok {
+			snapshot, found, err := s.repo.GetPersistenceSessionSnapshot(existingEvent.SessionID)
+			if err != nil {
+				return PersistenceSessionSnapshot{}, false, err
+			}
+			if !found {
+				snapshot, err = s.upsertPersistenceSnapshotFromEvent(existingEvent)
+				if err != nil {
+					return PersistenceSessionSnapshot{}, false, err
+				}
+			}
+			return snapshot, false, nil
+		}
+	}
+
+	targetStatus := event.Status
+	if targetStatus == "" {
+		targetStatus = statusForPersistenceEventType(event.EventType)
+	}
+	if event.Status == "" {
+		event.Status = targetStatus
+	}
+
+	if existingSnapshot, ok, err := s.repo.GetPersistenceSessionSnapshot(event.SessionID); err != nil {
+		return PersistenceSessionSnapshot{}, false, err
+	} else if ok {
+		if targetStatus != "" {
+			fromStatus := strings.TrimSpace(existingSnapshot.Status)
+			if fromStatus == "" {
+				fromStatus = taskboarddomain.PersistenceSessionStatusPreparing
+			}
+			if err := taskboarddomain.ValidatePersistenceTransition(fromStatus, targetStatus); err != nil {
+				return PersistenceSessionSnapshot{}, false, err
+			}
+		}
+	}
+
+	savedEvent, created, err := s.repo.SavePersistenceEvent(event)
+	if err != nil {
+		return PersistenceSessionSnapshot{}, false, err
+	}
+
+	snapshot, err := s.upsertPersistenceSnapshotFromEvent(savedEvent)
+	if err != nil {
+		return PersistenceSessionSnapshot{}, false, err
+	}
+	return snapshot, created, nil
+}
+
+func (s *PhaseOneService) AggregatePersistenceSummary(familyID, childID uint, startDate, endDate time.Time) (taskboarddomain.PersistenceSummary, error) {
+	events, err := s.repo.ListPersistenceEvents(familyID, childID, startDate, endDate)
+	if err != nil {
+		return taskboarddomain.PersistenceSummary{}, err
+	}
+	snapshots, err := s.repo.ListPersistenceSessionSnapshots(familyID, childID, startDate, endDate)
+	if err != nil {
+		return taskboarddomain.PersistenceSummary{}, err
+	}
+
+	startedSessions := make(map[string]struct{})
+	completedSessions := make(map[string]struct{})
+	totalSeconds := 0
+	effectiveSeconds := 0
+	invalidTriggers := 0
+	for _, event := range events {
+		sessionID := strings.TrimSpace(event.SessionID)
+		switch event.EventType {
+		case taskboarddomain.PersistenceEventStarted:
+			if sessionID != "" {
+				startedSessions[sessionID] = struct{}{}
+			}
+		case taskboarddomain.PersistenceEventCompleted:
+			if sessionID != "" {
+				completedSessions[sessionID] = struct{}{}
+			}
+		}
+		totalSeconds += maxInt(event.TotalSeconds, 0)
+		effectiveSeconds += maxInt(event.EffectiveSeconds, 0)
+		if event.InvalidTrigger {
+			invalidTriggers++
+		}
+	}
+	started := len(startedSessions)
+	completed := len(completedSessions)
+
+	days := make([]taskboarddomain.PersistenceDayRecord, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		days = append(days, taskboarddomain.PersistenceDayRecord{
+			Completed: snapshot.Completed,
+			Makeup:    snapshot.Makeup,
+		})
+	}
+
+	summary := taskboarddomain.PersistenceSummary{
+		Streak: taskboarddomain.ComputePersistenceStreak(days),
+		CompletionRate: taskboarddomain.PersistenceCompletionRate{
+			Completed: completed,
+			Total:     started,
+			Rate:      safeRate(completed, started),
+		},
+		EffectiveDuration: taskboarddomain.PersistenceEffectiveDuration{
+			TotalSeconds:     totalSeconds,
+			EffectiveSeconds: effectiveSeconds,
+		},
+		Guardrails: taskboarddomain.PersistenceGuardrails{
+			InvalidTriggerRate: safeRate(invalidTriggers, len(events)),
+		},
+	}
+	return summary, nil
+}
+
+func (s *PhaseOneService) upsertPersistenceSnapshotFromEvent(event PersistenceEventRecord) (PersistenceSessionSnapshot, error) {
+	snapshot := PersistenceSessionSnapshot{
+		SessionID:    event.SessionID,
+		FamilyID:     event.FamilyID,
+		ChildID:      event.ChildID,
+		AssignedDate: event.AssignedDate,
+		Status:       event.Status,
+		UpdatedAt:    event.OccurredAt,
+	}
+
+	if existing, ok, err := s.repo.GetPersistenceSessionSnapshot(event.SessionID); err != nil {
+		return PersistenceSessionSnapshot{}, err
+	} else if ok {
+		snapshot = existing
+		snapshot.UpdatedAt = event.OccurredAt
+		snapshot.FamilyID = event.FamilyID
+		snapshot.ChildID = event.ChildID
+		if strings.TrimSpace(event.AssignedDate) != "" {
+			snapshot.AssignedDate = event.AssignedDate
+		}
+		if strings.TrimSpace(event.Status) != "" {
+			snapshot.Status = strings.TrimSpace(event.Status)
+		}
+	}
+
+	if snapshot.Status == "" {
+		snapshot.Status = statusForPersistenceEventType(event.EventType)
+	}
+	snapshot.LastEventType = event.EventType
+	snapshot.LastEventAt = event.OccurredAt
+	snapshot.TotalSeconds += maxInt(event.TotalSeconds, 0)
+	snapshot.EffectiveSeconds += maxInt(event.EffectiveSeconds, 0)
+	if event.InvalidTrigger {
+		snapshot.InvalidTriggers++
+	}
+	if event.EventType == taskboarddomain.PersistenceEventInterrupted {
+		snapshot.InterruptedCount++
+	}
+	snapshot.Completed = snapshot.Completed || event.EventType == taskboarddomain.PersistenceEventCompleted || snapshot.Status == taskboarddomain.PersistenceSessionStatusCompleted
+	if event.Makeup {
+		snapshot.Makeup = true
+	}
+
+	return s.repo.SavePersistenceSessionSnapshot(snapshot)
+}
+
+func statusForPersistenceEventType(eventType string) string {
+	switch eventType {
+	case taskboarddomain.PersistenceEventStarted:
+		return taskboarddomain.PersistenceSessionStatusActive
+	case taskboarddomain.PersistenceEventPaused:
+		return taskboarddomain.PersistenceSessionStatusPaused
+	case taskboarddomain.PersistenceEventResumed, taskboarddomain.PersistenceEventRecovered:
+		return taskboarddomain.PersistenceSessionStatusResumed
+	case taskboarddomain.PersistenceEventCompleted:
+		return taskboarddomain.PersistenceSessionStatusCompleted
+	case taskboarddomain.PersistenceEventAborted:
+		return taskboarddomain.PersistenceSessionStatusAborted
+	default:
+		return ""
+	}
 }
 
 func (s *PhaseOneService) GetDictationSessionWordList(sessionID string) (taskboarddomain.DictationSession, taskboarddomain.WordList, error) {
