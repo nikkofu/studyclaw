@@ -1,5 +1,10 @@
 package domain
 
+import (
+	"errors"
+	"fmt"
+)
+
 const (
 	AssignmentStatusDraft     = "draft"
 	AssignmentStatusPublished = "published"
@@ -23,7 +28,133 @@ const (
 	DictationGradingFailed     = "failed"
 
 	VoiceLearningSessionCompleted = "completed"
+
+	PersistenceSessionStatusPreparing = "preparing"
+	PersistenceSessionStatusActive    = "active"
+	PersistenceSessionStatusPaused    = "paused"
+	PersistenceSessionStatusResumed   = "resumed"
+	PersistenceSessionStatusClosing   = "closing"
+	PersistenceSessionStatusCompleted = "completed"
+	PersistenceSessionStatusAborted   = "aborted"
+
+	PersistenceEventStarted     = "started"
+	PersistenceEventPaused      = "paused"
+	PersistenceEventResumed     = "resumed"
+	PersistenceEventInterrupted = "interrupted"
+	PersistenceEventRecovered   = "recovered"
+	PersistenceEventCompleted   = "completed"
+	PersistenceEventAborted     = "aborted"
+
+	PersistenceDurationSpeech  = "speech"
+	PersistenceDurationSilence = "silence"
 )
+
+var ErrInvalidPersistenceTransition = errors.New("invalid persistence transition")
+
+var allowedPersistenceTransitions = map[string]map[string]struct{}{
+	PersistenceSessionStatusPreparing: {
+		PersistenceSessionStatusActive:  {},
+		PersistenceSessionStatusAborted: {},
+	},
+	PersistenceSessionStatusActive: {
+		PersistenceSessionStatusPaused:  {},
+		PersistenceSessionStatusClosing: {},
+		PersistenceSessionStatusAborted: {},
+	},
+	PersistenceSessionStatusPaused: {
+		PersistenceSessionStatusResumed: {},
+		PersistenceSessionStatusAborted: {},
+	},
+	PersistenceSessionStatusResumed: {
+		PersistenceSessionStatusActive:  {},
+		PersistenceSessionStatusClosing: {},
+		PersistenceSessionStatusAborted: {},
+	},
+	PersistenceSessionStatusClosing: {
+		PersistenceSessionStatusCompleted: {},
+		PersistenceSessionStatusAborted:   {},
+	},
+	PersistenceSessionStatusCompleted: {},
+	PersistenceSessionStatusAborted:   {},
+}
+
+type PersistenceDurationSegment struct {
+	Kind            string `json:"kind"`
+	DurationSeconds int    `json:"duration_seconds"`
+}
+
+type PersistenceDayRecord struct {
+	Completed bool `json:"completed"`
+	Makeup    bool `json:"makeup,omitempty"`
+}
+
+type PersistenceStreak struct {
+	DisplayStreak int `json:"display_streak"`
+	CoreKPIStreak int `json:"core_kpi_streak"`
+}
+
+type PersistenceCompletionRate struct {
+	Completed int     `json:"completed"`
+	Total     int     `json:"total"`
+	Rate      float64 `json:"rate"`
+}
+
+type PersistenceEffectiveDuration struct {
+	TotalSeconds     int `json:"total_seconds"`
+	EffectiveSeconds int `json:"effective_seconds"`
+}
+
+type PersistenceGuardrails struct {
+	InvalidTriggerRate float64 `json:"invalid_trigger_rate"`
+}
+
+type PersistenceSummary struct {
+	Streak            PersistenceStreak            `json:"streak"`
+	CompletionRate    PersistenceCompletionRate    `json:"completion_rate"`
+	EffectiveDuration PersistenceEffectiveDuration `json:"effective_duration"`
+	Guardrails        PersistenceGuardrails        `json:"guardrails"`
+}
+
+func ValidatePersistenceTransition(fromStatus, toStatus string) error {
+	next, ok := allowedPersistenceTransitions[fromStatus]
+	if !ok {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidPersistenceTransition, fromStatus, toStatus)
+	}
+	if _, ok := next[toStatus]; !ok {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidPersistenceTransition, fromStatus, toStatus)
+	}
+	return nil
+}
+
+func CalculateEffectiveDurationSeconds(segments []PersistenceDurationSegment) int {
+	total := 0
+	for _, segment := range segments {
+		if segment.DurationSeconds <= 0 {
+			continue
+		}
+		if segment.Kind == PersistenceDurationSilence && segment.DurationSeconds >= 20 {
+			continue
+		}
+		total += segment.DurationSeconds
+	}
+	return total
+}
+
+func ComputePersistenceStreak(days []PersistenceDayRecord) PersistenceStreak {
+	streak := PersistenceStreak{}
+	for _, day := range days {
+		if !day.Completed {
+			streak.DisplayStreak = 0
+			streak.CoreKPIStreak = 0
+			continue
+		}
+		streak.DisplayStreak++
+		if !day.Makeup {
+			streak.CoreKPIStreak++
+		}
+	}
+	return streak
+}
 
 type TaskItem struct {
 	TaskID                 int      `json:"task_id"`
