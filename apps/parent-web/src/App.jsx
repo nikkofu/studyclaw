@@ -2,6 +2,40 @@ import React, { useEffect, useRef, useState } from "react"
 import { enrichTasksWithLearningReferences, flattenSectionsToTasks, parseSchoolTaskMessage, REFERENCE_GROUP_MESSAGE } from "./schoolTaskParser"
 
 const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"
+
+function readBooleanRuntimeFlag(flagName, defaultValue = false) {
+  const runtimeFlags = typeof window !== "undefined" && window.__STUDYCLAW_RUNTIME_FLAGS__
+    ? window.__STUDYCLAW_RUNTIME_FLAGS__
+    : null
+  const runtimeValue = runtimeFlags && Object.prototype.hasOwnProperty.call(runtimeFlags, flagName)
+    ? runtimeFlags[flagName]
+    : undefined
+  const envValue = import.meta.env?.[flagName]
+  const rawValue = runtimeValue ?? envValue
+
+  if (typeof rawValue === "boolean") {
+    return rawValue
+  }
+
+  if (typeof rawValue === "number") {
+    return rawValue !== 0
+  }
+
+  const normalized = String(rawValue || "").trim().toLowerCase()
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false
+  }
+  return defaultValue
+}
+
+function getTask1Flags() {
+  return {
+    parseAutoCreate: readBooleanRuntimeFlag("VITE_TASK_PARSE_AUTO_CREATE", false),
+  }
+}
 const CHILD_PROFILES = [
   { id: "mia-grade4", label: "苗苗 / 四年级", familyId: "101", assigneeId: "201" },
   { id: "leo-grade2", label: "乐乐 / 二年级", familyId: "102", assigneeId: "202" },
@@ -4288,7 +4322,7 @@ export default function App() {
         assignee_id: Number(assigneeId),
         assigned_date: assignedDate,
         raw_text: rawText.trim(),
-        auto_create: false,
+        auto_create: getTask1Flags().parseAutoCreate,
       }
 
       const data = await requestJSON(`${apiBaseUrl}/api/v1/tasks/parse`, {

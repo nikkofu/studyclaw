@@ -354,6 +354,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.useRealTimers()
 })
 
@@ -372,6 +373,58 @@ describe("App", () => {
     expect(flags.dataset.resume).toBe("false")
     expect(flags.dataset.rewards).toBe("false")
     expect(screen.queryByTestId("hot-task-recap-card")).not.toBeInTheDocument()
+  })
+
+  it("keeps parse auto_create off by default and supports env override", async () => {
+    let parseBody
+    const fetchMock = createFetchMock({
+      parseHandlers: [
+        (_, init) => {
+          parseBody = JSON.parse(init.body)
+          return createParseSuccess([
+            createParsedTask({
+              title: "默认关闭 auto_create",
+            }),
+          ])
+        },
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    const firstRender = render(<App />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText("AI 草稿已生成")
+
+    expect(parseBody.auto_create).toBe(false)
+
+    firstRender.unmount()
+    vi.stubEnv("VITE_TASK_PARSE_AUTO_CREATE", "true")
+
+    let parseBodyWithEnv
+    const fetchMockWithEnv = createFetchMock({
+      parseHandlers: [
+        (_, init) => {
+          parseBodyWithEnv = JSON.parse(init.body)
+          return createParseSuccess([
+            createParsedTask({
+              title: "环境开启 auto_create",
+            }),
+          ])
+        },
+      ],
+    })
+
+    vi.stubGlobal("fetch", fetchMockWithEnv)
+
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "AI 解析任务" }))
+    await screen.findByText("AI 草稿已生成")
+
+    expect(parseBodyWithEnv.auto_create).toBe(true)
   })
 
   it("passes assigned_date to parse and confirm requests", async () => {
