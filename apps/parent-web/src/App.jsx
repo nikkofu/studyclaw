@@ -43,6 +43,9 @@ const POINT_REASON_PRESETS = {
   reward: ["按时完成全部任务", "主动完成额外练习", "主动整理错题", "晚饭前独立完成作业"],
   penalty: ["回家后拖延未开工", "未整理错题", "多次提醒后才完成", "作业完成后未复盘"],
 }
+const HOT_TASK_LAUNCH_V1 = false
+const HOT_TASK_RESUME_V1 = false
+const HOT_TASK_REWARDS_V1 = false
 const DICTATION_WORKER_STAGE_META = {
   queued: {
     label: "已入队",
@@ -5063,6 +5066,14 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      <div
+        data-testid="hot-task-flags"
+        data-launch={String(HOT_TASK_LAUNCH_V1)}
+        data-resume={String(HOT_TASK_RESUME_V1)}
+        data-rewards={String(HOT_TASK_REWARDS_V1)}
+        hidden
+      />
+      {HOT_TASK_REWARDS_V1 ? <section data-testid="hot-task-recap-card" /> : null}
       <section className="hero">
         <div className="hero-topline">
           <p className="eyebrow">StudyClaw Parent H5</p>

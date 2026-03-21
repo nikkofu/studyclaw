@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pad_app/app.dart';
 import 'package:pad_app/task_board/api_client.dart';
+import 'package:pad_app/task_board/controller.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/recitation_analysis.dart';
@@ -18,6 +19,14 @@ import 'package:pad_app/word_playback/speaker_contract.dart';
 
 void main() {
   group('PadTaskBoardPage Widget Tests', () {
+    test('without new fields, pad flow stays baseline', () {
+      expect(TaskBoardController.hotTaskFlags(), {
+        'hot_task_launch_v1': false,
+        'hot_task_resume_v1': false,
+        'hot_task_rewards_v1': false,
+      });
+    });
+
     testWidgets('renders page shell while loading', (tester) async {
       final boardCompleter = Completer<TaskBoard>();
       final repository =

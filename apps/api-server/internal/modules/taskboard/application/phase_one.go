@@ -3,6 +3,7 @@ package application
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -46,6 +47,13 @@ type PhaseOneRepository interface {
 type PhaseOneService struct {
 	taskboard *Service
 	repo      PhaseOneRepository
+	flags     hotTaskFeatureFlags
+}
+
+type hotTaskFeatureFlags struct {
+	launch bool
+	resume bool
+	reward bool
 }
 
 type PublishDailyAssignmentInput struct {
@@ -115,7 +123,17 @@ func NewPhaseOneService(taskboard *Service, repo PhaseOneRepository) *PhaseOneSe
 	return &PhaseOneService{
 		taskboard: taskboard,
 		repo:      repo,
+		flags: hotTaskFeatureFlags{
+			launch: parseHotTaskFlag("hot_task_launch_v1"),
+			resume: parseHotTaskFlag("hot_task_resume_v1"),
+			reward: parseHotTaskFlag("hot_task_rewards_v1"),
+		},
 	}
+}
+
+func parseHotTaskFlag(key string) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 func BuildTaskItemsSummary(items []taskboarddomain.TaskItem) taskboarddomain.DailyAssignmentSummary {

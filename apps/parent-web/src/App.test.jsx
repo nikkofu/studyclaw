@@ -358,6 +358,22 @@ afterEach(() => {
 })
 
 describe("App", () => {
+  it("flag off: does not render recap card when reward flag off", async () => {
+    const fetchMock = createFetchMock({
+      dictationListResponse: { dictation_sessions: [] },
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    const flags = screen.getByTestId("hot-task-flags")
+    expect(flags.dataset.launch).toBe("false")
+    expect(flags.dataset.resume).toBe("false")
+    expect(flags.dataset.rewards).toBe("false")
+    expect(screen.queryByTestId("hot-task-recap-card")).not.toBeInTheDocument()
+  })
+
   it("passes assigned_date to parse and confirm requests", async () => {
     let parseBody
     let confirmBody

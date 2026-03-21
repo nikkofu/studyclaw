@@ -28,6 +28,68 @@ func assertHasKeys(t *testing.T, payload map[string]any, keys ...string) {
 	}
 }
 
+func TestHotTaskFlagsOff_PayloadUnchanged(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+	t.Setenv("hot_task_launch_v1", "")
+	t.Setenv("hot_task_resume_v1", "")
+	t.Setenv("hot_task_rewards_v1", "")
+
+	router := SetupRouter()
+
+	draftRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/daily-assignments/drafts/parse", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+		"source_text":   routeSampleGroupMessage,
+	})
+	if draftRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected draft parse to return 201, got %d: %s", draftRecorder.Code, draftRecorder.Body.String())
+	}
+	draftPayload := decodeObjectResponse(t, draftRecorder.Body.Bytes())
+	assertHasKeys(t, draftPayload, "message", "daily_assignment_draft")
+	draftBlock, ok := draftPayload["daily_assignment_draft"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected daily_assignment_draft object, got %+v", draftPayload["daily_assignment_draft"])
+	}
+	draftID, _ := draftBlock["draft_id"].(string)
+
+	publishRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/daily-assignments/publish", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+		"draft_id":      draftID,
+	})
+	if publishRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected publish to return 201, got %d: %s", publishRecorder.Code, publishRecorder.Body.String())
+	}
+	publishPayload := decodeObjectResponse(t, publishRecorder.Body.Bytes())
+	assertHasKeys(t, publishPayload, "message", "daily_assignment", "task_board")
+	if _, ok := publishPayload["hot_task_flags"]; ok {
+		t.Fatalf("expected no hot_task_flags in publish payload when flags off")
+	}
+
+	dayRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/daily-assignments?family_id=306&child_id=1&date=2026-03-16", nil)
+	if dayRecorder.Code != http.StatusOK {
+		t.Fatalf("expected daily assignment fetch to return 200, got %d: %s", dayRecorder.Code, dayRecorder.Body.String())
+	}
+	dayPayload := decodeObjectResponse(t, dayRecorder.Body.Bytes())
+	assertHasKeys(t, dayPayload, "date", "published", "daily_assignment", "task_board", "points_balance")
+	if _, ok := dayPayload["hot_task_flags"]; ok {
+		t.Fatalf("expected no hot_task_flags in day payload when flags off")
+	}
+
+	taskBoard, ok := dayPayload["task_board"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected task_board object, got %+v", dayPayload["task_board"])
+	}
+	if _, ok := taskBoard["launch_recommendation"]; ok {
+		t.Fatalf("expected no launch_recommendation in task_board when flags off")
+	}
+}
+
 func TestFrozenSuccessFieldsForTaskboardRoutes(t *testing.T) {
 	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
 	t.Setenv("LLM_API_KEY", "")
