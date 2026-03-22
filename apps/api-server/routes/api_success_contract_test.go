@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,6 +88,84 @@ func TestHotTaskFlagsOff_PayloadUnchanged(t *testing.T) {
 	}
 	if _, ok := taskBoard["launch_recommendation"]; ok {
 		t.Fatalf("expected no launch_recommendation in task_board when flags off")
+	}
+}
+
+func TestDailyAssignment_LaunchRecommendationContract(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+	t.Setenv("hot_task_launch_v1", "true")
+	t.Setenv("hot_task_resume_v1", "")
+	t.Setenv("hot_task_rewards_v1", "")
+
+	router := SetupRouter()
+
+	draftRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/daily-assignments/drafts/parse", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+		"source_text":   routeSampleGroupMessage,
+	})
+	if draftRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected draft parse to return 201, got %d: %s", draftRecorder.Code, draftRecorder.Body.String())
+	}
+	draftPayload := decodeObjectResponse(t, draftRecorder.Body.Bytes())
+	draftBlock := draftPayload["daily_assignment_draft"].(map[string]any)
+	draftID := draftBlock["draft_id"].(string)
+
+	publishRecorder := performJSONRequest(t, router, http.MethodPost, "/api/v1/daily-assignments/publish", map[string]any{
+		"family_id":     306,
+		"child_id":      1,
+		"assigned_date": "2026-03-16",
+		"draft_id":      draftID,
+	})
+	if publishRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected publish to return 201, got %d: %s", publishRecorder.Code, publishRecorder.Body.String())
+	}
+
+	dayRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/daily-assignments?family_id=306&child_id=1&date=2026-03-16", nil)
+	if dayRecorder.Code != http.StatusOK {
+		t.Fatalf("expected daily assignment fetch to return 200, got %d: %s", dayRecorder.Code, dayRecorder.Body.String())
+	}
+	dayPayload := decodeObjectResponse(t, dayRecorder.Body.Bytes())
+	taskBoard := dayPayload["task_board"].(map[string]any)
+	launchRecommendation, ok := taskBoard["launch_recommendation"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected launch_recommendation object when launch flag on, got %+v", taskBoard["launch_recommendation"])
+	}
+
+	reasonCode, ok := launchRecommendation["reason_code"].(string)
+	if !ok || reasonCode == "" {
+		t.Fatalf("expected non-empty reason_code string, got %+v", launchRecommendation["reason_code"])
+	}
+	if reasonCode != "first_unfinished" {
+		t.Fatalf("expected reason_code first_unfinished, got %q", reasonCode)
+	}
+
+	groupID, ok := launchRecommendation["group_id"].(string)
+	if !ok || groupID == "" {
+		t.Fatalf("expected non-empty group_id string, got %+v", launchRecommendation["group_id"])
+	}
+	if !strings.Contains(groupID, "\x00") {
+		t.Fatalf("expected group_id in canonical <subject>\\x00<group_title> format, got %q", groupID)
+	}
+
+	itemValue, hasItemID := launchRecommendation["item_id"]
+	if !hasItemID {
+		t.Fatalf("expected item_id key to exist")
+	}
+	if itemValue != nil {
+		if _, ok := itemValue.(float64); !ok {
+			t.Fatalf("expected item_id to be number or null, got %T (%+v)", itemValue, itemValue)
+		}
+	}
+
+	if value, ok := launchRecommendation["why_recommended"]; ok {
+		if _, isString := value.(string); !isString {
+			t.Fatalf("expected why_recommended to be omitted or string, got %T", value)
+		}
 	}
 }
 

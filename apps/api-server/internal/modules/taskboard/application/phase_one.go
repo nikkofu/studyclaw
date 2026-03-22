@@ -350,6 +350,9 @@ func (s *PhaseOneService) GetDayBundle(familyID, childID uint, date time.Time) (
 		TaskBoard:     board,
 		PointsBalance: balance,
 	}
+	if s.flags.launch {
+		bundle.TaskBoard.LaunchRecommendation = buildLaunchRecommendation(bundle.TaskBoard.Tasks)
+	}
 	if published {
 		bundle.DailyAssignment = &assignment
 	}
@@ -1511,6 +1514,36 @@ func periodLabel(period string) string {
 		return "本月"
 	default:
 		return "当前阶段"
+	}
+}
+
+func buildLaunchRecommendation(tasks []taskboarddomain.Task) *taskboarddomain.LaunchRecommendation {
+	for _, task := range tasks {
+		if task.Completed {
+			continue
+		}
+		groupID := strings.TrimSpace(task.Subject) + "\x00" + strings.TrimSpace(task.GroupTitle)
+		itemID := task.TaskID
+		return &taskboarddomain.LaunchRecommendation{
+			ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
+			GroupID:    groupID,
+			ItemID:     &itemID,
+		}
+	}
+
+	if len(tasks) == 0 {
+		return &taskboarddomain.LaunchRecommendation{
+			ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
+			GroupID:    "\x00",
+			ItemID:     nil,
+		}
+	}
+
+	groupID := strings.TrimSpace(tasks[0].Subject) + "\x00" + strings.TrimSpace(tasks[0].GroupTitle)
+	return &taskboarddomain.LaunchRecommendation{
+		ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
+		GroupID:    groupID,
+		ItemID:     nil,
 	}
 }
 

@@ -42,11 +42,19 @@ type Summary struct {
 }
 
 type Board struct {
-	Date           string                 `json:"date"`
-	Tasks          []Task                 `json:"tasks"`
-	Groups         []GroupSummary         `json:"groups"`
-	HomeworkGroups []HomeworkGroupSummary `json:"homework_groups"`
-	Summary        Summary                `json:"summary"`
+	Date                 string                 `json:"date"`
+	Tasks                []Task                 `json:"tasks"`
+	Groups               []GroupSummary         `json:"groups"`
+	HomeworkGroups       []HomeworkGroupSummary `json:"homework_groups"`
+	Summary              Summary                `json:"summary"`
+	LaunchRecommendation *LaunchRecommendation  `json:"launch_recommendation,omitempty"`
+}
+
+type LaunchRecommendation struct {
+	ReasonCode     string `json:"reason_code"`
+	GroupID        string `json:"group_id"`
+	ItemID         *int   `json:"item_id"`
+	WhyRecommended string `json:"why_recommended,omitempty"`
 }
 
 type CreateTaskInput struct {
