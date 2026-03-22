@@ -18,6 +18,7 @@ var (
 	ErrDictationGradingInProgress   = errors.New("dictation grading already in progress")
 	ErrInvalidPointsSource          = errors.New("invalid points source")
 	ErrInvalidWordListLanguage      = errors.New("word list language must be one of zh or en")
+	ErrInvalidPersistenceSessionID  = errors.New("persistence session_id is required")
 )
 
 type PhaseOneRepository interface {
@@ -643,6 +644,9 @@ func (s *PhaseOneService) SavePersistenceEvent(event PersistenceEventRecord) (Pe
 	event.IdempotencyKey = strings.TrimSpace(event.IdempotencyKey)
 	event.AssignedDate = strings.TrimSpace(event.AssignedDate)
 	event.SessionID = strings.TrimSpace(event.SessionID)
+	if event.SessionID == "" {
+		return PersistenceSessionSnapshot{}, false, ErrInvalidPersistenceSessionID
+	}
 	if event.OccurredAt == "" {
 		event.OccurredAt = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -687,6 +691,10 @@ func (s *PhaseOneService) SavePersistenceEvent(event PersistenceEventRecord) (Pe
 				return PersistenceSessionSnapshot{}, false, err
 			}
 		}
+	} else if targetStatus != "" {
+		if err := taskboarddomain.ValidatePersistenceTransition(taskboarddomain.PersistenceSessionStatusPreparing, targetStatus); err != nil {
+			return PersistenceSessionSnapshot{}, false, err
+		}
 	}
 
 	savedEvent, created, err := s.repo.SavePersistenceEvent(event)
@@ -711,21 +719,20 @@ func (s *PhaseOneService) AggregatePersistenceSummary(familyID, childID uint, st
 		return taskboarddomain.PersistenceSummary{}, err
 	}
 
-	startedSessions := make(map[string]struct{})
-	completedSessions := make(map[string]struct{})
+	sessionIDs := make(map[string]struct{})
+	completedSessionIDs := make(map[string]struct{})
 	totalSeconds := 0
 	effectiveSeconds := 0
 	invalidTriggers := 0
 	for _, event := range events {
 		sessionID := strings.TrimSpace(event.SessionID)
+		if sessionID != "" {
+			sessionIDs[sessionID] = struct{}{}
+		}
 		switch event.EventType {
-		case taskboarddomain.PersistenceEventStarted:
-			if sessionID != "" {
-				startedSessions[sessionID] = struct{}{}
-			}
 		case taskboarddomain.PersistenceEventCompleted:
 			if sessionID != "" {
-				completedSessions[sessionID] = struct{}{}
+				completedSessionIDs[sessionID] = struct{}{}
 			}
 		}
 		totalSeconds += maxInt(event.TotalSeconds, 0)
@@ -734,16 +741,25 @@ func (s *PhaseOneService) AggregatePersistenceSummary(familyID, childID uint, st
 			invalidTriggers++
 		}
 	}
-	started := len(startedSessions)
-	completed := len(completedSessions)
 
 	days := make([]taskboarddomain.PersistenceDayRecord, 0, len(snapshots))
 	for _, snapshot := range snapshots {
+		sessionID := strings.TrimSpace(snapshot.SessionID)
+		if sessionID != "" {
+			sessionIDs[sessionID] = struct{}{}
+		}
+		if snapshot.Completed || strings.TrimSpace(snapshot.Status) == taskboarddomain.PersistenceSessionStatusCompleted {
+			if sessionID != "" {
+				completedSessionIDs[sessionID] = struct{}{}
+			}
+		}
 		days = append(days, taskboarddomain.PersistenceDayRecord{
 			Completed: snapshot.Completed,
 			Makeup:    snapshot.Makeup,
 		})
 	}
+	started := len(sessionIDs)
+	completed := len(completedSessionIDs)
 
 	summary := taskboarddomain.PersistenceSummary{
 		Streak: taskboarddomain.ComputePersistenceStreak(days),

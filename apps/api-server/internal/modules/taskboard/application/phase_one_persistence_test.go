@@ -285,6 +285,56 @@ func TestSavePersistenceEvent_RejectsInvalidStateTransition(t *testing.T) {
 	}
 }
 
+func TestSavePersistenceEvent_RejectsEmptySessionIDBeforeRepoCalls(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	repo := jsonstore.NewRepository()
+	service := application.NewPhaseOneService(nil, repo)
+
+	_, created, err := service.SavePersistenceEvent(application.PersistenceEventRecord{
+		SessionID:      "   ",
+		FamilyID:       306,
+		ChildID:        1,
+		AssignedDate:   "2026-03-12",
+		EventType:      taskboarddomain.PersistenceEventStarted,
+		IdempotencyKey: "empty-session-id",
+		OccurredAt:     "2026-03-12T09:00:00Z",
+	})
+	if !errors.Is(err, application.ErrInvalidPersistenceSessionID) {
+		t.Fatalf("expected ErrInvalidPersistenceSessionID, got %v", err)
+	}
+	if created {
+		t.Fatalf("expected created=false when session id is invalid")
+	}
+
+	baseDate := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
+	events, listErr := repo.ListPersistenceEvents(306, 1, baseDate, baseDate)
+	if listErr != nil {
+		t.Fatalf("ListPersistenceEvents returned error: %v", listErr)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no persisted events for invalid session id, got %d", len(events))
+	}
+}
+
+func TestSavePersistenceEvent_FirstEventValidatesPreparingTransition(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	repo := jsonstore.NewRepository()
+	service := application.NewPhaseOneService(nil, repo)
+
+	_, _, err := service.SavePersistenceEvent(application.PersistenceEventRecord{
+		SessionID:      "session-first-transition",
+		FamilyID:       306,
+		ChildID:        1,
+		AssignedDate:   "2026-03-12",
+		EventType:      taskboarddomain.PersistenceEventCompleted,
+		IdempotencyKey: "first-completed",
+		OccurredAt:     "2026-03-12T09:00:00Z",
+	})
+	if !errors.Is(err, taskboarddomain.ErrInvalidPersistenceTransition) {
+		t.Fatalf("expected ErrInvalidPersistenceTransition for first completed event, got %v", err)
+	}
+}
+
 func TestAggregatePersistenceSummary_ComputesCompletionRateAndEffectiveDuration(t *testing.T) {
 	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
 	repo := jsonstore.NewRepository()
@@ -388,6 +438,87 @@ func TestAggregatePersistenceSummary_ComputesCompletionRateAndEffectiveDuration(
 	}
 	if summary.EffectiveDuration.TotalSeconds != 510 {
 		t.Fatalf("expected total seconds 510, got %d", summary.EffectiveDuration.TotalSeconds)
+	}
+}
+
+func TestAggregatePersistenceSummary_UsesSnapshotAndEventSessionUniverse(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	repo := jsonstore.NewRepository()
+	service := application.NewPhaseOneService(nil, repo)
+	baseDate := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
+
+	// session-complete has full history and should count as completed.
+	_, _, err := service.SavePersistenceEvent(application.PersistenceEventRecord{
+		SessionID:      "session-complete",
+		FamilyID:       306,
+		ChildID:        1,
+		AssignedDate:   "2026-03-12",
+		EventType:      taskboarddomain.PersistenceEventStarted,
+		IdempotencyKey: "mixed-start",
+		OccurredAt:     "2026-03-12T09:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("failed to save started event: %v", err)
+	}
+	_, _, err = service.SavePersistenceEvent(application.PersistenceEventRecord{
+		SessionID:      "session-complete",
+		FamilyID:       306,
+		ChildID:        1,
+		AssignedDate:   "2026-03-12",
+		Status:         taskboarddomain.PersistenceSessionStatusClosing,
+		IdempotencyKey: "mixed-closing",
+		OccurredAt:     "2026-03-12T09:01:00Z",
+	})
+	if err != nil {
+		t.Fatalf("failed to save closing status event: %v", err)
+	}
+	_, _, err = service.SavePersistenceEvent(application.PersistenceEventRecord{
+		SessionID:      "session-complete",
+		FamilyID:       306,
+		ChildID:        1,
+		AssignedDate:   "2026-03-12",
+		EventType:      taskboarddomain.PersistenceEventCompleted,
+		IdempotencyKey: "mixed-completed",
+		OccurredAt:     "2026-03-12T09:02:00Z",
+	})
+	if err != nil {
+		t.Fatalf("failed to save completed event: %v", err)
+	}
+
+	// session-truncated simulates history truncation: snapshot exists in range, but only a non-start event is ingested.
+	_, err = repo.SavePersistenceSessionSnapshot(application.PersistenceSessionSnapshot{
+		SessionID:    "session-truncated",
+		FamilyID:     306,
+		ChildID:      1,
+		AssignedDate: "2026-03-12",
+		Status:       taskboarddomain.PersistenceSessionStatusPaused,
+		UpdatedAt:    "2026-03-12T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("failed to seed truncated snapshot: %v", err)
+	}
+	_, _, err = service.SavePersistenceEvent(application.PersistenceEventRecord{
+		SessionID:      "session-truncated",
+		FamilyID:       306,
+		ChildID:        1,
+		AssignedDate:   "2026-03-12",
+		EventType:      taskboarddomain.PersistenceEventInterrupted,
+		IdempotencyKey: "mixed-truncated",
+		OccurredAt:     "2026-03-12T10:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("failed to save truncated interrupted event: %v", err)
+	}
+
+	summary, err := service.AggregatePersistenceSummary(306, 1, baseDate, baseDate)
+	if err != nil {
+		t.Fatalf("AggregatePersistenceSummary returned error: %v", err)
+	}
+	if summary.CompletionRate.Completed != 1 || summary.CompletionRate.Total != 2 {
+		t.Fatalf("expected mixed completion counters 1/2, got %d/%d", summary.CompletionRate.Completed, summary.CompletionRate.Total)
+	}
+	if summary.CompletionRate.Rate != 0.5 {
+		t.Fatalf("expected mixed completion rate 0.5, got %v", summary.CompletionRate.Rate)
 	}
 }
 
