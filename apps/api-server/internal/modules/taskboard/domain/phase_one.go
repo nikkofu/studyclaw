@@ -49,8 +49,6 @@ const (
 
 	PersistenceDurationSpeech  = "speech"
 	PersistenceDurationSilence = "silence"
-
-	LaunchReasonCodeFirstUnfinished = "first_unfinished"
 )
 
 var ErrInvalidPersistenceTransition = errors.New("invalid persistence transition")
