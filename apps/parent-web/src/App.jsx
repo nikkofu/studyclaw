@@ -33,6 +33,9 @@ function readBooleanRuntimeFlag(flagName, defaultValue = false) {
 
 function getTask1Flags() {
   return {
+    launch: readBooleanRuntimeFlag("VITE_HOT_TASK_LAUNCH_V1", false),
+    resume: readBooleanRuntimeFlag("VITE_HOT_TASK_RESUME_V1", false),
+    rewards: readBooleanRuntimeFlag("VITE_HOT_TASK_REWARDS_V1", false),
     parseAutoCreate: readBooleanRuntimeFlag("VITE_TASK_PARSE_AUTO_CREATE", false),
   }
 }
@@ -77,9 +80,9 @@ const POINT_REASON_PRESETS = {
   reward: ["按时完成全部任务", "主动完成额外练习", "主动整理错题", "晚饭前独立完成作业"],
   penalty: ["回家后拖延未开工", "未整理错题", "多次提醒后才完成", "作业完成后未复盘"],
 }
-const HOT_TASK_LAUNCH_V1 = false
-const HOT_TASK_RESUME_V1 = false
-const HOT_TASK_REWARDS_V1 = false
+const HOT_TASK_LAUNCH_V1 = getTask1Flags().launch
+const HOT_TASK_RESUME_V1 = getTask1Flags().resume
+const HOT_TASK_REWARDS_V1 = getTask1Flags().rewards
 const DICTATION_WORKER_STAGE_META = {
   queued: {
     label: "已入队",

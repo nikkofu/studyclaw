@@ -1518,6 +1518,10 @@ func periodLabel(period string) string {
 }
 
 func buildLaunchRecommendation(tasks []taskboarddomain.Task) *taskboarddomain.LaunchRecommendation {
+	if len(tasks) == 0 {
+		return nil
+	}
+
 	for _, task := range tasks {
 		if task.Completed {
 			continue
@@ -1528,14 +1532,6 @@ func buildLaunchRecommendation(tasks []taskboarddomain.Task) *taskboarddomain.La
 			ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
 			GroupID:    groupID,
 			ItemID:     &itemID,
-		}
-	}
-
-	if len(tasks) == 0 {
-		return &taskboarddomain.LaunchRecommendation{
-			ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
-			GroupID:    "\x00",
-			ItemID:     nil,
 		}
 	}
 

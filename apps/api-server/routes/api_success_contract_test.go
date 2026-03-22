@@ -169,6 +169,31 @@ func TestDailyAssignment_LaunchRecommendationContract(t *testing.T) {
 	}
 }
 
+func TestDailyAssignment_LaunchRecommendation_OmittedWhenNoTasks(t *testing.T) {
+	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL_NAME", "")
+	t.Setenv("LLM_PARSER_MODEL_NAME", "")
+	t.Setenv("hot_task_launch_v1", "true")
+	t.Setenv("hot_task_resume_v1", "")
+	t.Setenv("hot_task_rewards_v1", "")
+
+	router := SetupRouter()
+
+	dayRecorder := performJSONRequest(t, router, http.MethodGet, "/api/v1/daily-assignments?family_id=306&child_id=1&date=2026-03-16", nil)
+	if dayRecorder.Code != http.StatusOK {
+		t.Fatalf("expected daily assignment fetch to return 200, got %d: %s", dayRecorder.Code, dayRecorder.Body.String())
+	}
+	dayPayload := decodeObjectResponse(t, dayRecorder.Body.Bytes())
+	taskBoard, ok := dayPayload["task_board"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected task_board object, got %+v", dayPayload["task_board"])
+	}
+	if _, ok := taskBoard["launch_recommendation"]; ok {
+		t.Fatalf("expected launch_recommendation omitted when no tasks available")
+	}
+}
+
 func TestFrozenSuccessFieldsForTaskboardRoutes(t *testing.T) {
 	t.Setenv("STUDYCLAW_DATA_DIR", t.TempDir())
 	t.Setenv("LLM_API_KEY", "")

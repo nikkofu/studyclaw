@@ -19,12 +19,19 @@ import 'package:pad_app/word_playback/speaker_contract.dart';
 
 void main() {
   group('PadTaskBoardPage Widget Tests', () {
-    test('without new fields, pad flow stays baseline', () {
-      expect(TaskBoardController.hotTaskFlags(), {
-        'hot_task_launch_v1': false,
-        'hot_task_resume_v1': false,
-        'hot_task_rewards_v1': false,
-      });
+    testWidgets('without new fields, pad flow stays baseline', (tester) async {
+      final board = _boardWithTasks();
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => board,
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(autoLoad: true, repository: repository),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('挑战舞台'), findsOneWidget);
+      expect(find.text('孩子学习语音工作台'), findsOneWidget);
     });
 
     testWidgets('renders page shell while loading', (tester) async {
