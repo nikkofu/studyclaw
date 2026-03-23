@@ -1026,6 +1026,21 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
     }
   }
 
+  Future<void> _startRecommendedTask() async {
+    final board = _controller.state.board;
+    if (board == null) {
+      return;
+    }
+    final target = _controller.resolveLaunchTask(board);
+    if (target == null) {
+      return;
+    }
+    if (target.completed) {
+      return;
+    }
+    await _updateSingleTask(target, true);
+  }
+
   void _handleTaskBoardStateChanged() {
     if (!mounted) {
       return;
@@ -2295,6 +2310,11 @@ class _PadTaskBoardPageState extends State<PadTaskBoardPage>
                         date: _dateController.text.trim(),
                         onPreviousDate: () => _shiftDate(-1),
                         onNextDate: () => _shiftDate(1),
+                        onStartRecommended: _controller.hotTaskLaunchEnabled
+                            ? () => _startRecommendedTask()
+                            : null,
+                        showStartRecommended:
+                            _controller.hotTaskLaunchEnabled,
                         onCompleteAll: () => _updateAllTasks(true),
                         onResetAll: () => _updateAllTasks(false)),
                     if (state.errorMessage != null) ...[
@@ -2578,10 +2598,17 @@ class _TodayHeroCard extends StatelessWidget {
       {required this.date,
       required this.onPreviousDate,
       required this.onNextDate,
+      required this.onStartRecommended,
+      required this.showStartRecommended,
       required this.onCompleteAll,
       required this.onResetAll});
   final String date;
-  final VoidCallback? onPreviousDate, onNextDate, onCompleteAll, onResetAll;
+  final VoidCallback? onPreviousDate,
+      onNextDate,
+      onStartRecommended,
+      onCompleteAll,
+      onResetAll;
+  final bool showStartRecommended;
   @override
   Widget build(BuildContext context) => KidCard(
       color: KidColors.color1,
@@ -2624,6 +2651,14 @@ class _TodayHeroCard extends StatelessWidget {
         ]),
         const SizedBox(height: 24),
         Row(children: [
+          if (showStartRecommended) ...[
+            Expanded(
+                child: KidSmallBtn(
+                    label: '先做推荐',
+                    color: KidColors.color4,
+                    onTap: onStartRecommended)),
+            const SizedBox(width: 12),
+          ],
           Expanded(
               child: KidSmallBtn(
                   label: '全部重置', color: KidColors.color5, onTap: onResetAll)),

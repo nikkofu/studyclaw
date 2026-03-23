@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pad_app/app.dart';
 import 'package:pad_app/task_board/api_client.dart';
-import 'package:pad_app/task_board/controller.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/recitation_analysis.dart';
@@ -32,6 +31,7 @@ void main() {
 
       expect(find.text('挑战舞台'), findsOneWidget);
       expect(find.text('孩子学习语音工作台'), findsOneWidget);
+      expect(find.text('先做推荐'), findsNothing);
     });
 
     testWidgets('renders page shell while loading', (tester) async {

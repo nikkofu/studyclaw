@@ -114,6 +114,25 @@ class TaskBoardController extends ChangeNotifier {
     };
   }
 
+  TaskItem? resolveLaunchTask(TaskBoard board) {
+    final recommendedId = board.launchRecommendation?.itemId;
+    if (recommendedId != null) {
+      for (final task in board.tasks) {
+        if (task.taskId == recommendedId && !task.completed) {
+          return task;
+        }
+      }
+    }
+    for (final task in board.tasks) {
+      if (!task.completed) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  bool get hotTaskLaunchEnabled => _hotTaskLaunchV1;
+
   TaskBoardViewState _state = TaskBoardViewState.initial();
   bool _showCompletedHistory = false;
   Set<String> _expandedHomeworkGroupKeys = <String>{};
