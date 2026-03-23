@@ -1518,28 +1518,42 @@ func periodLabel(period string) string {
 }
 
 func buildLaunchRecommendation(tasks []taskboarddomain.Task) *taskboarddomain.LaunchRecommendation {
-	if len(tasks) == 0 {
-		return nil
-	}
-
+	candidates := make([]taskboarddomain.Task, 0, len(tasks))
 	for _, task := range tasks {
 		if task.Completed {
 			continue
 		}
-		groupID := strings.TrimSpace(task.Subject) + "\x00" + strings.TrimSpace(task.GroupTitle)
-		itemID := task.TaskID
-		return &taskboarddomain.LaunchRecommendation{
-			ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
-			GroupID:    groupID,
-			ItemID:     &itemID,
-		}
+		candidates = append(candidates, task)
+	}
+	if len(candidates) == 0 {
+		return nil
 	}
 
-	groupID := strings.TrimSpace(tasks[0].Subject) + "\x00" + strings.TrimSpace(tasks[0].GroupTitle)
+	sort.Slice(candidates, func(i, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+		if left.IsCurrentSessionItem != right.IsCurrentSessionItem {
+			return left.IsCurrentSessionItem
+		}
+		if left.PriorityWeight != right.PriorityWeight {
+			return left.PriorityWeight > right.PriorityWeight
+		}
+		if left.InterruptionRiskScore != right.InterruptionRiskScore {
+			return left.InterruptionRiskScore < right.InterruptionRiskScore
+		}
+		if left.AssignedSequence != right.AssignedSequence {
+			return left.AssignedSequence < right.AssignedSequence
+		}
+		return left.TaskID < right.TaskID
+	})
+
+	winner := candidates[0]
+	groupID := strings.TrimSpace(winner.Subject) + "\x00" + strings.TrimSpace(winner.GroupTitle)
+	itemID := winner.TaskID
 	return &taskboarddomain.LaunchRecommendation{
 		ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
 		GroupID:    groupID,
-		ItemID:     nil,
+		ItemID:     &itemID,
 	}
 }
 
