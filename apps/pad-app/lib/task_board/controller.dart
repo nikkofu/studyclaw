@@ -114,6 +114,7 @@ class TaskBoardController extends ChangeNotifier {
     };
   }
 
+  @visibleForTesting
   TaskItem? resolveLaunchTask(TaskBoard board) {
     final recommendedId = board.launchRecommendation?.itemId;
     if (recommendedId != null) {
@@ -130,8 +131,6 @@ class TaskBoardController extends ChangeNotifier {
     }
     return null;
   }
-
-  bool get hotTaskLaunchEnabled => _hotTaskLaunchV1;
 
   TaskBoardViewState _state = TaskBoardViewState.initial();
   bool _showCompletedHistory = false;
