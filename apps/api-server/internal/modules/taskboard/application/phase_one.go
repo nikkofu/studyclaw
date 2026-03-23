@@ -3,6 +3,7 @@ package application
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ var (
 	ErrDictationGradingInProgress   = errors.New("dictation grading already in progress")
 	ErrInvalidPointsSource          = errors.New("invalid points source")
 	ErrInvalidWordListLanguage      = errors.New("word list language must be one of zh or en")
+	ErrInvalidPersistenceSessionID  = errors.New("persistence session_id is required")
 )
 
 type PhaseOneRepository interface {
@@ -46,6 +48,13 @@ type PhaseOneRepository interface {
 type PhaseOneService struct {
 	taskboard *Service
 	repo      PhaseOneRepository
+	flags     hotTaskFeatureFlags
+}
+
+type hotTaskFeatureFlags struct {
+	launch bool
+	resume bool
+	reward bool
 }
 
 type PublishDailyAssignmentInput struct {
@@ -115,7 +124,17 @@ func NewPhaseOneService(taskboard *Service, repo PhaseOneRepository) *PhaseOneSe
 	return &PhaseOneService{
 		taskboard: taskboard,
 		repo:      repo,
+		flags: hotTaskFeatureFlags{
+			launch: parseHotTaskFlag("hot_task_launch_v1"),
+			resume: parseHotTaskFlag("hot_task_resume_v1"),
+			reward: parseHotTaskFlag("hot_task_rewards_v1"),
+		},
 	}
+}
+
+func parseHotTaskFlag(key string) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 func BuildTaskItemsSummary(items []taskboarddomain.TaskItem) taskboarddomain.DailyAssignmentSummary {
@@ -330,6 +349,9 @@ func (s *PhaseOneService) GetDayBundle(familyID, childID uint, date time.Time) (
 		Published:     published,
 		TaskBoard:     board,
 		PointsBalance: balance,
+	}
+	if s.flags.launch {
+		bundle.TaskBoard.LaunchRecommendation = buildLaunchRecommendation(bundle.TaskBoard.Tasks)
 	}
 	if published {
 		bundle.DailyAssignment = &assignment
@@ -625,6 +647,9 @@ func (s *PhaseOneService) SavePersistenceEvent(event PersistenceEventRecord) (Pe
 	event.IdempotencyKey = strings.TrimSpace(event.IdempotencyKey)
 	event.AssignedDate = strings.TrimSpace(event.AssignedDate)
 	event.SessionID = strings.TrimSpace(event.SessionID)
+	if event.SessionID == "" {
+		return PersistenceSessionSnapshot{}, false, ErrInvalidPersistenceSessionID
+	}
 	if event.OccurredAt == "" {
 		event.OccurredAt = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -669,6 +694,10 @@ func (s *PhaseOneService) SavePersistenceEvent(event PersistenceEventRecord) (Pe
 				return PersistenceSessionSnapshot{}, false, err
 			}
 		}
+	} else if targetStatus != "" {
+		if err := taskboarddomain.ValidatePersistenceTransition(taskboarddomain.PersistenceSessionStatusPreparing, targetStatus); err != nil {
+			return PersistenceSessionSnapshot{}, false, err
+		}
 	}
 
 	savedEvent, created, err := s.repo.SavePersistenceEvent(event)
@@ -693,21 +722,20 @@ func (s *PhaseOneService) AggregatePersistenceSummary(familyID, childID uint, st
 		return taskboarddomain.PersistenceSummary{}, err
 	}
 
-	startedSessions := make(map[string]struct{})
-	completedSessions := make(map[string]struct{})
+	sessionIDs := make(map[string]struct{})
+	completedSessionIDs := make(map[string]struct{})
 	totalSeconds := 0
 	effectiveSeconds := 0
 	invalidTriggers := 0
 	for _, event := range events {
 		sessionID := strings.TrimSpace(event.SessionID)
+		if sessionID != "" {
+			sessionIDs[sessionID] = struct{}{}
+		}
 		switch event.EventType {
-		case taskboarddomain.PersistenceEventStarted:
-			if sessionID != "" {
-				startedSessions[sessionID] = struct{}{}
-			}
 		case taskboarddomain.PersistenceEventCompleted:
 			if sessionID != "" {
-				completedSessions[sessionID] = struct{}{}
+				completedSessionIDs[sessionID] = struct{}{}
 			}
 		}
 		totalSeconds += maxInt(event.TotalSeconds, 0)
@@ -716,16 +744,25 @@ func (s *PhaseOneService) AggregatePersistenceSummary(familyID, childID uint, st
 			invalidTriggers++
 		}
 	}
-	started := len(startedSessions)
-	completed := len(completedSessions)
 
 	days := make([]taskboarddomain.PersistenceDayRecord, 0, len(snapshots))
 	for _, snapshot := range snapshots {
+		sessionID := strings.TrimSpace(snapshot.SessionID)
+		if sessionID != "" {
+			sessionIDs[sessionID] = struct{}{}
+		}
+		if snapshot.Completed || strings.TrimSpace(snapshot.Status) == taskboarddomain.PersistenceSessionStatusCompleted {
+			if sessionID != "" {
+				completedSessionIDs[sessionID] = struct{}{}
+			}
+		}
 		days = append(days, taskboarddomain.PersistenceDayRecord{
 			Completed: snapshot.Completed,
 			Makeup:    snapshot.Makeup,
 		})
 	}
+	started := len(sessionIDs)
+	completed := len(completedSessionIDs)
 
 	summary := taskboarddomain.PersistenceSummary{
 		Streak: taskboarddomain.ComputePersistenceStreak(days),
@@ -1477,6 +1514,46 @@ func periodLabel(period string) string {
 		return "本月"
 	default:
 		return "当前阶段"
+	}
+}
+
+func buildLaunchRecommendation(tasks []taskboarddomain.Task) *taskboarddomain.LaunchRecommendation {
+	candidates := make([]taskboarddomain.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Completed {
+			continue
+		}
+		candidates = append(candidates, task)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+		if left.IsCurrentSessionItem != right.IsCurrentSessionItem {
+			return left.IsCurrentSessionItem
+		}
+		if left.PriorityWeight != right.PriorityWeight {
+			return left.PriorityWeight > right.PriorityWeight
+		}
+		if left.InterruptionRiskScore != right.InterruptionRiskScore {
+			return left.InterruptionRiskScore < right.InterruptionRiskScore
+		}
+		if left.AssignedSequence != right.AssignedSequence {
+			return left.AssignedSequence < right.AssignedSequence
+		}
+		return left.TaskID < right.TaskID
+	})
+
+	winner := candidates[0]
+	groupID := strings.TrimSpace(winner.Subject) + "\x00" + strings.TrimSpace(winner.GroupTitle)
+	itemID := winner.TaskID
+	return &taskboarddomain.LaunchRecommendation{
+		ReasonCode: taskboarddomain.LaunchReasonCodeFirstUnfinished,
+		GroupID:    groupID,
+		ItemID:     &itemID,
 	}
 }
 

@@ -2,6 +2,43 @@ import React, { useEffect, useRef, useState } from "react"
 import { enrichTasksWithLearningReferences, flattenSectionsToTasks, parseSchoolTaskMessage, REFERENCE_GROUP_MESSAGE } from "./schoolTaskParser"
 
 const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"
+
+function readBooleanRuntimeFlag(flagName, defaultValue = false) {
+  const runtimeFlags = typeof window !== "undefined" && window.__STUDYCLAW_RUNTIME_FLAGS__
+    ? window.__STUDYCLAW_RUNTIME_FLAGS__
+    : null
+  const runtimeValue = runtimeFlags && Object.prototype.hasOwnProperty.call(runtimeFlags, flagName)
+    ? runtimeFlags[flagName]
+    : undefined
+  const envValue = import.meta.env?.[flagName]
+  const rawValue = runtimeValue ?? envValue
+
+  if (typeof rawValue === "boolean") {
+    return rawValue
+  }
+
+  if (typeof rawValue === "number") {
+    return rawValue !== 0
+  }
+
+  const normalized = String(rawValue || "").trim().toLowerCase()
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false
+  }
+  return defaultValue
+}
+
+function getTask1Flags() {
+  return {
+    launch: readBooleanRuntimeFlag("VITE_HOT_TASK_LAUNCH_V1", false),
+    resume: readBooleanRuntimeFlag("VITE_HOT_TASK_RESUME_V1", false),
+    rewards: readBooleanRuntimeFlag("VITE_HOT_TASK_REWARDS_V1", false),
+    parseAutoCreate: readBooleanRuntimeFlag("VITE_TASK_PARSE_AUTO_CREATE", false),
+  }
+}
 const CHILD_PROFILES = [
   { id: "mia-grade4", label: "苗苗 / 四年级", familyId: "101", assigneeId: "201" },
   { id: "leo-grade2", label: "乐乐 / 二年级", familyId: "102", assigneeId: "202" },
@@ -43,6 +80,9 @@ const POINT_REASON_PRESETS = {
   reward: ["按时完成全部任务", "主动完成额外练习", "主动整理错题", "晚饭前独立完成作业"],
   penalty: ["回家后拖延未开工", "未整理错题", "多次提醒后才完成", "作业完成后未复盘"],
 }
+const HOT_TASK_LAUNCH_V1 = getTask1Flags().launch
+const HOT_TASK_RESUME_V1 = getTask1Flags().resume
+const HOT_TASK_REWARDS_V1 = getTask1Flags().rewards
 const DICTATION_WORKER_STAGE_META = {
   queued: {
     label: "已入队",
@@ -4285,7 +4325,7 @@ export default function App() {
         assignee_id: Number(assigneeId),
         assigned_date: assignedDate,
         raw_text: rawText.trim(),
-        auto_create: false,
+        auto_create: getTask1Flags().parseAutoCreate,
       }
 
       const data = await requestJSON(`${apiBaseUrl}/api/v1/tasks/parse`, {
@@ -5063,6 +5103,14 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      <div
+        data-testid="hot-task-flags"
+        data-launch={String(HOT_TASK_LAUNCH_V1)}
+        data-resume={String(HOT_TASK_RESUME_V1)}
+        data-rewards={String(HOT_TASK_REWARDS_V1)}
+        hidden
+      />
+      {HOT_TASK_REWARDS_V1 ? <section data-testid="hot-task-recap-card" /> : null}
       <section className="hero">
         <div className="hero-topline">
           <p className="eyebrow">StudyClaw Parent H5</p>

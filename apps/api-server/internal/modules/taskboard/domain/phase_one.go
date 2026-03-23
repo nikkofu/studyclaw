@@ -9,6 +9,8 @@ const (
 	AssignmentStatusDraft     = "draft"
 	AssignmentStatusPublished = "published"
 
+	LaunchReasonCodeFirstUnfinished = "first_unfinished"
+
 	PointsSourceTaskCompletion = "task_completion"
 	PointsSourceParentReward   = "parent_reward"
 	PointsSourceParentPenalty  = "parent_penalty"

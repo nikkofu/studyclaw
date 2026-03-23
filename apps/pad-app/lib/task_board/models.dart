@@ -64,6 +64,7 @@ class TaskBoard {
     required this.homeworkGroups,
     required this.summary,
     this.message,
+    this.launchRecommendation,
   });
 
   factory TaskBoard.fromJson(Map<String, dynamic> json) {
@@ -83,6 +84,12 @@ class TaskBoard {
       summary: BoardSummary.fromJson(
         json['summary'] as Map<String, dynamic>? ?? const {},
       ),
+      launchRecommendation: json['launch_recommendation']
+              is Map<String, dynamic>
+          ? LaunchRecommendation.fromJson(
+              json['launch_recommendation'] as Map<String, dynamic>,
+            )
+          : null,
     );
   }
 
@@ -92,6 +99,33 @@ class TaskBoard {
   final List<TaskGroup> groups;
   final List<HomeworkGroup> homeworkGroups;
   final BoardSummary summary;
+  final LaunchRecommendation? launchRecommendation;
+}
+
+class LaunchRecommendation {
+  const LaunchRecommendation({
+    required this.reasonCode,
+    required this.groupId,
+    required this.itemId,
+    this.whyRecommended,
+  });
+
+  factory LaunchRecommendation.fromJson(Map<String, dynamic> json) {
+    final rawItemId = json['item_id'];
+    return LaunchRecommendation(
+      reasonCode: _readString(json['reason_code']),
+      groupId: _readString(json['group_id']),
+      itemId: rawItemId == null ? null : _readInt(rawItemId),
+      whyRecommended: _readString(json['why_recommended']).isEmpty
+          ? null
+          : _readString(json['why_recommended']),
+    );
+  }
+
+  final String reasonCode;
+  final String groupId;
+  final int? itemId;
+  final String? whyRecommended;
 }
 
 class TaskItem {

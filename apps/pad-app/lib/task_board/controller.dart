@@ -5,6 +5,10 @@ import 'package:pad_app/task_board/models.dart';
 import 'package:pad_app/task_board/repository.dart';
 import 'package:pad_app/task_board/daily_stats.dart';
 
+const bool _hotTaskLaunchV1 = bool.fromEnvironment('hot_task_launch_v1', defaultValue: false);
+const bool _hotTaskResumeV1 = bool.fromEnvironment('hot_task_resume_v1', defaultValue: false);
+const bool _hotTaskRewardsV1 = bool.fromEnvironment('hot_task_rewards_v1', defaultValue: false);
+
 enum TaskBoardScreenStatus { loading, empty, error, success }
 
 enum TaskBoardNoticeTone { success, info }
@@ -100,6 +104,34 @@ class TaskBoardController extends ChangeNotifier {
       : _repository = repository;
 
   final TaskBoardRepository _repository;
+
+  @visibleForTesting
+  static Map<String, bool> hotTaskFlags() {
+    return const {
+      'hot_task_launch_v1': _hotTaskLaunchV1,
+      'hot_task_resume_v1': _hotTaskResumeV1,
+      'hot_task_rewards_v1': _hotTaskRewardsV1,
+    };
+  }
+
+  TaskItem? resolveLaunchTask(TaskBoard board) {
+    final recommendedId = board.launchRecommendation?.itemId;
+    if (recommendedId != null) {
+      for (final task in board.tasks) {
+        if (task.taskId == recommendedId && !task.completed) {
+          return task;
+        }
+      }
+    }
+    for (final task in board.tasks) {
+      if (!task.completed) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  bool get hotTaskLaunchEnabled => _hotTaskLaunchV1;
 
   TaskBoardViewState _state = TaskBoardViewState.initial();
   bool _showCompletedHistory = false;

@@ -18,6 +18,22 @@ import 'package:pad_app/word_playback/speaker_contract.dart';
 
 void main() {
   group('PadTaskBoardPage Widget Tests', () {
+    testWidgets('without new fields, pad flow stays baseline', (tester) async {
+      final board = _boardWithTasks();
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => board,
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(autoLoad: true, repository: repository),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('挑战舞台'), findsOneWidget);
+      expect(find.text('孩子学习语音工作台'), findsOneWidget);
+      expect(find.text('先做推荐'), findsNothing);
+    });
+
     testWidgets('renders page shell while loading', (tester) async {
       final boardCompleter = Completer<TaskBoard>();
       final repository =
@@ -627,6 +643,122 @@ void main() {
               .recitationAnalysisCalls.first.metadata['reference_task_source'],
           'extracted');
       expect(repository.recitationAnalysisCalls.first.metadata['task_id'], '1');
+    });
+
+    testWidgets(
+        'keeps transcript analysis baseline flow when task reference fields are missing',
+        (tester) async {
+      const manualReferenceText =
+          '江畔独步寻花【唐】杜甫\n黄师塔前江水东，春光懒困倚微风。\n桃花一簇开无主，可爱深红爱浅红？';
+      final board = TaskBoard(
+        date: '2026-03-12',
+        message: 'OK',
+        tasks: const [
+          TaskItem(
+            taskId: 1,
+            subject: '语文',
+            groupTitle: '古诗背诵',
+            content: '背诵《江畔独步寻花》',
+            completed: false,
+            status: 'pending',
+            taskType: 'recitation',
+          ),
+        ],
+        groups: const [
+          TaskGroup(
+            subject: '语文',
+            total: 1,
+            completed: 0,
+            pending: 1,
+            status: 'pending',
+          ),
+        ],
+        homeworkGroups: const [
+          HomeworkGroup(
+            subject: '语文',
+            groupTitle: '古诗背诵',
+            total: 1,
+            completed: 0,
+            pending: 1,
+            status: 'pending',
+          ),
+        ],
+        summary: const BoardSummary(
+          total: 1,
+          completed: 0,
+          pending: 1,
+          status: 'pending',
+        ),
+      );
+
+      final repository = _FakeTaskBoardRepository(
+        onFetch: (_) async => board,
+        onAnalyzeRecitation: (_, __, ___, ____, _____, ______) async =>
+            const RecitationAnalysis(
+          status: 'success',
+          parserMode: 'rule_fallback',
+          scene: 'recitation',
+          recognizedTitle: '江畔独步寻花',
+          recognizedAuthor: '杜甫',
+          referenceTitle: '江畔独步寻花',
+          referenceAuthor: '杜甫',
+          referenceText: manualReferenceText,
+          normalizedTranscript: '黄师塔前江水东春光懒困倚微风',
+          reconstructedText: '黄师塔前江水东 春光懒困倚微风',
+          completionRatio: 0.72,
+          needsRetry: true,
+          summary: '已按手动输入原文完成对照。',
+          suggestion: '建议再把末句完整背一遍。',
+          issues: ['最后一句缺失'],
+          matchedLines: [],
+        ),
+      );
+
+      await tester.pumpWidget(
+        StudyClawPadApp(
+          autoLoad: true,
+          repository: repository,
+          speechRecognizer: _FakeSpeechRecognizer(
+            transcript: const SpeechTranscript(
+              transcript: '黄师塔前江水东春光懒困倚微风',
+              locale: 'zh-CN',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('voice-mode-transcript')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('voice-reference-input')), findsOneWidget);
+      expect(find.byKey(const Key('voice-reference-task-summary')), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('voice-reference-input')),
+        manualReferenceText,
+      );
+      await tester.pump();
+      await tester.drag(find.byType(ListView).first, const Offset(0, 320));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('voice-assistant-trigger')));
+      await tester.pumpAndSettle();
+
+      expect(repository.recitationAnalysisCalls.length, 1);
+      expect(
+        repository.recitationAnalysisCalls.first.referenceText,
+        manualReferenceText,
+      );
+      expect(
+        repository.recitationAnalysisCalls.first.metadata['reference_source'],
+        'manual',
+      );
+      expect(find.textContaining('已按手动输入原文完成对照'), findsOneWidget);
     });
 
     testWidgets('keeps natural pause segments for recitation records',
