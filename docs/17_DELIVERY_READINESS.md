@@ -4,7 +4,7 @@
 
 本文档回答一个更具体的问题：
 
-在 `2026-03-14` 的当前仓库状态下，StudyClaw 当前目标版本 `v0.3.5` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
+在 `2026-03-14` 的当前仓库状态下，StudyClaw 当时目标版本 `v0.3.5` 是否已经达到“功能可交付、文档可交接、仓库可进入 GitHub 正式同步”的标准。
 
 本审计以 `docs/01_PRD.md` 中定义的第一阶段 7 类能力为准，并以真实脚本、真实测试和真实本地联调结果作为证据。
 
@@ -17,7 +17,7 @@
 3. 执行顺序不逆行：`SC-01 API 契约冻结` -> `SC-03 Pad 主链补齐` + `SC-04 Parent 复盘补齐` -> `SC-05 集成验收收口`，`SC-02 Agent` 并行支撑
 4. 文档口径不分叉：`README.md`、`docs/03_ROADMAP.md`、`docs/14_NEXT_PHASE_DISPATCH.md`、`docs/17_DELIVERY_READINESS.md` 保持一致
 
-## 1. 审计基线
+## 1. 审计基线（`v0.3.5` 历史收口快照）
 
 - 审计日期：`2026-03-14`
 - 当前交付版本：`v0.3.5`
@@ -144,7 +144,40 @@
 - 当前未发现该 warning 已经破坏 Pad Web 的 HTML/Web 调试主链；因此在 `v0.4.0` 阶段继续按“已知非阻塞风险”处理即可，不建议为此提前做高风险依赖替换。
 - `apps/api-server/.gopath/` 的历史跟踪缓存已在本次 release sync 中作为一次性仓库清洁项处理，并由 `scripts/check_release_scope.sh` 持续约束，避免后续再次把环境缓存带入 GitHub。
 
-## 5. 审计结论
+## 5. 当前阻塞 / 未完成项台账（`2026-03-23`）
+
+- `P0-文档口径统一（Dispatch/UAT/Release Sync/Readiness）`
+  - 状态：`done`
+  - Owner：`SC-05-INTEGRATION`
+  - 证据：`bash scripts/check_release_scope.sh`（2026-03-23，PASS）
+  - 下一步：随 `v0.4.1` 迭代继续维持同一口径。
+
+- `P0-热任务推荐契约与排序（API）`
+  - 状态：`done`
+  - Owner：`SC-01-GO-API`
+  - 证据：
+    - `cd apps/api-server && go test ./routes -run 'TestDailyAssignment_LaunchRecommendationContract|TestDailyAssignment_LaunchRecommendation_OmittedWhenNoTasks|TestHotTaskFlagsOff_PayloadUnchanged' -count=1`（PASS）
+    - `cd apps/api-server && go test ./... -count=1`（PASS）
+  - 下一步：在后续新增推荐策略字段时继续遵循 additive contract。
+
+- `P0-先做推荐（Pad）+ 回退行为`
+  - 状态：`done`
+  - Owner：`SC-03-FLUTTER-PAD`
+  - 证据：
+    - `cd apps/pad-app && flutter test --no-pub test/task_board/launch_recommendation_test.dart`（PASS）
+    - `cd apps/pad-app && flutter analyze`（PASS）
+    - `cd apps/pad-app && flutter test --no-pub test/widget_test.dart -r compact`（PASS）
+  - 下一步：后续 UI 迭代保持 flag-off 不展示“先做推荐”。
+
+- `P1-家长端基线稳定性回归`
+  - 状态：`done`
+  - Owner：`SC-04-PARENT-WEB`
+  - 证据：
+    - `cd apps/parent-web && npm test -- --run src/App.test.jsx`（PASS）
+    - `cd apps/parent-web && npm run build`（PASS）
+  - 下一步：随着 `v0.4.1` 功能变更持续补最小回归断言。
+
+## 6. 审计结论
 
 ### 功能交付结论
 

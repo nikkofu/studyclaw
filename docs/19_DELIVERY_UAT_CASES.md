@@ -1,11 +1,11 @@
-# StudyClaw v0.3.5 交付验收用例
+# StudyClaw v0.4.0 交付验收用例
 
 本文档把当前阶段的交付验收步骤固定下来，作为 API、Parent Web、Pad 三端一起跑的正式基线。
 
 ## 1. 验收基线
 
 - 验收日期：`2026-03-14`
-- 版本：`v0.3.5`
+- 版本：`v0.4.0`
 - 固定数据：
   - `family_id=306`
   - `user_id / child_id=1`
@@ -119,5 +119,5 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 55771 \
 2. `git status --short` 中只剩计划提交的文件。
 3. 不把 `.gopath/`、`build/`、`dist/`、`.dart_tool/`、运行时密钥文件带进 commit。
 4. 根 README、运行手册、用户手册、release checklist、delivery readiness、UAT cases 已同步。
-5. 版本声明已经对齐到 `v0.3.5`。
+5. 版本声明已经对齐到 `v0.4.0`。
 6. 自动化验证和三端联调结果已附在 release commit 或 PR 描述中。

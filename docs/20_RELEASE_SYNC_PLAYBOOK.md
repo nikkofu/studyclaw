@@ -95,19 +95,19 @@ bash scripts/demo_local_stack.sh
 示例：
 
 ```bash
-git commit -m "release: prepare v0.3.5"
-git tag v0.3.5
+git commit -m "release: prepare v0.4.0"
+git tag v0.4.0
 git push origin main
-git push origin v0.3.5
+git push origin v0.4.0
 ```
 
-## 4. 本轮实际阻塞项
+## 4. 本轮历史阻塞项（`v0.3.5` 收口记录）
 
-截至 `2026-03-14`，本轮 release 仍应坚持 scoped staging：
+截至 `2026-03-14`，以下条目用于记录 `v0.3.5` release 收口阶段的 scoped staging 约束：
 
 - 只提交本次 Pad 词单缺失等待态、成长鼓励语音播报、平板 TTS 补齐和文档同步相关改动
 - 仍然禁止把缓存、构建产物和运行时密钥带入 commit
-- 如果工作树里混入并行试验改动，必须先明确是否属于 `v0.3.5`
+- 如果工作树里混入并行试验改动，必须先明确是否属于当时的 `v0.3.5` 发布范围
 
 ## 5. 通过标准
 
