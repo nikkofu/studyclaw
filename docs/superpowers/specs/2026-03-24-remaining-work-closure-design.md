@@ -6,10 +6,12 @@
 2) 文档层未完成项；
 并要求“直接连续执行”，且把“全部完成后再跑一轮全量验证，全部通过后进入最终提交/推送”作为硬门槛。
 
-当前仓库观察到：
-- `git status --short` 仅有 `?? docs/superpowers/`（目录未纳入当前主分支跟踪）。
-- 业务代码层面关键改动（热任务推荐链路）已在 main 上通过并完成 push。
+当前仓库在起草时观察到：
+- `git status --short` 出现 `docs/superpowers/` 未跟踪项。
+- 业务代码层面关键改动（热任务推荐链路）已在 main 合入并完成 push。
 - 文档层面存在“当前状态 vs 历史状态”表达混杂，需要治理成“主线当前口径 + 历史归档口径”双轨清晰。
+
+执行时以最新 `git status --short`、`git log --oneline` 与远端同步结果为准。
 
 ## Goal
 在不引入额外功能范围的前提下，清空当前“代码+文档”未完成项，并以一次全量验证通过作为唯一出闸条件，最终完成提交与推送。
@@ -49,6 +51,13 @@
   3. 全量验证
 - 任一步失败即停留当前步修复，禁止跳步。
 
+### Preconditions
+在执行 Full Verification Gate 前必须满足：
+- API 服务可在 `127.0.0.1:38080` 正常响应。
+- Parent Web 在 `127.0.0.1:5173` 可访问（用于 demo gate）。
+- 运行环境已通过 `bash scripts/preflight_local_env.sh`。
+- 除计划允许项外，不存在额外噪音改动。
+
 ### 3) Full Verification Gate (Hard)
 仅当以下全部通过，才允许提交推送：
 - `cd apps/api-server && go test ./... -count=1`
@@ -63,7 +72,7 @@
 ### 4) Commit/Push Policy
 - 仅提交本轮待办涉及文件，不扩大范围。
 - Commit message 以“为什么”优先，保持仓库现有风格。
-- push 到当前目标分支（本轮为 `main`）。
+- push 到当前工作分支，并按仓库策略选择 PR 合并或直推（由当次任务指令决定）。
 
 ## Error Handling
 - 测试失败：先修复失败根因，再重跑该层验证；不允许跳过。
@@ -71,10 +80,10 @@
 - 文档口径冲突：以 `ROADMAP + DISPATCH` 的当前态为锚，历史内容明确标注“历史收口快照”。
 
 ## Acceptance Criteria
-1. `git status --short` 仅保留明确允许的未跟踪项（或清空）。
-2. P0/P1 清单全部完成，无悬空状态。
-3. 全量验证命令全部通过。
-4. 产生可审计的提交与推送记录。
+1. `git status --short` 仅保留允许的未跟踪项（默认 `none`；如存在必须在执行记录中显式列出路径）。
+2. P0/P1 清单全部完成，无悬空状态，并附每项证据命令结果。
+3. Full Verification Gate 命令全部通过。
+4. 产出可审计记录：commit SHA、push 目标分支/远端、验证摘要。
 
 ## Execution Order (Concrete)
 1. 盘点当前真实未完成项并冻结清单。
