@@ -59,7 +59,7 @@ Expected: shows pending/untracked items to be resolved in this plan.
 Checklist format:
 - item path
 - class (`code` / `docs` / `untracked-dir`)
-- target action (`keep+commit`, `ignore`, `remove`, `leave-empty`)
+- target action (`stage+commit`, `remove`, `explicitly-allow-untracked-with-rationale`)
 
 - [ ] **Step 3: Verify no extra hidden pending items outside checklist**
 
@@ -77,10 +77,13 @@ No commit in this task.
 ### Task 2: Resolve code-layer unfinished items only if they truly exist (P0)
 
 **Files:**
+- Modify (if present in status): `apps/api-server/internal/modules/taskboard/application/phase_one.go`
+- Modify (if present in status): `apps/api-server/internal/modules/taskboard/domain/task.go`
 - Modify (if present in status): `apps/pad-app/lib/task_board/controller.dart`
+- Modify (if present in status): `apps/pad-app/lib/task_board/models.dart`
 - Modify (if present in status): `apps/pad-app/lib/task_board/page.dart`
-- Test: `apps/pad-app/test/task_board/launch_recommendation_test.dart`
-- Test: `apps/pad-app/test/widget_test.dart`
+- Test (if relevant): `apps/pad-app/test/task_board/launch_recommendation_test.dart`
+- Test (if relevant): `apps/pad-app/test/widget_test.dart`
 
 - [ ] **Step 1: Write/adjust failing tests that describe intended existing behavior**
 
@@ -130,7 +133,7 @@ Rule:
 - Modify (if needed): `docs/19_DELIVERY_UAT_CASES.md`
 - Modify (if needed): `docs/20_RELEASE_SYNC_PLAYBOOK.md`
 
-- [ ] **Step 1: Write failing consistency checks**
+- [ ] **Step 1: Run consistency scan**
 
 Run:
 - `grep -n "当前正式基线\|当前目标版本\|v0\.4\.0\|v0\.4\.1" docs/14_NEXT_PHASE_DISPATCH.md docs/17_DELIVERY_READINESS.md docs/19_DELIVERY_UAT_CASES.md docs/20_RELEASE_SYNC_PLAYBOOK.md`
